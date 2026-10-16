@@ -146,6 +146,14 @@ const CERTS = [
   ['2017', 'acCEPT proficiency (English, C1) - Anglia'],
 ];
 
+const SKILLS = {
+  'Project management': ['Project & client management','Stakeholder management','Product development','Agile','Design Thinking'],
+  'Infrastructure':     ['Linux','Proxmox','Docker / Compose','Traefik','Networking','ACME / Let\'s Encrypt','Proxmox Backup Server'],
+  'Observability':      ['Prometheus','Grafana','Loki','Grafana Alloy','Zabbix'],
+  'Development':        ['Python','C','CircuitPython','Backend & APIs','Pub/Sub messaging','Stripe','Django'],
+  'Business systems':   ['Vtiger CRM','AFAS','Lightspeed'],
+  'Data & AI':          ['Machine learning','Sensor data analysis'],
+};
 
 // at -> links a post to an experience/education entry
 const POSTS = [
@@ -302,7 +310,7 @@ POSTS.forEach((p, i) => { p.n = i + 1; p.file = slugify(p.title) + '.md'; });
 const h2 = t => span('w b', '## ' + esc(t));
 const bullet = b => `  ${span('a','•')} ${esc(b)}`;
 const tags = list => list.map(t => `<span class="tag">${esc(t)}</span>`).join('');
-const cvLines = () => [`The full CV lives at ${link(SITE + '/CV/')}`, `${span('m','Or explore here:')} ${cmd('experience')} ${cmd('education')} ${cmd('certs')} `];
+const cvLines = () => [`The full CV lives at ${link(SITE + '/CV/')}`, `${span('m','Or explore here:')} ${cmd('experience')} ${cmd('education')} ${cmd('certs')} ${cmd('skills')}`];
 
 function relatedLines(at) {
   const rel = at ? POSTS.filter(p => p.at === at) : [];
@@ -360,6 +368,7 @@ function buildFS() {
   return dir({
     'about.txt':   file(() => ABOUT.map(esc)),
     'contact.txt': file(() => contactLines()),
+    'skills.txt':  file(() => skillLines()),
     'cv.txt':      file(cvLines),
     'experience':  dir(exp),
     'education':   dir(edu),
@@ -404,6 +413,14 @@ function contactLines() {
     `<div class="tbl"><span>GitHub</span><span>${link(PROFILE.github)}</span><span>LinkedIn</span><span>${link(PROFILE.linkedin)}</span><span>Website</span><span>${link(SITE)}</span><span>RSS</span><span>${link(PROFILE.rss)}</span>${PROFILE.email ? `<span>Email</span><span>${link('mailto:' + PROFILE.email, PROFILE.email)}</span>` : ''}</div>`,
   ];
   l.push('', span('m', 'Shortcuts: ') + `${cmd('github')} ${cmd('linkedin')} ${cmd('gui')}${PROFILE.email ? ' ' + cmd('mail') : ''}`);
+  return l;
+}
+function skillLines() {
+  const l = [];
+  for (const [g, items] of Object.entries(SKILLS)) {
+    l.push(span('a b', g));
+    l.push(items.map(i => `<span class="tag">${esc(i)}</span>`).join(''));
+  }
   return l;
 }
 const pad = (s, n) => s + ' '.repeat(Math.max(0, n - s.length));
@@ -568,6 +585,7 @@ def(['education', 'edu', 'school'], 'me', 'education', () => {
 def(['certs', 'courses'], 'me', 'courses & certificates', () =>
   CERTS.forEach(([y, t]) => print(`${span('m', y)}  ${esc(t)}`)));
 
+def('skills', 'me', 'skills & tools', () => printLines(skillLines()));
 
 const listPosts = type => {
   const list = POSTS.filter(p => p.type === type);
@@ -702,6 +720,34 @@ def('linkedin', null, '', () => C.open.run(['linkedin']));
 def('mail', null, '', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 
 
+def('man', 'system', 'manual for a command', args => {
+  const t = (args[0] || '').toLowerCase();
+  if (!t) return print('What manual page do you want?' + span('m', ' (e.g. ') + cmd('man ls') + span('m', ')'));
+  if (t === 'ian') {
+   
+    return printLines([
+      span('m', 'IAN(1)                        User Commands                        IAN(1)'), '',
+      h2('NAME'), '       ian - project engineer, developer and professional tinkerer', '',
+      h2('SYNOPSIS'), '       ian [--coffee] [--project <name>] [--deadline <date>]', '',
+      h2('DESCRIPTION'),
+      '       Works somewhere between IT, software development and project',
+      '       management. Likes turning vague requirements into working systems.', '',
+      h2('OPTIONS'),
+      `       ${span('a2', '--coffee')}     Required before 09:00. Strongly recommended after.`,
+      `       ${span('a2', '--project')}    Accepts any project. Big ones preferred.`,
+      `       ${span('a2', '--deadline')}   Respected. Usually met.`, '',
+      h2('BUGS'),
+      '       Will happily spend a weekend automating a five-minute task.',
+      '       Blames DNS first. Is usually right.', '',
+      h2('SEE ALSO'), `       ${cmd('about', 'about(1)')}, ${cmd('experience', 'experience(1)')}, ${cmd('contact', 'contact(1)')}`, '',
+      span('m', 'IanOS 2026                       October 2026                       IAN(1)'),
+    ]);
+  }
+  const c = C[t];
+  if (!c || !c.group) return print(`No manual entry for ${esc(t)}`);
+  printLines([h2('NAME'), `       ${esc(c.name)} - ${esc(c.desc)}`, h2('SYNOPSIS'), `       ${esc(c.name)}${c.usage ? ' ' + esc(c.usage) : ''}`,
+    ...(c.aliases.length ? [h2('ALIASES'), '       ' + esc(c.aliases.join(', '))] : [])]);
+}, { usage: '<command>' });
 
 // ---- visuals ----
 function figlet(text) {
@@ -899,7 +945,7 @@ async function boot(reboot = false) {
   banner();
   print('');
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
-  print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('contact')}  ${cmd('ls')}`);
+  print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('skills')}  ${cmd('contact')}  ${cmd('ls')}`);
   print('');
   store.set('visited', true);
   busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
