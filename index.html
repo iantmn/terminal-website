@@ -19,6 +19,11 @@
     --bg:#1b1b1e; --fg:#d4d4d8; --muted:#71717a; --accent:#50fa7b; --accent2:#8be9fd;
     --warn:#f1fa8c; --err:#ff5555; --link:#bd93f9; --sel:#3f3f46; --glow:transparent;
   }
+  body[data-theme="matrix"]   { --bg:#000a00; --fg:#33ff66; --muted:#1a8c3a; --accent:#7dff9b; --accent2:#33ff66; --warn:#c8ff66; --err:#ff4d4d; --link:#a6ffbf; --sel:#0d3d1a; --glow:rgba(51,255,102,.35); }
+  body[data-theme="amber"]    { --bg:#140c00; --fg:#ffb000; --muted:#9a6a00; --accent:#ffcc4d; --accent2:#ffd27a; --warn:#fff0b3; --err:#ff6a3d; --link:#ffe08a; --sel:#3d2800; --glow:rgba(255,176,0,.35); }
+  body[data-theme="dracula"]  { --bg:#282a36; --fg:#f8f8f2; --muted:#6272a4; --accent:#50fa7b; --accent2:#8be9fd; --warn:#f1fa8c; --err:#ff5555; --link:#ff79c6; --sel:#44475a; --glow:transparent; }
+  body[data-theme="solarized"]{ --bg:#002b36; --fg:#93a1a1; --muted:#586e75; --accent:#859900; --accent2:#2aa198; --warn:#b58900; --err:#dc322f; --link:#268bd2; --sel:#073642; --glow:transparent; }
+  body[data-theme="light"]    { --bg:#fafaf9; --fg:#27272a; --muted:#8a8a93; --accent:#15803d; --accent2:#0e7490; --warn:#a16207; --err:#b91c1c; --link:#7c3aed; --sel:#e4e4e7; --glow:transparent; }
 
   * { box-sizing:border-box; }
   html, body { margin:0; height:100%; }
@@ -53,6 +58,12 @@
   .tbl > span:nth-child(odd) { color:var(--accent2); white-space:nowrap; }
   .tag { display:inline-block; padding:0 .6ch; margin:0 .6ch .3em 0; border:1px solid var(--sel); border-radius:3px; }
   .opt.sel { background:var(--accent); color:var(--bg); text-shadow:none; border-radius:2px; }
+  body.crt #term::after {
+    content:""; position:fixed; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
+    box-shadow:inset 0 0 120px rgba(0,0,0,.55);
+  }
+  body.crt #term { text-shadow:0 0 5px var(--accent), 0 0 1px var(--fg); }
   #matrix { position:fixed; inset:0; z-index:10; display:none; background:#000; }
   @media (max-width:600px) { body { font-size:13px; } #term { padding:12px 12px 40px; } }
   @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
@@ -576,6 +587,19 @@ def('history', 'system', 'command history', () => hist.forEach((h, i) => print(`
 def('echo', 'system', 'print text', (args, raw) => print(esc(raw.replace(/^\s*echo\s?/, '').replace(/^(["'])(.*)\1$/, '$2'))));
 def('date', 'system', 'current date & time', () => print(new Date().toString()));
 def('banner', 'system', 'show the banner', () => banner());
+def('theme', 'system', 'change colour theme', args => {
+  const themes = ['default', 'matrix', 'amber', 'dracula', 'solarized', 'light'];
+  if (!args[0] || !themes.includes(args[0])) {
+    print(span('m', 'usage: theme <name>   current: ') + span('a', document.body.dataset.theme));
+    return print(themes.map(t => cmd('theme ' + t, t)).join('  '));
+  }
+  document.body.dataset.theme = args[0]; store.set('theme', args[0]);
+  print(span('a', `theme set to ${args[0]}`));
+}, { usage: '<name>' });
+def('crt', 'system', 'toggle retro CRT effect', () => {
+  const on = document.body.classList.toggle('crt'); store.set('crt', on);
+  print(span('a', `CRT mode ${on ? 'on' : 'off'}`));
+});
 def(['gui', 'home', 'website'], 'system', 'go to the regular website', () => {
   print(span('m', 'switching to graphical mode... ') + link(SITE));
   setTimeout(() => { location.href = SITE; }, 700);
@@ -759,6 +783,8 @@ async function boot(reboot = false) {
   busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
 }
 
+document.body.dataset.theme = store.get('theme', 'default');
+if (store.get('crt', false)) document.body.classList.add('crt');
 boot().then(() => {
   refreshFeed();
   const h = decodeURIComponent(location.hash.slice(1));
