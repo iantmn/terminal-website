@@ -409,7 +409,12 @@ const SYSFILES = {
     'dns:x:53:53:It was DNS:/nonexistent:/usr/sbin/nologin',
     'vim:x:666:666:Cannot exit:/dev/null:/usr/bin/vim',
   ].map(esc); },
-  '/etc/shadow': () => [span('e', 'cat: /etc/shadow: Permission denied') + span('m', ' - some doors stay closed. Try /etc/passwd, it\'s friendlier.')],
+  '/etc/shadow': () => asRoot ? [
+    'root:*:20377:0:99999:7:::',
+    'ian:$6$c0ffee$hunter2isnotmypasswordbutnicetry:20377:0:99999:7:::',
+    'guest:!:20377:0:99999:7:::',
+    span('m', '# Hashes are as real as this filesystem. Nice manners though.'),
+  ].map(l => l.startsWith('<') ? l : esc(l)) : [span('e', 'cat: /etc/shadow: Permission denied') + span('m', ' - some doors stay closed. Try /etc/passwd, it\'s friendlier.')],
   '/etc/hostname': () => ['iantiemann'],
   '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.'],
 };
@@ -543,6 +548,7 @@ async function fetchWhoami() {
 }
 
 def('whoami', 'me', 'what I can see about you', async args => {
+  if (asRoot) return print('root' + span('m', ' (just for this command)'));
  
   const all = args.includes('-a') || args.includes('--all');
   const ua = parseUA(), conn = navigator.connection;
@@ -757,10 +763,19 @@ def('linkedin', null, '', () => C.open.run(['linkedin']));
 def('mail', null, '', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 
 // hidden fun
+// root for one command (please sudo ...)
+let asRoot = false;
+async function runAsRoot(line) {
+  asRoot = true;
+  try { await execLine(line); } finally { asRoot = false; }
+}
 
 def('sudo', null, '', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
+  if (asRoot) return print(span('m', "You're already root. Don't let the power go to your head."));
+  if (/^(hire|talk)/.test(rest)) return C.talk.run([]);
   if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
+  if (/^make\s+me\s+a\s+sandwich/i.test(rest)) return runAsRoot(rest); // xkcd 149
  
   print(`[sudo] password for guest: `);
   print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));
@@ -862,6 +877,51 @@ def('git', null, '', args => {
   if (args[0] === 'blame') { return print(span('m', 'It was DNS.')); }
   print(span('m', 'try ') + cmd('git log') + span('m', ' or ') + cmd('git blame'));
 });
+def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, '', async (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0];
+  const [sub, ...pkgs] = args;
+  if (tool === 'brew') return print(asRoot ? span('e', 'Error: Running Homebrew as root is extremely dangerous and no longer supported.')
+    : span('e', 'zsh: command not found: brew') + span('m', ' - this is a Linux box.'));
+  if (!asRoot) {
+    if (/^apt/.test(tool)) return printLines([
+      span('e', 'E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)'),
+      span('e', 'E: Unable to acquire the dpkg frontend lock, are you root?'),
+    ]);
+    return print(span('e', `${esc(tool)}: permission denied - are you root?`));
+  }
+  if (!/^apt/.test(tool)) {
+    if (!pkgs.length) return print(span('m', `usage: ${esc(tool)} install <package>`));
+    print(`Installing ${esc(pkgs.join(' '))}...`); await sleep(700);
+    return print(span('a', 'done.') + span('m', ' (not really, the filesystem is read-only)'));
+  }
+  if (!sub) return printLines(['apt 2.9.8 (amd64)', 'Usage: apt [options] command', '', 'Most used commands:', '  update   - refresh the package list', '  upgrade  - upgrade the system', '  install  - install packages'].map(esc));
+  if (sub === 'update') {
+    for (const l of ['Hit:1 https://deb.iantiemann.nl stable InRelease', 'Get:2 https://deb.iantiemann.nl stable/coffee amd64 Packages [42 kB]', 'Fetched 42 kB in 0s (∞ kB/s)', 'Reading package lists... Done']) { print(esc(l)); await sleep(350); }
+    return print(span('a', 'All packages are up to date.'));
+  }
+  if (sub === 'upgrade' || sub === 'full-upgrade') {
+    print('Calculating upgrade... Done'); await sleep(500);
+    return print('0 upgraded, 0 newly installed, 0 to remove.' + span('m', ' Ian is already running the latest version.'));
+  }
+  if (sub === 'install') {
+    const pkg = (pkgs[0] || '').toLowerCase();
+    if (!pkg) return print(span('e', 'E: No packages specified'));
+    if (pkg === 'ian') return print(span('e', "E: Package 'ian' has no installation candidate") + span('m', '. You can still ') + cmd('talk') + span('m', ' to him though.'));
+    if (pkg === 'vim') return print(`vim is already the newest version.` + span('m', ' And now it will never leave either.'));
+    print('Reading package lists... Done'); await sleep(300);
+    print('Building dependency tree... Done'); await sleep(300);
+    print(`The following NEW packages will be installed:\n  ${esc(pkg)}`);
+    const d = print('');
+    for (let i = 1; i <= 20; i++) { d.textContent = `Unpacking ${pkg} (1.0-ian) [${'#'.repeat(i)}${'.'.repeat(20 - i)}] ${i * 5}%`; await sleep(40); }
+    print(`Setting up ${esc(pkg)} (1.0-ian) ...`); await sleep(300);
+   
+    if (pkg === 'coffee') return C.coffee.run([]);
+    if (pkg === 'sl') { print(span('m', 'running post-install script')); return C.sl.run([]); }
+    if (pkg === 'cowsay' || pkg === 'fortune') return C[pkg].run([]);
+    return print(span('m', "and it's gone again, everything resets on reload."));
+  }
+  print(span('e', `E: Invalid operation ${esc(sub)}`));
+});
 def('hack', null, '', async () => {
   const steps = ['Bypassing firewall', 'Decrypting mainframe', 'Downloading CV.exe', 'Injecting caffeine', 'Escalating privileges'];
   for (const s of steps) {
@@ -880,9 +940,37 @@ def(['stroopwafel', 'fiets', 'bike', 'kaas', 'gezellig'], null, '', () => {
 });
 def('42', null, '', () => { print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
 def(['hello', 'hi', 'hey', 'hallo', 'hoi'], null, '', () => print(`Hoi! Type ${cmd('help')} to look around.`));
+def('make', null, '', args => {
+  if (!args.join(' ').includes('sandwich')) return print(span('e', 'make: *** No targets specified and no makefile found. Stop.'));
+  if (!asRoot) return print(span('e', 'What? Make it yourself.'));
+ 
+  printLines([
+    'Okay.', '',
+    span('w', '      _.-------._'),
+    span('w', '    .\'  ~ ~ ~ ~  \'.'),
+    span('a', '   (~~~~~~~~~~~~~~~)') + span('m', '  lettuce'),
+    span('e', '    \\_____________/ ') + span('m', '  tomato'),
+    span('w', '    (_______________)') + span('m', ' cheese (Gouda, obviously)'),
+    span('w', '     \'-------------\''), '',
+    span('m', 'compiled with 0 warnings, 0 errors.'),
+  ]);
+});
 def('ssh', null, '', args => print(span('e', `ssh: connect to host ${esc(args[0] || 'homelab')} port 22: Connection refused`) + span('m', ' - my homelab is not that open')));
 def(['reboot', 'shutdown', 'poweroff'], null, '', async () => { print(span('w', 'System is going down for reboot NOW!')); await sleep(800); boot(true); });
 def('uptime', null, '', () => print(`up ${uptime()}, 1 user, load average: 0.42, 0.13, 0.37`));
+def('please', null, '', async (args, raw) => {
+  if (!args.length) return print(span('m', 'please what?'));
+ 
+  if (args[0] === 'sudo') {
+    print(span('a', '[sudo] since you asked nicely... ok.'));
+    const rest = raw.replace(/^\s*please\s+sudo\s*/, '');
+    if (!rest) return;
+    if (/^rm\b/.test(rest)) return print(span('m', 'nope, not even with manners.'));
+    return runAsRoot(rest);
+  }
+  print(span('m', 'since you asked nicely:'));
+  return execLine(raw.replace(/^\s*please\s*/, ''));
+});
 def('man', 'system', 'manual for a command', args => {
   const t = (args[0] || '').toLowerCase();
   if (!t) return print('What manual page do you want?' + span('m', ' (e.g. ') + cmd('man ls') + span('m', ')'));
@@ -1049,6 +1137,12 @@ function lev(a, b) {
   return d[a.length][b.length];
 }
 
+async function execLine(line) {
+  const [name, ...args] = tokenize(line);
+  const c = name && C[name.toLowerCase()];
+  if (!c) return print(span('e', `command not found: ${esc(name || '')}`));
+  return c.run(args, line);
+}
 
 async function run(raw, { echo = true } = {}) {
   raw = raw.trim();
