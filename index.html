@@ -81,9 +81,56 @@ const PROFILE = {
   email: '',
 };
 
+const ABOUT = [
+  "Hi, I'm Ian Tiemann, a project manager from the Netherlands with a background in",
+  "Industrial Design Engineering (TU Delft) and Computer Science (Avans, Breda).",
+  "",
+  "I'm passionate about IT that drives innovation and solves real-world problems.",
+  "I have experience in software development, IT support and project management,",
+  "and I like working where the technical side and the strategic side meet.",
+  "Main interests: project management, backend development, networking and big",
+  "projects. Machine learning and AI too.",
+  "",
+  "I'm a big fan of Design Thinking. A good project manager should be able to talk",
+  "to stakeholders and also understand the technical side of a project.",
+  "",
+  "Goal: grow into an R&D Manager or IT Manager role.",
+];
 
+const EXPERIENCE = [
+  { slug:'netw-project-engineer', role:'Project engineer', org:'NetW', place:'Stellendam', period:'2025 - now',
+    blurb:'IT company managing complex IT infrastructures for medium-sized businesses.',
+    text:'Overseeing IT projects from inception to completion. Main focus: product development of the CloudModule - a networking appliance that provides secure connectivity and cloud services for businesses. Also responsible for internal IT infrastructure and day-to-day operations.',
+    bullets:['Project and client management','Stakeholder management','Product development','Managing networks, servers and IT infrastructure','Customer support'] },
+  { slug:'notive-software-engineer', at:'notive', role:'Software engineer', org:'Notive', place:'Zwijndrecht', period:'2024 - 2025',
+    blurb:'Tailor-made software for FinTech, Smart Manufacturing and more.',
+    text:'Backend development for clients in FinTech, warehousing and industry.',
+    bullets:['Backend solutions for various clients','Modern languages and techniques','Technical support and troubleshooting'] },
+  { slug:'netw-it-specialist', at:'netw', role:'IT specialist, software engineer & project manager', org:'NetW', place:'Stellendam', period:'2016 - 2024',
+    blurb:'Eight years, several roles.',
+    text:'Grew from IT support engineer to managing projects and clients independently. Built tools that connect systems and automate work, like a digital signage system and a CRM lookup tool for support engineers.',
+    bullets:['In-house and client software','Networks, servers and IT infrastructure','Customer support','Project, client and stakeholder management','Product development'] },
+  { slug:'tudelft-student-assistant', role:'Student assistant', org:'TU Delft', place:'Delft', period:'2021 - 2023',
+    blurb:'',
+    text:'Guided students through Python programming and microcontroller projects.',
+    bullets:['Python & microcontroller project support','CircuitPython coursework','Lectures & individual assessments'] },
+];
 
+const EDUCATION = [
+  { slug:'avans-computer-science', title:'HBO Computer Science (propaedeutic)', org:'Avans', place:'Breda', year:'2025',
+    bullets:['Specialization in software development','Backend, software architecture, agile, databases, cloud'] },
+  { slug:'tudelft-ide', at:'tudelft-ide', title:'BSc Industrial Design Engineering', org:'TU Delft', place:'Delft', year:'2025',
+    bullets:['Product design & engineering','Innovation and project management'] },
+  { slug:'tudelft-minor-ai', at:'tudelft-minor-ai', title:'Minor Engineering with Artificial Intelligence', org:'TU Delft (EEMCS)', place:'Delft', year:'2023',
+    bullets:['AI applications in engineering and technology'] },
+];
 
+const CERTS = [
+  ['2023', 'CS50: Introduction to Computer Science - Harvard University'],
+  ['2020', 'Technasium certificate - Stichting Technasium'],
+  ['2017', 'Problem-based learning tutor - Erasmus Risbo'],
+  ['2017', 'acCEPT proficiency (English, C1) - Anglia'],
+];
 
 
 
@@ -122,9 +169,27 @@ const renderPrompt = () => { ps.innerHTML = promptHTML(); };
 
 
 
+const h2 = t => span('w b', '## ' + esc(t));
+const bullet = b => `  ${span('a','•')} ${esc(b)}`;
+const tags = list => list.map(t => `<span class="tag">${esc(t)}</span>`).join('');
 
 
+const fmtExp = e => [
+  `${span('a b', '# ' + esc(e.role))}`,
+  `${span('h', esc(e.org))} ${span('m', '- ' + esc(e.place) + ' · ' + esc(e.period))}`,
+  e.blurb ? span('m', esc(e.blurb)) : null,
+  '',
+  esc(e.text),
+  '', h2('Responsibilities'),
+  ...e.bullets.map(bullet),
+].filter(x => x !== null);
 
+const fmtEdu = e => [
+  `${span('a b', '# ' + esc(e.title))}`,
+  `${span('h', esc(e.org))} ${span('m', '- ' + esc(e.place) + ' · ' + esc(e.year))}`,
+  '',
+  ...e.bullets.map(bullet),
+];
 
 
 
@@ -160,9 +225,26 @@ def(['help', 'h', '?'], 'system', 'show this help', () => {
 
 
 
+def(['about', 'ian', 'bio'], 'me', 'who is Ian?', () => printLines(ABOUT.map(esc)));
 
+def(['experience', 'exp', 'work', 'jobs'], 'me', 'work experience', args => {
+  const n = parseInt(args[0], 10);
+  if (n && EXPERIENCE[n - 1]) return printLines(fmtExp(EXPERIENCE[n - 1]));
+  EXPERIENCE.forEach((e, i) => {
+    print(`${span('m', pad(e.period, 12))} ${span('a b', esc(e.role))} ${span('m','@')} ${span('h', esc(e.org))}`);
+    print(`${' '.repeat(13)}${span('m', esc(e.text.length > 110 ? e.text.slice(0, 107) + '...' : e.text))} ${cmd('exp ' + (i + 1), '[more]')}`);
+  });
+});
 
+def(['education', 'edu', 'school'], 'me', 'education', () => {
+  EDUCATION.forEach(e => {
+    print(`${span('m', pad(e.year, 6))} ${span('a b', esc(e.title))}`);
+    print(`${' '.repeat(7)}${span('h', esc(e.org))} ${span('m', '· ' + esc(e.place))}`);
+  });
+});
 
+def(['certs', 'courses'], 'me', 'courses & certificates', () =>
+  CERTS.forEach(([y, t]) => print(`${span('m', y)}  ${esc(t)}`)));
 
 
 
@@ -310,6 +392,7 @@ async function boot(reboot = false) {
   banner();
   print('');
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
+  print(`Try: ${cmd('about')}  ${cmd('experience')}  `);
   print('');
   store.set('visited', true);
   busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
