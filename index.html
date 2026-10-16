@@ -1034,6 +1034,7 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, '', async (
     if (pkg === 'coffee') return C.coffee.run([]);
     if (pkg === 'sl') { print(span('m', 'running post-install script')); return C.sl.run([]); }
     if (pkg === 'cowsay' || pkg === 'fortune') return C[pkg].run([]);
+    if (/^python/.test(pkg)) return print(span('a', 'I gladly install python! It was my first real programming language and I learned it during my minor in AI.') + span('m', ' Want to know more? Try ') + cmd('education'));
     return print(span('m', "and it's gone again, everything resets on reload."));
   }
   print(span('e', `E: Invalid operation ${esc(sub)}`));
