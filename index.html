@@ -374,10 +374,45 @@ function buildFS() {
     'education':   dir(edu),
     'articles':    dir(arts),
     'projects':    dir(projs),
+    '.bash_history': file(() => { return [
+      span('m','# what has ian been up to here...'),
+      'docker ps', 'ping iantiemann.nl', 'vim notes.txt', span('m','# how do I exit this thing'),
+      'talk', 'fortune', 'cowsay moo', 'matrix', 'sl', 'coffee', 'weather',
+      'hack', 'stroopwafel', 'theme amber', 'crt', 'cat .secrets/flag.txt', 'achievements',
+    ]; }),
+    '.secrets': dir({
+      'flag.txt': file(() => { return [
+        span('w','🚩 FLAG{curiosity_is_a_feature_not_a_bug}'),
+        '',
+        "You found it. People who poke around like this are usually fun to talk to.",
+        `Let's talk: ${cmd('contact')}`,
+      ]; }),
+      'todo.txt': file(() => [
+        '[x] build terminal website',
+        '[x] hide flag in .secrets',
+        '[ ] finally label every cable in the rack',
+        '[ ] write the next homelab guide',
+        '[ ] learn to exit vim',
+      ]),
+    }),
   });
 }
 const FS = buildFS();
 
+// fake files outside ~
+const SYSFILES = {
+  '/etc/passwd': () => { return [
+    'root:x:0:0:root:/root:/usr/sbin/nologin   # nice try',
+    'ian:x:1000:1000:Ian Tiemann,,,:/home/ian:/usr/bin/coffee',
+    'guest:x:1001:1001:You, the curious visitor:/home/guest:/bin/ish',
+    'visitor:x:1337:1337:Always welcome:/home/visitor:/usr/bin/talk',
+    'dns:x:53:53:It was DNS:/nonexistent:/usr/sbin/nologin',
+    'vim:x:666:666:Cannot exit:/dev/null:/usr/bin/vim',
+  ].map(esc); },
+  '/etc/shadow': () => [span('e', 'cat: /etc/shadow: Permission denied') + span('m', ' - some doors stay closed. Try /etc/passwd, it\'s friendlier.')],
+  '/etc/hostname': () => ['iantiemann'],
+  '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.'],
+};
 
 function resolve(p) {
   let segs;
@@ -647,6 +682,7 @@ def('cd', 'nav', 'change directory', args => {
 def(['cat', 'less', 'more', 'bat'], 'nav', 'print a file', args => {
   if (!args.length) return print(span('e', 'usage: cat <file>'));
   for (const a of args) {
+    if (SYSFILES[a]) { printLines(SYSFILES[a]()); continue; }
     const r = resolve(a);
     if (r.error === 'root') { print(span('e', `cat: ${esc(a)}: Permission denied`)); continue; }
     if (r.error) { print(span('e', `cat: ${esc(a)}: No such file or directory`)); continue; }
