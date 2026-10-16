@@ -982,7 +982,7 @@ def('docker', null, '', args => {
   rows.forEach(r => print(pad(r[0], 14) + span('a2', esc(pad(r[1], 22))) + span('a', pad(r[2], 16)) + esc(r[3])));
   print(span('m', '\nWant to run these yourself? ') + cmd('articles', 'my guides'));
 });
-def(['kubectl', 'k8s', 'helm'], null, '', () => print(span('m', 'We are still learning Kubernetes. docker compose up -d for now.')));
+def(['kubectl', 'k8s', 'helm'], null, '', () => print(span('m', 'I am still learning Kubernetes. Docker compose up -d for now.')));
 def('git', null, '', args => {
   if (args[0] === 'log') return printLines([
     span('w', 'commit 2026a') + span('m', ' (HEAD -> main)'), '    Project engineer @ NetW, working on the CloudModule', '',
