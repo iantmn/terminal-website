@@ -476,6 +476,7 @@ def(['help', 'h', '?'], 'system', 'show this help', () => {
     print('');
   }
   print(span('m', 'Tips: ') + 'Tab autocompletes · ↑/↓ history · Ctrl+L clears · Ctrl+C cancels · links are clickable');
+  print(span('m', 'Not every command is listed here. Try ls -a ;)'));
 });
 
 const kv = rows => `<div class="tbl">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div>`;
@@ -719,7 +720,41 @@ def('github', null, '', () => C.open.run(['github']));
 def('linkedin', null, '', () => C.open.run(['linkedin']));
 def('mail', null, '', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 
+// hidden fun
 
+def('sudo', null, '', (args, raw) => {
+  const rest = raw.replace(/^\s*sudo\s*/, '');
+  if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
+ 
+  print(`[sudo] password for guest: `);
+  print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));
+  print(span('m', '(to nobody, relax)'));
+});
+def('rm', null, '', async args => {
+  if (!args.some(a => /^-\w*r/.test(a)) || !args.some(a => /^(\/|\*|~|\.)/.test(a))) return print(span('e', 'rm: refusing to remove that - this filesystem is read-only'));
+ 
+  const victims = ['/bin', '/etc', '/home/guest/experience', '/home/guest/articles', '/var/www/iantiemann.nl', '/boot', '/usr/lib/coffee'];
+  for (const v of victims) { print(span('e', `removed '${v}'`)); await sleep(180); }
+  await sleep(400);
+  print(span('w', 'Kernel panic - not syncing: Attempted to kill the portfolio'));
+  await sleep(900);
+  print(span('a', 'Relax, it was fake. Everything is still here (3-2-1 backups ftw).'));
+  print(span('m', 'Speaking of which: ') + cmd('read 1', 'read my backup guide'));
+});
+def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, '', async (a, raw) => {
+  const ed = raw.trim().split(/\s+/)[0];
+  if (ed === 'emacs') return print(span('m', 'emacs: a great operating system, lacking only a decent text editor. Try ') + span('a2','vim') + span('m','?'));
+  if (ed === 'nano') return print(span('m', 'nano: honest choice. But this terminal is read-only.'));
+ 
+  print(span('m', '~\n~\n~\n~                VIM - Vi IMproved\n~\n~        type :q to exit  (good luck)\n~'));
+  await sleep(1400);
+  print(span('w', 'E37: No write since last change (add ! to override)'));
+  await sleep(900);
+  print(span('m', 'Don\'t panic, I got you out. It took me years the first time.'));
+});
+def('matrix', null, '', () => { return matrix(); });
+def('sl', null, '', () => { return train(); });
+def('42', null, '', () => { print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
 def('man', 'system', 'manual for a command', args => {
   const t = (args[0] || '').toLowerCase();
   if (!t) return print('What manual page do you want?' + span('m', ' (e.g. ') + cmd('man ls') + span('m', ')'));
@@ -810,7 +845,54 @@ function neofetch() {
   info.forEach((l, i) => print(span('a', esc(logo[i] || '')) + '  ' + l));
 }
 
+function matrix() {
+  return new Promise(resolve => {
+    const cv = $('matrix'), ctx = cv.getContext('2d');
+    cv.width = innerWidth; cv.height = innerHeight; cv.style.display = 'block';
+    const fs = 16, cols = Math.ceil(cv.width / fs), drops = Array(cols).fill(0).map(() => Math.random() * -50);
+    const chars = 'アイウエオカキクケコサシスセソタチツテトIANTIEMANN0123456789<>/{}$#';
+    let raf, last = 0;
+    const FRAME_MS = 100;
+    const draw = ts => {
+      raf = requestAnimationFrame(draw);
+      if (ts - last < FRAME_MS) return;
+      last = ts;
+      ctx.fillStyle = 'rgba(0,0,0,.1)'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = '#33ff66'; ctx.font = fs + 'px monospace';
+      drops.forEach((y, i) => {
+        ctx.fillText(chars[Math.floor(Math.random() * chars.length)], i * fs, y * fs);
+        drops[i] = y * fs > cv.height && Math.random() > .975 ? 0 : y + 1;
+      });
+    };
+    raf = requestAnimationFrame(draw);
+    const stop = () => {
+      cancelAnimationFrame(raf); cv.style.display = 'none'; ctx.clearRect(0, 0, cv.width, cv.height);
+      removeEventListener('keydown', stop, true); cv.removeEventListener('click', stop);
+      print(span('a', 'Wake up, guest.')); resolve();
+    };
+    setTimeout(() => { addEventListener('keydown', stop, true); cv.addEventListener('click', stop); }, 300);
+    print(span('m', '(press any key or tap to exit)'));
+  });
+}
 
+async function train() {
+  const art = [
+    '      ____                                       ',
+    '   __|[_]|__ _____________ _____________ ________',
+    '  |   o     |  ~/about    ||  ~/articles || ~/cv  |',
+    '  |_________|_____________||_____________||_______|',
+    '   (O)-(O)    (O)    (O)    (O)    (O)    (O) (O)',
+  ];
+  const w = Math.max(...art.map(l => l.length));
+  const cols = Math.min(charsPerLine(), 160);
+  const d = print('');
+  for (let off = cols; off > -w; off -= 2) {
+    d.textContent = art.map(l => off >= 0 ? ' '.repeat(off) + l : l.slice(-off)).map(l => l.slice(0, cols)).join('\n');
+    await sleep(35);
+  }
+  d.remove();
+  print(span('m', 'choo choo (you meant ') + span('a2', 'ls') + span('m', ')'));
+}
 
 // ---- input ----
 let hist = store.get('hist', []), hIdx = hist.length, busy = false;
