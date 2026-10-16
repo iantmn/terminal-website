@@ -52,6 +52,7 @@
   .tbl { display:grid; grid-template-columns:max-content 1fr; column-gap:2ch; }
   .tbl > span:nth-child(odd) { color:var(--accent2); white-space:nowrap; }
   .tag { display:inline-block; padding:0 .6ch; margin:0 .6ch .3em 0; border:1px solid var(--sel); border-radius:3px; }
+  .opt.sel { background:var(--accent); color:var(--bg); text-shadow:none; border-radius:2px; }
   #matrix { position:fixed; inset:0; z-index:10; display:none; background:#000; }
   @media (max-width:600px) { body { font-size:13px; } #term { padding:12px 12px 40px; } }
   @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
@@ -168,6 +169,7 @@ const promptHTML = () => `${span('u','guest@iantiemann')}${span('m',':')}${span(
 const renderPrompt = () => { ps.innerHTML = promptHTML(); };
 
 
+// virtual filesystem
 
 const h2 = t => span('w b', '## ' + esc(t));
 const bullet = b => `  ${span('a','•')} ${esc(b)}`;
@@ -193,9 +195,50 @@ const fmtEdu = e => [
 ];
 
 
+function buildFS() {
+  const dir = o => ({ type:'dir', children:o });
+  const file = fn => ({ type:'file', read:fn });
+  const exp = {}, edu = {};
+  EXPERIENCE.forEach(e => exp[e.slug + '.md'] = file(() => fmtExp(e)));
+  EDUCATION.forEach(e => edu[e.slug + '.md'] = file(() => fmtEdu(e)));
+  return dir({
+    'about.txt':   file(() => ABOUT.map(esc)),
+    'contact.txt': file(() => contactLines()),
+    'cv.txt':      file(cvLines),
+    'experience':  dir(exp),
+    'education':   dir(edu),
+  });
+}
+const FS = buildFS();
 
 
+function resolve(p) {
+  let segs;
+  if (!p) p = '.';
+  if (p === '~') segs = [];
+  else if (p.startsWith('~/')) segs = p.slice(2).split('/');
+  else if (p.startsWith('/home/guest')) segs = p.slice(11).split('/');
+  else if (p.startsWith('/')) return { error: 'root' };
+  else segs = [...cwd, ...p.split('/')];
+  const stack = [];
+  for (const s of segs) {
+    if (!s || s === '.') continue;
+    if (s === '..') { stack.pop(); continue; }
+    stack.push(s);
+  }
+  let node = FS;
+  for (const s of stack) {
+    if (node.type !== 'dir' || !node.children[s]) return { error: 'missing', segs: stack };
+    node = node.children[s];
+  }
+  return { node, segs: stack };
+}
 
+function lsEntry(name, node, segs) {
+  const path = '~/' + [...segs, name].join('/');
+  if (node.type === 'dir') return `<a class="dir" data-cmd="cd ${esc(path)}">${esc(name)}/</a>`;
+  return `<a class="file" data-cmd="cat ${esc(path)}">${esc(name)}</a>`;
+}
 
 // content renderers
 function contactLines() {
@@ -226,7 +269,7 @@ def(['help', 'h', '?'], 'system', 'show this help', () => {
     list.forEach(c => print(`  ${cmd(c.name, pad(c.name + (c.usage ? ' ' + c.usage : ''), 18))} ${span('m', esc(c.desc))}`));
     print('');
   }
-  print(span('m', 'Tips: ') + '↑/↓ history · Ctrl+L clears · Ctrl+C cancels · links are clickable');
+  print(span('m', 'Tips: ') + 'Tab autocompletes · ↑/↓ history · Ctrl+L clears · Ctrl+C cancels · links are clickable');
 });
 
 
@@ -269,10 +312,58 @@ def(['talk', 'hire', 'chat'], null, '', () => {
   ]);
 });
 
+// navigation
+def(['ls', 'dir', 'll'], 'nav', 'list files', args => {
+  const all = args.some(a => /^-\w*a/.test(a)) || false;
+  const target = args.find(a => !a.startsWith('-'));
+  const r = resolve(target);
+  if (r.error === 'root') return print(span('e', `ls: cannot open directory '${esc(target)}': Permission denied`));
+  if (r.error) return print(span('e', `ls: cannot access '${esc(target)}': No such file or directory`));
+  if (r.node.type === 'file') return print(lsEntry(r.segs.at(-1), r.node, r.segs.slice(0, -1)));
+  const entries = Object.entries(r.node.children).filter(([n]) => all || !n.startsWith('.'))
+    .sort(([a, x], [b, y]) => (x.type === y.type ? a.localeCompare(b) : x.type === 'dir' ? -1 : 1));
+  if (all) print(`<a class="dir" data-cmd="cd .">./</a>  <a class="dir" data-cmd="cd ..">../</a>`);
+  print(entries.map(([n, node]) => lsEntry(n, node, r.segs)).join('  ') || span('m', '(empty)'));
+}, { usage: '[-a] [dir]' });
 
+def('cd', 'nav', 'change directory', args => {
+  const r = resolve(args[0] || '~');
+  if (r.error === 'root') return print(span('e', `cd: ${esc(args[0])}: Permission denied`));
+  if (r.error) return print(span('e', `cd: no such file or directory: ${esc(args[0])}`));
+  if (r.node.type !== 'dir') return print(span('e', `cd: not a directory: ${esc(args[0])}`));
+  cwd = r.segs; renderPrompt();
+}, { usage: '<dir>' });
 
+def(['cat', 'less', 'more', 'bat'], 'nav', 'print a file', args => {
+  if (!args.length) return print(span('e', 'usage: cat <file>'));
+  for (const a of args) {
+    const r = resolve(a);
+    if (r.error === 'root') { print(span('e', `cat: ${esc(a)}: Permission denied`)); continue; }
+    if (r.error) { print(span('e', `cat: ${esc(a)}: No such file or directory`)); continue; }
+    if (r.node.type === 'dir') { print(span('e', `cat: ${esc(a)}: Is a directory`)); continue; }
+    printLines(r.node.read());
+  }
+}, { usage: '<file>' });
 
+def('pwd', 'nav', 'print working directory', () => print('/home/guest' + (cwd.length ? '/' + cwd.join('/') : '')));
 
+def('tree', 'nav', 'show directory tree', args => {
+  const r = resolve(args.find(a => !a.startsWith('-')));
+  const all = args.includes('-a');
+  if (r.error || r.node.type !== 'dir') return print(span('e', 'tree: invalid directory'));
+  print(span('h b', r.segs.length ? r.segs.at(-1) : '~'));
+  let dirs = 0, files = 0;
+  const walk = (node, prefix, segs) => {
+    const ents = Object.entries(node.children).filter(([n]) => all || !n.startsWith('.'));
+    ents.forEach(([n, child], i) => {
+      const last = i === ents.length - 1;
+      print(span('m', prefix + (last ? '└── ' : '├── ')) + lsEntry(n, child, segs));
+      if (child.type === 'dir') { dirs++; walk(child, prefix + (last ? '    ' : '│   '), [...segs, n]); } else files++;
+    });
+  };
+  walk(r.node, '', r.segs);
+  print('', ''); print(span('m', `${dirs} directories, ${files} files`));
+}, { usage: '[-a] [dir]' });
 
 def(['open', 'xdg-open'], 'nav', 'open a link', args => {
   const a = (args[0] || '').toLowerCase();
@@ -378,11 +469,55 @@ async function run(raw, { echo = true } = {}) {
   finally { busy = false; inrow.style.visibility = ''; renderPrompt(); scrollDown(); focusInput(); }
 }
 
+// tab completion, pressing tab again cycles through the matches
+let cycle = null;
+function complete(back = false) {
+  if (cycle && kb.value === cycle.current) {
+    const n = cycle.opts.length;
+    cycle.idx = cycle.idx < 0 ? (back ? n - 1 : 0) : (cycle.idx + (back ? -1 : 1) + n) % n;
+    const o = cycle.opts[cycle.idx];
+    kb.value = cycle.current = cycle.head + o + (o.endsWith('/') ? '' : cycle.suffix);
+    cycle.items.forEach((el, i) => el.classList.toggle('sel', i === cycle.idx));
+    moveEnd();
+    return;
+  }
+  cycle = null;
+  const val = kb.value, parts = val.split(/\s+/);
+  if (parts.length === 1) {
+    const opts = Object.values(C).filter(c => c.group && !c.alias).map(c => c.name).filter(n => n.startsWith(parts[0]));
+    return applyCompletion(val, parts[0], opts, ' ');
+  }
+  const word = parts.at(-1);
+  const slash = word.lastIndexOf('/');
+  const dirPart = slash >= 0 ? word.slice(0, slash + 1) : '';
+  const base = word.slice(slash + 1);
+  const r = resolve(dirPart || '.');
+  if (r.error || r.node.type !== 'dir') return;
+  const opts = Object.entries(r.node.children)
+    .filter(([n]) => n.startsWith(base) && (base.startsWith('.') || !n.startsWith('.')))
+    .map(([n, node]) => dirPart + n + (node.type === 'dir' ? '/' : ''));
+  applyCompletion(val, word, opts, '');
+}
+function applyCompletion(val, word, opts, suffix) {
+  if (!opts.length) return;
+  opts = [...new Set(opts)].sort((a, b) => a.localeCompare(b));
+  const head = val.slice(0, val.length - word.length);
+  if (opts.length === 1) { kb.value = head + opts[0] + (opts[0].endsWith('/') ? '' : suffix); return; }
+  let pre = opts[0];
+  for (const o of opts) while (!o.startsWith(pre)) pre = pre.slice(0, -1);
+  if (pre.length > word.length) kb.value = head + pre;
+  print(promptHTML() + esc(kb.value));
+  const label = o => o.slice(o.lastIndexOf('/', o.length - 2) + 1);
+  const list = print(opts.map(o => `<span class="opt">${esc(label(o))}</span>`).join('  '));
+  cycle = { opts, head, suffix, idx: -1, current: kb.value, items: [...list.querySelectorAll('.opt')] };
+}
 
 kb.addEventListener('keydown', e => {
   if (e.key === 'Enter') { const v = kb.value; kb.value = ''; run(v); e.preventDefault(); }
   else if (e.key === 'ArrowUp') { if (hIdx > 0) { kb.value = hist[--hIdx]; } e.preventDefault(); moveEnd(); }
   else if (e.key === 'ArrowDown') { if (hIdx < hist.length - 1) kb.value = hist[++hIdx]; else { hIdx = hist.length; kb.value = ''; } e.preventDefault(); }
+  else if (e.key === 'Tab') { e.preventDefault(); complete(e.shiftKey); }
+  else if (cycle && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) cycle = null;
   else if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
   else if (e.ctrlKey && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print(promptHTML() + esc(kb.value) + span('e', '^C')); kb.value = ''; }
 });
@@ -422,7 +557,7 @@ async function boot(reboot = false) {
   banner();
   print('');
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
-  print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('contact')}  `);
+  print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('contact')}  ${cmd('ls')}`);
   print('');
   store.set('visited', true);
   busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
