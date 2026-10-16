@@ -97,48 +97,61 @@ const PROFILE = {
   email: '',
 };
 
-const ABOUT = [
-  "Hi, I'm Ian Tiemann, a project manager from the Netherlands with a background in",
-  "Industrial Design Engineering (TU Delft) and Computer Science (Avans, Breda).",
-  "",
-  "I'm passionate about IT that drives innovation and solves real-world problems.",
-  "I have experience in software development, IT support and project management,",
-  "and I like working where the technical side and the strategic side meet.",
-  "Main interests: project management, backend development, networking and big",
-  "projects. Machine learning and AI too.",
-  "",
-  "I'm a big fan of Design Thinking. A good project manager should be able to talk",
-  "to stakeholders and also understand the technical side of a project.",
-  "",
-  "Goal: grow into an R&D Manager or IT Manager role.",
-];
+const ABOUT = {
+  intro: "Hi, I'm Ian Tiemann, a project engineer from the Netherlands. I studied Industrial Design Engineering at TU Delft and Computer Science at Avans in Breda, and I've worked in IT since 2016.",
+  facts: [
+    ['Now', 'Project engineer @ NetW, leading development of the CloudModule'],
+    ['Background', 'Industrial Design Engineering (TU Delft) + Computer Science (Avans)'],
+    ['In IT since', '2016, from support engineer to projects, software and products'],
+    ['Interests', 'Project management, backend, networking, big projects, ML & AI'],
+    ['Based in', 'The Netherlands'],
+  ],
+  sections: [
+    ['What I do', [
+      "I work where the technical side and the strategic side of IT meet. On a given day that can mean planning a product roadmap, talking to clients and suppliers, writing backend code, or fixing a network.",
+      "I've managed projects like onboarding new companies, building new software tools and introducing new technologies, working with developers, designers, stakeholders and suppliers to deliver on time and within budget.",
+    ]],
+    ['How I work', [
+      "I'm a strong advocate of Design Thinking: solving problems by balancing human needs, what technology makes possible and what the business requires. My design degree taught me to research user needs, prototype and work in multidisciplinary teams, and I use that in every IT project.",
+      "I believe a strong project manager can communicate with stakeholders, manage resources and also understand the technical side of the project. My mix of design and IT lets me bridge that gap.",
+    ]],
+    ['Where I want to go', [
+      "Grow into an R&D Manager or IT Manager role: lead cross-functional teams, contribute to strategy and help companies improve by bringing in new technologies, methodologies and a culture of innovation and continuous improvement.",
+    ]],
+  ],
+};
 
 const EXPERIENCE = [
   { slug:'netw-project-engineer', role:'Project engineer', org:'NetW', place:'Stellendam', period:'2025 - now',
-    blurb:'IT company managing complex IT infrastructures for medium-sized businesses.',
-    text:'Overseeing IT projects from inception to completion. Main focus: product development of the CloudModule - a networking appliance that provides secure connectivity and cloud services for businesses. Also responsible for internal IT infrastructure and day-to-day operations.',
-    bullets:['Project and client management','Stakeholder management','Product development','Managing networks, servers and IT infrastructure','Customer support'] },
+    blurb:'IT company managing complex IT infrastructures for medium-sized businesses, with end-to-end IT solutions.',
+    text:'I oversee and manage IT projects from start to finish. My main focus is our own product development: the CloudModule, a networking appliance that gives businesses secure connectivity and cloud services. I also look after our internal IT infrastructure and day-to-day IT operations.',
+    bullets:['Leading product development of the CloudModule','Project and client management','Stakeholder management','Managing networks, servers and IT infrastructure','Customer support'],
+    stack:['Project management','Product development','Networking','Infrastructure'] },
   { slug:'notive-software-engineer', at:'notive', role:'Software engineer', org:'Notive', place:'Zwijndrecht', period:'2024 - 2025',
-    blurb:'Tailor-made software for FinTech, Smart Manufacturing and more.',
-    text:'Backend development for clients in FinTech, warehousing and industry.',
-    bullets:['Backend solutions for various clients','Modern languages and techniques','Technical support and troubleshooting'] },
+    blurb:'Tailor-made software for industries such as FinTech and Smart Manufacturing.',
+    text:'Software engineer focused on backend development, building software for clients in FinTech, warehousing, industry and more.',
+    bullets:['Developing backend solutions for various clients','Working with modern programming languages and techniques','Technical support and troubleshooting'] },
   { slug:'netw-it-specialist', at:'netw', role:'IT specialist, software engineer & project manager', org:'NetW', place:'Stellendam', period:'2016 - 2024',
     blurb:'Eight years, several roles.',
-    text:'Grew from IT support engineer to managing projects and clients independently. Built tools that connect systems and automate work, like a digital signage system and a CRM lookup tool for support engineers.',
-    bullets:['In-house and client software','Networks, servers and IT infrastructure','Customer support','Project, client and stakeholder management','Product development'] },
+    text:'I started as an IT support engineer and grew into managing projects and clients independently. From 2022 I also moved into software development, building tools that connect systems and automate work: a digital signage system for clients, and a tool that lets support engineers quickly look up customer information from the CRM. Throughout, I maintained networks, servers and workstations and helped customers where needed.',
+    bullets:['Developing and maintaining in-house and client software','Managing networks, servers and IT infrastructure','Customer support','Project, client and stakeholder management','Onboarding new companies and introducing new technologies','Product development'] },
   { slug:'tudelft-student-assistant', role:'Student assistant', org:'TU Delft', place:'Delft', period:'2021 - 2023',
     blurb:'',
-    text:'Guided students through Python programming and microcontroller projects.',
-    bullets:['Python & microcontroller project support','CircuitPython coursework','Lectures & individual assessments'] },
+    text:'Guided students through Python programming and microcontroller projects, and helped them with assignments and with applying what they learned in practice. I also gave lectures on programming in Python.',
+    bullets:['Python and microcontroller project support','CircuitPython coursework','Lectures and individual assessments'],
+    stack:['Python','CircuitPython','Teaching'] },
 ];
 
 const EDUCATION = [
   { slug:'avans-computer-science', title:'HBO Computer Science (propaedeutic)', org:'Avans', place:'Breda', year:'2025',
-    bullets:['Specialization in software development','Backend, software architecture, agile, databases, cloud'] },
+    text:'Computer Science with a specialization in software development, putting a software engineering foundation under my practical IT experience.',
+    bullets:['Specialization in software development','Backend development and software architecture','Agile methodologies','Databases and cloud computing'] },
   { slug:'tudelft-ide', at:'tudelft-ide', title:'BSc Industrial Design Engineering', org:'TU Delft', place:'Delft', year:'2025',
-    bullets:['Product design & engineering','Innovation and project management'] },
+    text:'Designing products and services that are desirable for users and practical for businesses. Not an IT degree, but it gave me skills I use every day in IT: problem-solving, creativity, communication and collaboration.',
+    bullets:['Specialization in product design & engineering, focus on innovation and project management','User research, improving existing products and prototyping','Multidisciplinary teamwork and stakeholder communication','Courses: Business Model Design, Leadership and Project Organisation, Entrepreneurial Innovation by Design','Projects with microcontrollers and software (Python, C, CircuitPython)'] },
   { slug:'tudelft-minor-ai', at:'tudelft-minor-ai', title:'Minor Engineering with Artificial Intelligence', org:'TU Delft (EEMCS)', place:'Delft', year:'2023',
-    bullets:['AI applications in engineering and technology'] },
+    text:'Machine learning and data science applied to engineering. A key project was a tool that analyses how end-users actually use design concepts, so designers can refine their ideas.',
+    bullets:['AI applications in engineering and technology','Machine learning and data science','Python as my first real programming language'] },
 ];
 
 const CERTS = [
@@ -148,14 +161,87 @@ const CERTS = [
   ['2017', 'acCEPT proficiency (English, C1) - Anglia'],
 ];
 
-const SKILLS = {
-  'Project management': ['Project & client management','Stakeholder management','Product development','Agile','Design Thinking'],
-  'Infrastructure':     ['Linux','Proxmox','Docker / Compose','Traefik','Networking','ACME / Let\'s Encrypt','Proxmox Backup Server'],
-  'Observability':      ['Prometheus','Grafana','Loki','Grafana Alloy','Zabbix'],
-  'Development':        ['Python','C','CircuitPython','Backend & APIs','Pub/Sub messaging','Stripe','Django'],
-  'Business systems':   ['Vtiger CRM','AFAS','Lightspeed'],
-  'Data & AI':          ['Machine learning','Sensor data analysis'],
-};
+const SKILLS = [
+  { icon:'👔', title:'Project Management', rows:[
+    ['Delivery', 'Agile and Scrum delivery, roadmapping, scope and milestone management, backlog prioritisation'],
+    ['Risk & governance', 'Risk assessment, mitigation planning, change control, issue escalation'],
+    ['Stakeholders', 'Client and stakeholder management, supplier and contractor coordination, partner/channel delivery models'],
+    ['Commercial', 'Cost-driven architecture, ROI analysis, process improvement'],
+    ['Tools', 'Jira, Confluence, HaloPSA, OpenProject'],
+  ] },
+  { icon:'🖥️', title:'IT Infrastructure & Networking', rows:[
+    ['Network architecture', 'Multi-site and multi-tenant network design, VLAN segmentation, tenant isolation, IP address planning at scale'],
+    ['Firewall & edge', 'pfSense at fleet scale, with standardised scripted site configurations across 20+ locations'],
+    ['Secure connectivity', 'Site-to-site and remote-access VPN architecture (WireGuard, OpenVPN), routing asymmetry resolution, reverse proxy and TLS termination (Traefik)'],
+    ['Virtualisation', 'Proxmox VE (clustering, HA, live migration, SDN), VMware; LXC and VM template lifecycle'],
+    ['Server platforms', 'Linux (Debian, Ubuntu, Alpine, NixOS) and Windows Server; golden-image standardisation and automated provisioning'],
+    ['Storage & resilience', 'ZFS operations and capacity planning, shared storage, UPS-driven shutdown sequencing'],
+    ['Cloud & tenant admin', 'Microsoft 365 and Entra ID administration across multiple client tenants, delegated access (GDAP), mail migration and compliance tooling'],
+    ['Containerised workloads', 'Docker and Docker Compose at scale, deployment standardisation across environments'],
+  ] },
+  { icon:'🔒', title:'Security & Identity', rows:[
+    ['Identity & access', 'Centralised SSO and identity federation built on modern authentication standards (OAuth2 / OIDC); Microsoft Entra ID, Authentik'],
+    ['Access control design', 'Least-privilege and defence-in-depth models combining network-level and identity-level policy; multi-tenant isolation'],
+    ['Privileged access', 'Jump-host architecture with session recording and auditing (Devolutions PAM)'],
+    ['Operational security', 'Secrets management, certificate lifecycle automation, vulnerability scanning and remediation'],
+  ] },
+  { icon:'📊', title:'Monitoring & Operational Resilience', rows:[
+    ['Monitoring at scale', 'Multi-site, multi-tenant monitoring design using distributed collection, host autoregistration and standardised templates (Zabbix, Prometheus/Grafana)'],
+    ['Observability', 'Metrics, logging and alerting pipelines (Prometheus, Loki, Grafana Alloy); dashboard design; alert routing and noise reduction'],
+    ['Backup strategy', '3-2-1 design with Proxmox Backup Server, RPO/RTO definition, retention and prune policy, offsite replication'],
+    ['Recoverability', 'Scheduled restore testing, encryption key custody, immutable and air-gapped copies'],
+  ] },
+  { icon:'⚙️', title:'Automation & Infrastructure as Code', rows:[
+    ['Infrastructure as code', 'Declarative provisioning and configuration management (Ansible, OpenTofu/Terraform), reproducible environments'],
+    ['CI/CD & GitOps', 'Pipeline design, automated merge-to-deploy, rollback strategy, audit trail (GitHub Actions, GitLab CI)'],
+    ['Release management', 'Version pinning, controlled and risk-tiered dependency updates, change review'],
+    ['Scripting', 'Bash, PowerShell and Python automation for provisioning, reporting and integration'],
+    ['Workflow automation', 'Event-driven and scheduled orchestration (n8n, webhooks, systemd timers)'],
+  ] },
+  { icon:'🗄️', title:'Data & Databases', rows:[
+    ['Platforms', 'Relational (PostgreSQL, Microsoft SQL Server, MySQL/MariaDB) and key-value/document stores'],
+    ['Query & reporting', 'SQL / T-SQL development, reporting queries, stored functions and business-logic calculations'],
+    ['Operations', 'Schema migration, major-version upgrade planning, performance troubleshooting, recovery from corruption'],
+    ['Data protection', 'Backup and restore verification, pseudonymisation for reporting and export, access scoping'],
+  ] },
+  { icon:'👨‍💻', title:'Software Development & Integrations', rows:[
+    ['Languages', 'Python, Bash/Shell, PowerShell, SQL, PHP, Go (learning)'],
+    ['Integration engineering', 'REST API and webhook design, authentication and token lifecycle, idempotency, retry and reconciliation patterns'],
+    ['Business systems', 'ERP, CRM, PSA and payment platform connectors (AFAS, Vtiger, HaloPSA, Lightspeed, Stripe)'],
+    ['Event-driven architecture', 'Message and queue-based integration, asynchronous processing (Pub/Sub, webhooks)'],
+    ['Cloud services', 'Azure Functions, Communication Services, Speech, Azure OpenAI'],
+    ['Engineering practice', 'Version control and review (Git), defensive scripting, structured error handling'],
+  ] },
+  { icon:'📞', title:'Telephony & VoIP', rows:[
+    ['Platforms', 'FusionPBX / FreeSWITCH, Yeastar P-Series'],
+    ['Protocol & carrier', 'SIP trunking and carrier integration, protocol-level diagnostics, dialplan design'],
+    ['Operations', 'Multi-tenant number administration, fraud detection, CDR-driven integrations'],
+  ] },
+  { icon:'🛡️', title:'Compliance & Governance', rows:[
+    ['Standards', 'ISO 27001 implementation planning, NIS2 readiness and supplier positioning'],
+    ['Assurance', 'Customer security questionnaires, evidence gathering, scope definition'],
+    ['Data protection', 'DPA and sub-processor obligations, audit trails, documented change control'],
+  ] },
+  { icon:'🤖', title:'AI & Machine Learning', rows:[
+    ['Applied ML', 'Supervised classification and active learning on sensor data, feature engineering'],
+    ['Tooling', 'scikit-learn, TensorFlow, pandas/NumPy, Jupyter'],
+    ['Applied AI services', 'Speech-to-text and LLM-based summarisation pipelines (Azure OpenAI)'],
+  ] },
+  { icon:'📝', title:'Documentation & Communication', rows:[
+    ['Technical documentation', 'Partner and end-customer documentation, runbooks, technical specifications'],
+    ['Published writing', '20+ in-depth infrastructure and development guides'],
+    ['Teaching', 'University lecturing, student assessment and tutoring (TU Delft)'],
+    ['Business communication', 'Client-facing technical writing in Dutch and English'],
+  ] },
+  { icon:'🎨', title:'Design & Research', rows:[
+    ['Methods', 'Design Thinking, user research, prototyping, user-test analysis'],
+    ['Software', 'Figma, Adobe Photoshop / InDesign / Premiere Pro, SolidWorks (basics)'],
+  ] },
+  { icon:'💬', title:'Languages', rows:[
+    ['Dutch', 'Native'],
+    ['English', 'Proficient (Anglia AcCEPT Proficiency Certificate)'],
+  ] },
+];
 
 // at -> links a post to an experience/education entry
 const POSTS = [
@@ -394,6 +480,7 @@ const fmtExp = e => [
   esc(e.text),
   '', h2('Responsibilities'),
   ...e.bullets.map(bullet),
+  ...(e.stack && !e.at ? ['', h2('Skills used'), tags(e.stack)] : []),
   ...relatedLines(e.at),
 ].filter(x => x !== null);
 
@@ -401,6 +488,8 @@ const fmtEdu = e => [
   `${span('a b', '# ' + esc(e.title))}`,
   `${span('h', esc(e.org))} ${span('m', '- ' + esc(e.place) + ' · ' + esc(e.year))}`,
   '',
+  esc(e.text),
+  '', h2('Highlights'),
   ...e.bullets.map(bullet),
   ...relatedLines(e.at),
 ];
@@ -430,9 +519,9 @@ function buildFS() {
   EDUCATION.forEach(e => edu[e.slug + '.md'] = file(() => fmtEdu(e)));
   POSTS.forEach(p => (p.type === 'guide' ? arts : projs)[p.file] = file(() => fmtPost(p)));
   return dir({
-    'about.txt':   file(() => ABOUT.map(esc)),
+    'about.txt':   file(aboutLines),
     'contact.txt': file(() => contactLines()),
-    'skills.txt':  file(() => skillLines()),
+    'skills.txt':  file(() => skillLines('all')),
     'cv.txt':      file(cvLines),
     'experience':  dir(exp),
     'education':   dir(edu),
@@ -530,6 +619,12 @@ function lsEntry(name, node, segs) {
 }
 
 // content renderers
+function aboutLines() {
+  const l = [span('a b', '# ' + esc(PROFILE.name)), span('m', esc(PROFILE.role) + ' · ' + esc(PROFILE.location)), '', esc(ABOUT.intro), '', kv(ABOUT.facts)];
+  for (const [title, paras] of ABOUT.sections) l.push('', h2(title), ...paras.flatMap((t, i) => i ? ['', esc(t)] : [esc(t)]));
+  l.push('', span('m', 'Explore: ') + ['experience', 'education', 'skills', 'projects', 'articles', 'contact'].map(c => cmd(c)).join('  '));
+  return l;
+}
 function contactLines() {
   const l = [
     `<div class="tbl"><span>GitHub</span><span>${link(PROFILE.github)}</span><span>LinkedIn</span><span>${link(PROFILE.linkedin)}</span><span>Website</span><span>${link(SITE)}</span><span>RSS</span><span>${link(PROFILE.rss)}</span>${PROFILE.email ? `<span>Email</span><span>${link('mailto:' + PROFILE.email, PROFILE.email)}</span>` : ''}</div>`,
@@ -537,20 +632,28 @@ function contactLines() {
   l.push('', span('m', 'Shortcuts: ') + `${cmd('github')} ${cmd('linkedin')} ${cmd('gui')}${PROFILE.email ? ' ' + cmd('mail') : ''}`);
   return l;
 }
-function skillLines() {
-  const l = [];
-  for (const [g, items] of Object.entries(SKILLS)) {
-    l.push(span('a b', g));
-    l.push(items.map(i => `<span class="tag">${esc(i)}</span>`).join(''));
-  }
-  return l;
+const fmtSkill = (g, i) => [span('a b', `${i + 1}. ${g.icon} ${esc(g.title)}`), kv(g.rows)];
+// category names, cut off so each overview line stays on one row
+const preview = g => {
+  let out = '';
+  for (const [c] of g.rows) { const next = out ? out + ' · ' + c : c; if (next.length + g.title.length > 70) return out + ' …'; out = next; }
+  return out;
+};
+function skillLines(n) {
+  if (n === 'all') return SKILLS.flatMap((g, i) => [...fmtSkill(g, i), '']);
+  if (SKILLS[n - 1]) return fmtSkill(SKILLS[n - 1], n - 1);
+  return [
+    ...SKILLS.map((g, i) => `${span('m', `[${String(i + 1).padStart(2, ' ')}]`)} ${g.icon} <a class="cmd" data-cmd="skills ${i + 1}">${esc(g.title)}</a>  ${span('m', esc(preview(g)))}`),
+    '',
+    span('m', 'Type ') + span('a2', 'skills &lt;n&gt;') + span('m', ' for details or ') + cmd('skills -a') + span('m', ' for everything.'),
+  ];
 }
 const pad = (s, n) => s + ' '.repeat(Math.max(0, n - s.length));
 
 // live articles from RSS
 async function refreshFeed() {
   try {
-    const res = await fetch(PROFILE.rss, { cache: 'no-store' });
+    const res = await fetch(PROFILE.rss, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
     if (!res.ok) throw 0;
     const xml = new DOMParser().parseFromString(await res.text(), 'application/xml');
     const entries = [...xml.querySelectorAll('entry')];
@@ -561,11 +664,12 @@ async function refreshFeed() {
       const path = href.replace(/^https?:\/\/[^/]+/, '');
       if (!path || POSTS.some(p => p.url === path)) continue;
       const title = (e.querySelector('title')?.textContent || '').trim();
+      const emoji = title.match(/^(\p{Extended_Pictographic}\uFE0F?)\s*/u);
       const cats = [...e.querySelectorAll('category')].map(c => c.getAttribute('term') || '').join(' ');
       const p = {
         date: (e.querySelector('published')?.textContent || '').slice(0, 10),
-        type: /guide/i.test(cats) ? 'guide' : 'project', icon: '📝',
-        title: title.replace(/^\p{Extended_Pictographic}\s*/u, ''),
+        type: /guide/i.test(cats) ? 'guide' : 'project', icon: emoji ? emoji[1] : '📝',
+        title: emoji ? title.slice(emoji[0].length) : title,
         url: path,
         desc: (e.querySelector('summary')?.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 220),
       };
@@ -578,6 +682,9 @@ async function refreshFeed() {
     return added;
   } catch { return -1; }
 }
+
+// started at boot; commands that list posts wait for it
+let feedReady = Promise.resolve();
 
 // ---- commands ----
 const C = {};
@@ -648,28 +755,35 @@ def('whoami', 'me', 'what I can see about you', () => {
   print(span('m', `And me? I'm Ian → `) + cmd('about'));
 });
 
-def(['about', 'ian', 'bio'], 'me', 'who is Ian?', () => printLines(ABOUT.map(esc)));
+def(['about', 'ian', 'bio'], 'me', 'who is Ian?', () => printLines(aboutLines()));
 
 def(['experience', 'exp', 'work', 'jobs'], 'me', 'work experience', args => {
   const n = parseInt(args[0], 10);
   if (n && EXPERIENCE[n - 1]) return printLines(fmtExp(EXPERIENCE[n - 1]));
+  print(span('m', `${new Date().getFullYear() - 2016}+ years in IT, from support engineer to project engineer.`));
+  print('');
   EXPERIENCE.forEach((e, i) => {
-    print(`${span('m', pad(e.period, 12))} ${span('a b', esc(e.role))} ${span('m','@')} ${span('h', esc(e.org))}`);
+    print(`${span('m', pad(e.period, 12))} ${span('a b', esc(e.role))} ${span('m','@')} ${span('h', esc(e.org))} ${span('m', '· ' + esc(e.place))}`);
     print(`${' '.repeat(13)}${span('m', esc(e.text.length > 110 ? e.text.slice(0, 107) + '...' : e.text))} ${cmd('exp ' + (i + 1), '[more]')}`);
   });
 });
 
-def(['education', 'edu', 'school'], 'me', 'education', () => {
-  EDUCATION.forEach(e => {
+def(['education', 'edu', 'school'], 'me', 'education', args => {
+  const n = parseInt(args[0], 10);
+  if (n && EDUCATION[n - 1]) return printLines(fmtEdu(EDUCATION[n - 1]));
+  EDUCATION.forEach((e, i) => {
     print(`${span('m', pad(e.year, 6))} ${span('a b', esc(e.title))}`);
-    print(`${' '.repeat(7)}${span('h', esc(e.org))} ${span('m', '· ' + esc(e.place))}`);
+    print(`${' '.repeat(7)}${span('h', esc(e.org))} ${span('m', '· ' + esc(e.place))} ${cmd('edu ' + (i + 1), '[more]')}`);
   });
-});
+  print('');
+  print(span('m', 'Also see ') + cmd('certs') + span('m', ' for courses and certificates.'));
+}, { usage: '[n]' });
 
 def(['certs', 'courses'], 'me', 'courses & certificates', () =>
   CERTS.forEach(([y, t]) => print(`${span('m', y)}  ${esc(t)}`)));
 
-def('skills', 'me', 'skills & tools', () => printLines(skillLines()));
+def('skills', 'me', 'skills & tools', args =>
+  printLines(skillLines(/^(-a|--all)$/.test(args[0] || '') ? 'all' : parseInt(args[0], 10))), { usage: '[n|-a]' });
 
 const listPosts = type => {
   const list = POSTS.filter(p => p.type === type);
@@ -683,9 +797,10 @@ def(['articles', 'blog', 'guides', 'posts'], 'me', 'technical guides I wrote', a
     const n = await refreshFeed();
     print(n < 0 ? span('e', 'feed unreachable - showing built-in list') : span('a', `${n} new post(s) loaded`));
   }
+  await feedReady;
   listPosts('guide');
 });
-def(['projects', 'portfolio'], 'me', 'projects I worked on', () => listPosts('project'));
+def(['projects', 'portfolio'], 'me', 'projects I worked on', async () => { await feedReady; listPosts('project'); });
 
 def(['read', 'summary'], 'me', 'summary of a post', args => {
   const p = POSTS.find(p => p.n === parseInt(args[0], 10));
@@ -1079,7 +1194,7 @@ def('man', 'system', 'manual for a command', args => {
   printLines([h2('NAME'), `       ${esc(c.name)} - ${esc(c.desc)}`, h2('SYNOPSIS'), `       ${esc(c.name)}${c.usage ? ' ' + esc(c.usage) : ''}`,
     ...(c.aliases.length ? [h2('ALIASES'), '       ' + esc(c.aliases.join(', '))] : [])]);
 }, { usage: '<command>' });
-def('rot13', null, '', (a, raw) => print(esc(rot13(raw.replace(/^\s*rot13\s?/, '')))));
+def('rot13', 'system', 'encode or decode text with rot13', (a, raw) => print(esc(rot13(raw.replace(/^\s*rot13\s?/, '')))), { usage: '<text>' });
 def('xyzzy', null, '', () => { unlock('xyzzy'); print('Nothing happens.'); });
 def(['curl', 'wget'], null, '', args => print(/iantiemann/.test(args.join(' '))
   ? span('m', "You're already here. For the HTML version: ") + cmd('gui')
@@ -1384,8 +1499,8 @@ async function boot(reboot = false) {
 
 document.body.dataset.theme = store.get('theme', 'default');
 if (store.get('crt', false)) document.body.classList.add('crt');
+feedReady = refreshFeed();
 boot().then(() => {
-  refreshFeed();
   const h = decodeURIComponent(location.hash.slice(1));
   if (h) { unlock('deeplink'); run(h.replace(/[-_+]/g, ' ')); }
 });
