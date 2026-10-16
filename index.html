@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ian Tiemann | terminal</title>
+<meta name="description" content="An interactive terminal version of iantiemann.nl. Type 'help' to explore Ian Tiemann's experience, projects and articles.">
+<meta property="og:title" content="guest@iantiemann:~$">
+<meta property="og:description" content="An interactive terminal version of iantiemann.nl - type 'help' to start.">
+<meta property="og:url" content="https://terminal.iantiemann.nl/">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#1b1b1e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231b1b1e'/%3E%3Ctext x='10' y='42' font-family='monospace' font-size='30' font-weight='bold' fill='%2350fa7b'%3E%3E_%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root, body[data-theme="default"] {
+    --bg:#1b1b1e; --fg:#d4d4d8; --muted:#71717a; --accent:#50fa7b; --accent2:#8be9fd;
+    --warn:#f1fa8c; --err:#ff5555; --link:#bd93f9; --sel:#3f3f46; --glow:transparent;
+  }
+
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; }
+  body {
+    background:var(--bg); color:var(--fg);
+    font:15px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+  ::selection { background:var(--sel); }
+  #term {
+    height:100vh; height:100dvh; overflow-y:auto; padding:18px 22px 40px;
+    padding-left:max(22px, env(safe-area-inset-left)); padding-right:max(22px, env(safe-area-inset-right));
+    text-shadow:0 0 6px var(--glow); scrollbar-width:thin; scrollbar-color:var(--sel) transparent;
+  }
+  .ln { white-space:pre-wrap; word-break:break-word; min-height:1.5em; }
+  .row { display:flex; align-items:baseline; }
+  .ps { white-space:pre; flex:none; }
+  #kb {
+    flex:1; min-width:0; background:transparent; border:0; outline:0; padding:0; margin:0;
+    color:var(--fg); font:inherit; caret-color:var(--accent); text-shadow:inherit;
+  }
+  .u { color:var(--accent); font-weight:700; } .h { color:var(--accent2); } .p { color:var(--link); }
+  .m { color:var(--muted); } .w { color:var(--warn); } .e { color:var(--err); } .b { font-weight:700; }
+  .a { color:var(--accent); } .a2 { color:var(--accent2); }
+  a { color:var(--link); text-decoration:none; border-bottom:1px dashed currentColor; cursor:pointer; }
+  a:hover { background:var(--sel); }
+  a.cmd { color:var(--accent2); }
+  a.dir { color:var(--accent2); font-weight:700; border:0; }
+  a.file { color:var(--fg); border:0; }
+  .banner { color:var(--accent); font-weight:700; line-height:1.25; cursor:default; user-select:none; }
+  .tbl { display:grid; grid-template-columns:max-content 1fr; column-gap:2ch; }
+  .tbl > span:nth-child(odd) { color:var(--accent2); white-space:nowrap; }
+  .tag { display:inline-block; padding:0 .6ch; margin:0 .6ch .3em 0; border:1px solid var(--sel); border-radius:3px; }
+  #matrix { position:fixed; inset:0; z-index:10; display:none; background:#000; }
+  @media (max-width:600px) { body { font-size:13px; } #term { padding:12px 12px 40px; } }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
+</style>
+</head>
+<body data-theme="default">
+<div id="term" aria-live="polite">
+  <div id="out"></div>
+  <div class="row" id="inrow"><span class="ps" id="ps"></span><input id="kb" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Terminal input" enterkeyhint="go"></div>
+</div>
+<canvas id="matrix"></canvas>
+<noscript><p style="padding:20px">This terminal needs JavaScript. Visit <a href="https://www.iantiemann.nl/">iantiemann.nl</a> for the regular site.</p></noscript>
+
+<script>
+(() => {
+'use strict';
+
+// ---- content ----
+const SITE = 'https://www.iantiemann.nl';
+const PROFILE = {
+  name: 'Ian Tiemann',
+  role: 'Project engineer @ NetW',
+  location: 'The Netherlands',
+  github: 'https://github.com/iantmn',
+  linkedin: 'https://www.linkedin.com/in/ian-tiemann/',
+  rss: SITE + '/feed.xml',
+  email: '',
+};
+
+
+
+
+
+
+
+// ---- terminal ----
+const $ = id => document.getElementById(id);
+const term = $('term'), out = $('out'), kb = $('kb'), ps = $('ps'), inrow = $('inrow');
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('iterm.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('iterm.' + k, JSON.stringify(v)); } catch {} },
+};
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const span = (cls, s) => `<span class="${cls}">${s}</span>`;
+const cmd = (c, label) => `<a class="cmd" data-cmd="${esc(c)}">${esc(label || c)}</a>`;
+const link = (url, label) => `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(label || url)}</a>`;
+
+function print(html = '', cls = '') {
+  const d = document.createElement('div');
+  d.className = 'ln' + (cls ? ' ' + cls : '');
+  d.innerHTML = html;
+  out.appendChild(d);
+  scrollDown();
+  return d;
+}
+const printLines = (arr, cls) => arr.forEach(l => print(l, cls));
+const scrollDown = () => { term.scrollTop = term.scrollHeight; };
+
+let cancelled = false;
+const sleep = ms => new Promise((res, rej) => setTimeout(() => cancelled ? rej(new Error('SIGINT')) : res(), ms));
+
+// prompt / path
+let cwd = []; // path segments under ~
+const pathStr = () => '~' + (cwd.length ? '/' + cwd.join('/') : '');
+const promptHTML = () => `${span('u','guest@iantiemann')}${span('m',':')}${span('h', esc(pathStr()))}${span('m','$')} `;
+const renderPrompt = () => { ps.innerHTML = promptHTML(); };
+
+
+
+
+
+
+
+
+
+
+
+
+// content renderers
+const pad = (s, n) => s + ' '.repeat(Math.max(0, n - s.length));
+
+
+// ---- commands ----
+const C = {};
+const def = (names, group, desc, run, extra = {}) => {
+  const [name, ...aliases] = [].concat(names);
+  C[name] = { name, group, desc, run, aliases, ...extra };
+  aliases.forEach(a => C[a] = { ...C[name], alias: true });
+};
+
+// about
+def(['help', 'h', '?'], 'system', 'show this help', () => {
+  const groups = { me: 'Get to know me', nav: 'Navigate the filesystem', system: 'System' };
+  for (const [g, title] of Object.entries(groups)) {
+    const list = Object.values(C).filter(c => c.group === g && !c.alias);
+    if (!list.length) continue;
+    print(span('w b', title));
+    list.forEach(c => print(`  ${cmd(c.name, pad(c.name + (c.usage ? ' ' + c.usage : ''), 18))} ${span('m', esc(c.desc))}`));
+    print('');
+  }
+  print(span('m', 'Tips: ') + '↑/↓ history · Ctrl+L clears · Ctrl+C cancels · links are clickable');
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// system
+def(['clear', 'cls'], 'system', 'clear the screen', () => { out.innerHTML = ''; });
+def('history', 'system', 'command history', () => hist.forEach((h, i) => print(`${span('m', String(i + 1).padStart(4, ' '))}  ${esc(h)}`)));
+def('echo', 'system', 'print text', (args, raw) => print(esc(raw.replace(/^\s*echo\s?/, '').replace(/^(["'])(.*)\1$/, '$2'))));
+def('date', 'system', 'current date & time', () => print(new Date().toString()));
+def('banner', 'system', 'show the banner', () => banner());
+def(['gui', 'home', 'website'], 'system', 'go to the regular website', () => {
+  print(span('m', 'switching to graphical mode... ') + link(SITE));
+  setTimeout(() => { location.href = SITE; }, 700);
+});
+def(['exit', 'logout', 'quit', ':q'], 'system', 'leave the terminal', async () => {
+ 
+  print('logout'); await sleep(400);
+  print(span('m', 'Connection to terminal.iantiemann.nl closed.')); await sleep(1100);
+  print(span('w', 'just kidding, there is no escape.'));
+  print(span('m', 'Want the normal site? ') + cmd('gui'));
+});
+
+
+
+// ---- visuals ----
+function figlet(text) {
+  const G = {
+    i:[' _ ','(_)','| |','| |','|_|'],
+    a:['       ','  __ _ ',' / _` |','| (_| |',' \\__,_|'],
+    n:['       ',' _ __  ',"| '_ \\ ",'| | | |','|_| |_|'],
+    t:[' _   ','| |_ ','| __|','| |_ ',' \\__|'],
+    e:['      ','  ___ ',' / _ \\','|  __/',' \\___|'],
+    m:['           ',' _ __ ___  ',"| '_ ` _ \\ ",'| | | | | |','|_| |_| |_|'],
+    ' ':['  ','  ','  ','  ','  '],
+  };
+  return [0,1,2,3,4].map(r => [...text].map(ch => G[ch][r]).join('')).join('\n');
+}
+function charsPerLine() {
+  const probe = document.createElement('span'); probe.textContent = 'x'.repeat(50);
+  probe.style.visibility = 'hidden'; out.appendChild(probe);
+  const w = probe.getBoundingClientRect().width / 50; probe.remove();
+  return Math.floor((term.clientWidth - 40) / w);
+}
+function banner() {
+  if (charsPerLine() >= 66) print(esc(figlet('ian tiemann')), 'banner');
+  else print(span('banner', '» ian tiemann'));
+  print(span('m', 'Project engineer · IT · development · project management'));
+}
+
+
+
+// ---- input ----
+let hist = store.get('hist', []), hIdx = hist.length, busy = false;
+
+function tokenize(s) {
+  const out = []; let cur = '', q = null;
+  for (const ch of s) {
+    if (q) { if (ch === q) q = null; else cur += ch; }
+    else if (ch === '"' || ch === "'") q = ch;
+    else if (/\s/.test(ch)) { if (cur) { out.push(cur); cur = ''; } }
+    else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+
+async function run(raw, { echo = true } = {}) {
+  raw = raw.trim();
+  if (echo) print(promptHTML() + esc(raw));
+  if (!raw) return;
+  if (raw === '!!') { if (!hist.length) return; raw = hist[hist.length - 1]; print(span('m', raw)); }
+  if (hist[hist.length - 1] !== raw) { hist.push(raw); hist = hist.slice(-200); store.set('hist', hist); }
+  hIdx = hist.length;
+
+  const [name, ...args] = tokenize(raw);
+  const c = C[name.toLowerCase()];
+  if (!c) {
+    const visible = Object.values(C).filter(x => x.group && !x.alias).map(x => x.name);
+    const best = visible.map(n => [n, lev(name.toLowerCase(), n)]).sort((a, b) => a[1] - b[1])[0];
+    print(span('e', `command not found: ${esc(name)}`) + (best && best[1] <= 2 ? span('m', ' - did you mean ') + cmd(best[0]) + span('m', '?') : span('m', ' - type ') + cmd('help')));
+    return;
+  }
+  busy = true; cancelled = false; inrow.style.visibility = 'hidden';
+  try { await c.run(args, raw); }
+  catch (e) { if (e.message === 'SIGINT') { print(span('e', '^C')); } else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
+  finally { busy = false; inrow.style.visibility = ''; renderPrompt(); scrollDown(); focusInput(); }
+}
+
+
+kb.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { const v = kb.value; kb.value = ''; run(v); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { if (hIdx > 0) { kb.value = hist[--hIdx]; } e.preventDefault(); moveEnd(); }
+  else if (e.key === 'ArrowDown') { if (hIdx < hist.length - 1) kb.value = hist[++hIdx]; else { hIdx = hist.length; kb.value = ''; } e.preventDefault(); }
+  else if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
+  else if (e.ctrlKey && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print(promptHTML() + esc(kb.value) + span('e', '^C')); kb.value = ''; }
+});
+const moveEnd = () => requestAnimationFrame(() => kb.setSelectionRange(kb.value.length, kb.value.length));
+
+addEventListener('keydown', e => {
+  if (busy && e.ctrlKey && e.key.toLowerCase() === 'c') { cancelled = true; e.preventDefault(); }
+});
+
+
+function focusInput() { if (!busy && !getSelection().toString()) kb.focus({ preventScroll: true }); }
+
+
+
+
+term.addEventListener('click', e => {
+  const a = e.target.closest('a[data-cmd]');
+  if (a) { e.preventDefault(); if (!busy) run(a.dataset.cmd); return; }
+  if (!e.target.closest('a')) focusInput();
+});
+
+// ---- boot ----
+async function boot(reboot = false) {
+  out.innerHTML = ''; cwd = []; renderPrompt();
+  busy = true; inrow.style.visibility = 'hidden';
+  const fast = !reboot && store.get('visited', false);
+  const lines = [
+    '[  OK  ] Started coffee.service',
+    '[  OK  ] Mounted /home/guest/experience',
+    '[  OK  ] Reached target curiosity.target',
+    '[  OK  ] Started terminal.iantiemann.nl',
+  ];
+  try {
+    if (!fast) for (const l of lines) { print(l.replace('OK', span('a', 'OK')).replace(/^\[/, span('m','[')).replace(/^(<span class="m">\[<\/span>.*?)\]/, '$1' + span('m',']'))); await sleep(110); }
+  } catch {}
+  if (!fast) print('');
+  banner();
+  print('');
+  print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
+  print('');
+  store.set('visited', true);
+  busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
+}
+
+boot().then(() => {
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (h) { run(h.replace(/[-_+]/g, ' ')); }
+});
+})();
+</script>
+</body>
+</html>
