@@ -57,6 +57,8 @@
   .tbl { display:grid; grid-template-columns:max-content 1fr; column-gap:2ch; }
   .tbl > span:nth-child(odd) { color:var(--accent2); white-space:nowrap; }
   .tag { display:inline-block; padding:0 .6ch; margin:0 .6ch .3em 0; border:1px solid var(--sel); border-radius:3px; }
+  .banner.rainbow { animation:rainbow 2s linear infinite; }
+  @keyframes rainbow { to { filter:hue-rotate(360deg); } }
   .opt.sel { background:var(--accent); color:var(--bg); text-shadow:none; border-radius:2px; }
   body.crt #term::after {
     content:""; position:fixed; inset:0; pointer-events:none;
@@ -304,6 +306,7 @@ const renderPrompt = () => { ps.innerHTML = promptHTML(); };
 
 
 // virtual filesystem
+function rot13(s) { return s.replace(/[a-z]/gi, c => String.fromCharCode((c <= 'Z' ? 65 : 97) + (c.toLowerCase().charCodeAt(0) - 97 + 13) % 26)); }
 const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48).replace(/^-+|-+$/g, '');
 POSTS.forEach((p, i) => { p.n = i + 1; p.file = slugify(p.title) + '.md'; });
 
@@ -393,7 +396,24 @@ function buildFS() {
         '[ ] finally label every cable in the rack',
         '[ ] write the next homelab guide',
         '[ ] learn to exit vim',
+        '[ ] ' + rot13('check the config folder, the real secret is in there'),
       ]),
+    }),
+    '.config': dir({
+      'ian': dir({
+        'motd': file(() => { return [
+          span('w b', 'motd (decrypted)'),
+          '',
+          'ROT13 is to cryptography what a doormat is to home security.',
+          'But you cracked it, and that counts. Most visitors never get here.',
+          '',
+          `Seriously though, I'd love to hear from curious people: ${cmd('contact')}`,
+        ]; }),
+        'settings.conf': file(() => [
+          '# ian.conf', 'coffee_level = high', 'editor = "anything but vim"',
+          'tabs_or_spaces = spaces', 'dns_blame = always', 'over_engineering = enabled  # by design',
+        ].map(esc)),
+      }),
     }),
   });
 }
@@ -428,9 +448,10 @@ function resolve(p) {
   else if (p.startsWith('/')) return { error: 'root' };
   else segs = [...cwd, ...p.split('/')];
   const stack = [];
+  let escaped = false;
   for (const s of segs) {
     if (!s || s === '.') continue;
-    if (s === '..') { stack.pop(); continue; }
+    if (s === '..') { if (!stack.length) escaped = true; stack.pop(); continue; }
     stack.push(s);
   }
   let node = FS;
@@ -438,7 +459,7 @@ function resolve(p) {
     if (node.type !== 'dir' || !node.children[s]) return { error: 'missing', segs: stack };
     node = node.children[s];
   }
-  return { node, segs: stack };
+  return { node, segs: stack, escaped };
 }
 
 function lsEntry(name, node, segs) {
@@ -682,6 +703,7 @@ def('cd', 'nav', 'change directory', args => {
   if (r.error === 'root') return print(span('e', `cd: ${esc(args[0])}: Permission denied`));
   if (r.error) return print(span('e', `cd: no such file or directory: ${esc(args[0])}`));
   if (r.node.type !== 'dir') return print(span('e', `cd: not a directory: ${esc(args[0])}`));
+  if (r.escaped) { print(span('m', "Can't go any higher than this. Here be dragons.")); }
   cwd = r.segs; renderPrompt();
 }, { usage: '<dir>' });
 
@@ -999,6 +1021,7 @@ def('man', 'system', 'manual for a command', args => {
   printLines([h2('NAME'), `       ${esc(c.name)} - ${esc(c.desc)}`, h2('SYNOPSIS'), `       ${esc(c.name)}${c.usage ? ' ' + esc(c.usage) : ''}`,
     ...(c.aliases.length ? [h2('ALIASES'), '       ' + esc(c.aliases.join(', '))] : [])]);
 }, { usage: '<command>' });
+def('rot13', null, '', (a, raw) => print(esc(rot13(raw.replace(/^\s*rot13\s?/, '')))));
 def('xyzzy', null, '', () => { print('Nothing happens.'); });
 def(['curl', 'wget'], null, '', args => print(/iantiemann/.test(args.join(' '))
   ? span('m', "You're already here. For the HTML version: ") + cmd('gui')
@@ -1224,11 +1247,47 @@ addEventListener('keydown', e => {
   if (busy && e.ctrlKey && e.key.toLowerCase() === 'c') { cancelled = true; e.preventDefault(); }
 });
 
+// Konami code
+const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+let kPos = 0;
+addEventListener('keydown', e => {
+  kPos = (e.key === KONAMI[kPos] || e.key.toLowerCase() === KONAMI[kPos]) ? kPos + 1 : (e.key === KONAMI[0] ? 1 : 0);
+  if (kPos === KONAMI.length) {
+    kPos = 0; kb.value = '';
+    print(span('w b', 'KONAMI CODE: +30 lives. Sadly this is a portfolio, not Contra.'));
+   
+  }
+});
 
 function focusInput() { if (!busy && !getSelection().toString()) kb.focus({ preventScroll: true }); }
 
+let bannerClicks = [];
+term.addEventListener('click', e => {
+  if (!e.target.closest('.banner')) return;
+  const now = Date.now();
+  bannerClicks = bannerClicks.filter(t => now - t < 2500).concat(now);
+  if (bannerClicks.length >= 5) {
+    bannerClicks = [];
+    document.querySelectorAll('.banner').forEach(b => b.classList.toggle('rainbow'));
+    print(span('w', 'ok ok, you broke the banner. Click it again to fix it.'));
+   
+  }
+});
 
+let lastActivity = Date.now(), idleShown = false;
+['keydown', 'pointerdown', 'wheel', 'touchstart'].forEach(ev => addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true }));
+setInterval(() => {
+  if (idleShown || busy || document.hidden || Date.now() - lastActivity < 120000) return;
+  idleShown = true;
+  print(span('m', 'still there?'));
+ 
+}, 5000);
 
+window.ian = () => { return 'hi!'; };
+try {
+  console.log('%c>_ iantiemann', 'font:bold 22px monospace;color:#50fa7b;background:#1b1b1e;padding:6px 12px;border-radius:4px');
+  console.log('%cHey, you opened the console.\nNothing is minified, feel free to look around.\nType ian() for a little something.', 'font:13px monospace;color:#8be9fd');
+} catch {}
 
 term.addEventListener('click', e => {
   const a = e.target.closest('a[data-cmd]');
@@ -1250,6 +1309,8 @@ async function boot(reboot = false) {
   try {
     if (!fast) for (const l of lines) { print(l.replace('OK', span('a', 'OK')).replace(/^\[/, span('m','[')).replace(/^(<span class="m">\[<\/span>.*?)\]/, '$1' + span('m',']'))); await sleep(110); }
   } catch {}
+  const nightOwl = new Date().getHours() < 6;
+  if (nightOwl) print(span('m', '[') + span('w', ' WARN ') + span('m', ']') + ' Night owl detected, brewing extra coffee');
   if (!fast) print('');
   banner();
   print('');
