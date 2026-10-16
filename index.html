@@ -57,6 +57,7 @@
   .tbl { display:grid; grid-template-columns:max-content 1fr; column-gap:2ch; }
   .tbl > span:nth-child(odd) { color:var(--accent2); white-space:nowrap; }
   .tag { display:inline-block; padding:0 .6ch; margin:0 .6ch .3em 0; border:1px solid var(--sel); border-radius:3px; }
+  .ach { color:var(--warn); }
   .banner.rainbow { animation:rainbow 2s linear infinite; }
   @keyframes rainbow { to { filter:hue-rotate(360deg); } }
   .opt.sel { background:var(--accent); color:var(--bg); text-shadow:none; border-radius:2px; }
@@ -304,6 +305,66 @@ const pathStr = () => '~' + (cwd.length ? '/' + cwd.join('/') : '');
 const promptHTML = () => `${span('u','guest@iantiemann')}${span('m',':')}${span('h', esc(pathStr()))}${span('m','$')} `;
 const renderPrompt = () => { ps.innerHTML = promptHTML(); };
 
+// achievements
+// [name, hint, how]. empty hint = classic, how is only shown once unlocked
+const ACH = {
+  sudo:     ['Nice try, root', '', 'sudo <anything>'],
+  rm:       ['Chaos monkey', '', 'rm -rf /'],
+  vim:      ['Trapped in vim', '', 'vim'],
+  matrix:   ['Follow the white rabbit', '', 'matrix'],
+  konami:   ['↑↑↓↓←→←→BA', '', 'the Konami code on your keyboard'],
+  sl:       ['Choo choo', '', 'sl (ls, but typo\'d)'],
+  exit:     ['Hotel California', '', 'exit'],
+  answer:   ['Deep Thought', '', '42'],
+  xyzzy:    ['Adventurer', '', 'xyzzy'],
+  sandwich: ['Okay.', '', 'sudo make me a sandwich'],
+
+  whoami:   ['Know thyself',               'Every journey starts with one question about yourself.', 'Type whoami.'],
+  secrets:  ['Snooper',                    'Dotfiles hide things.',                                   'ls -a, then look inside .secrets.'],
+  history:  ['Archaeologist',              'Someone typed here before you.',                          'cat .bash_history'],
+  coffee:   ['Fuelled',                    'Developers run on it.',                                   'Type coffee.'],
+  talk:     ["Let's talk",                 'Fancy a chat? Just say so.',                              'Type talk.'],
+  theme:    ['Interior decorator',         "Don't like the colours? Redecorate.",                     'Type theme and pick one.'],
+  crt:      ['Retro vibes',                'Make it look like 1985.',                                 'Type crt.'],
+  stroop:   ['Echt Nederlands',            'Think Dutch: a syrup waffle, or two wheels.',            'Type stroopwafel or fiets.'],
+  weather:  ['Small talk',                 'Ask the most Dutch question there is.',                   'Type weather.'],
+  console:  ['DevTools detective',         'Developers have their own window into this page.',       'Open DevTools (F12) and read the console.'],
+  nightowl: ['Night owl',                  'Some visitors only come when everyone else sleeps.',     'Visit between midnight and 6 AM.'],
+  home:     ["There's no place like 127.0.0.1", 'Knock on your own front door.',                       'ping localhost'],
+  manners:  ['Good manners',               'Even terminals like the magic word.',                    'Start a command with please.'],
+  apt:      ['Package manager',            'Good manners might even get you root. Install something.', 'please sudo apt install htop'],
+  clicker:  ['Button masher',              'The big letters at the top are more than decoration.',   'Click the banner 5 times quickly.'],
+  crypto:   ['Cryptographer',              'One of the secret todo items is written in code.',       'Decode the last line of .secrets/todo.txt with rot13, then follow it.'],
+  rtfm:     ['RTFM',                       'Read the manual. Of a person.',                          'man ian'],
+  patience: ['Patience is a virtue',       'Good things come to those who wait.',                     'Leave the page idle for 2 minutes.'],
+  passwd:   ['Script kiddie',              'Every hacker movie peeks at this file in /etc.',         'cat /etc/passwd'],
+  cow:      ['Moo',                        'Some animals have opinions too.',                         'cowsay <something>'],
+  fortune:  ['Fortune teller',             'Crack open a digital cookie.',                            'Type fortune.'],
+  dns:      ['It was DNS',                 'Ask git who broke it.',                                   'git blame'],
+  docker:   ['Containerised',              'See what is running on the server.',                      'docker ps'],
+  hacker:   ["I'm in",                     'Play the movie hacker.',                                  'Type hack.'],
+  edge:     ['Here be dragons',            'Go up. Then further up.',                                 'cd .. from your home folder.'],
+  neofetch: ['Ricer',                      'Show off your system specs, unixporn style.',             'Type neofetch.'],
+  reboot:   ['Off and on again',           'The oldest fix in IT support.',                           'Type reboot.'],
+  reader:   ['Bookworm',                   'Actually read about my work.',                            'Read 5 different posts with read <n>.'],
+  explorer: ['Explorer',                   'Visit every room in the house.',                          'cd into experience, education, projects and articles.'],
+  tab:      ['Lazy typist',                'Real terminal users never type the whole thing.',        'Press Tab while typing a command.'],
+  ctrlc:    ['Interrupt handler',          'Stop a command in its tracks.',                           'Press Ctrl+C while a command like ping is running.'],
+  deeplink: ['Teleporter',                 'The address bar is a terminal too.',                      'Open the site with #command after the URL, e.g. #fortune.'],
+  completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
+};
+const ACH_IDS = Object.keys(ACH);
+let unlocked = new Set(store.get('ach', []).filter(id => ACH[id]));
+function unlock(id) {
+  if (!ACH[id] || unlocked.has(id)) return;
+  unlocked.add(id); store.set('ach', [...unlocked]);
+  print(span('ach', `★ achievement unlocked: ${ACH[id][0]} (${unlocked.size}/${ACH_IDS.length})`));
+  if (id !== 'completionist' && ACH_IDS.every(a => a === 'completionist' || unlocked.has(a))) unlock('completionist');
+}
+function track(key, value, goal, ach) {
+  const set = new Set(store.get(key, [])); set.add(value); store.set(key, [...set]);
+  if (set.size >= goal) unlock(ach);
+}
 
 // virtual filesystem
 function rot13(s) { return s.replace(/[a-z]/gi, c => String.fromCharCode((c <= 'Z' ? 65 : 97) + (c.toLowerCase().charCodeAt(0) - 97 + 13) % 26)); }
@@ -358,6 +419,7 @@ function fmtPost(p) {
   if (p.points && p.points.length) l.push(h2('Highlights'), ...p.points.map(bullet), '');
   if (p.stack && p.stack.length) l.push(h2('Stack'), tags(p.stack), '');
   l.push(`→ ${link(absUrl(p.url), 'read the full ' + (guide ? 'article' : 'write-up'))}  ${span('m','or type')} ${cmd('open ' + p.n)}`);
+  queueMicrotask(() => track('read', p.url, 5, 'reader'));
   return l;
 }
 
@@ -377,14 +439,14 @@ function buildFS() {
     'education':   dir(edu),
     'articles':    dir(arts),
     'projects':    dir(projs),
-    '.bash_history': file(() => { return [
+    '.bash_history': file(() => { unlock('history'); return [
       span('m','# what has ian been up to here...'),
       'docker ps', 'ping iantiemann.nl', 'vim notes.txt', span('m','# how do I exit this thing'),
       'talk', 'fortune', 'cowsay moo', 'matrix', 'sl', 'coffee', 'weather',
       'hack', 'stroopwafel', 'theme amber', 'crt', 'cat .secrets/flag.txt', 'achievements',
     ]; }),
     '.secrets': dir({
-      'flag.txt': file(() => { return [
+      'flag.txt': file(() => { unlock('secrets'); return [
         span('w','🚩 FLAG{curiosity_is_a_feature_not_a_bug}'),
         '',
         "You found it. People who poke around like this are usually fun to talk to.",
@@ -401,7 +463,7 @@ function buildFS() {
     }),
     '.config': dir({
       'ian': dir({
-        'motd': file(() => { return [
+        'motd': file(() => { unlock('crypto'); return [
           span('w b', 'motd (decrypted)'),
           '',
           'ROT13 is to cryptography what a doormat is to home security.',
@@ -421,7 +483,7 @@ const FS = buildFS();
 
 // fake files outside ~
 const SYSFILES = {
-  '/etc/passwd': () => { return [
+  '/etc/passwd': () => { unlock('passwd'); return [
     'root:x:0:0:root:/root:/usr/sbin/nologin   # nice try',
     'ian:x:1000:1000:Ian Tiemann,,,:/home/ian:/usr/bin/coffee',
     'guest:x:1001:1001:You, the curious visitor:/home/guest:/bin/ish',
@@ -570,7 +632,7 @@ async function fetchWhoami() {
 
 def('whoami', 'me', 'what I can see about you', async args => {
   if (asRoot) return print('root' + span('m', ' (just for this command)'));
- 
+  unlock('whoami');
   const all = args.includes('-a') || args.includes('--all');
   const ua = parseUA(), conn = navigator.connection;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -675,7 +737,7 @@ def(['read', 'summary'], 'me', 'summary of a post', args => {
 def(['cv', 'resume'], 'me', 'my CV', () => printLines(cvLines()));
 def(['contact', 'socials', 'social'], 'me', 'how to reach me', () => printLines(contactLines()));
 def(['talk', 'hire', 'chat'], null, '', () => {
- 
+  unlock('talk');
   printLines([
     "I'm not really looking for a new job right now, but I'm always happy to talk.",
     'Tech, projects, homelabs, ideas, or just a coffee. Send me a message:',
@@ -703,8 +765,9 @@ def('cd', 'nav', 'change directory', args => {
   if (r.error === 'root') return print(span('e', `cd: ${esc(args[0])}: Permission denied`));
   if (r.error) return print(span('e', `cd: no such file or directory: ${esc(args[0])}`));
   if (r.node.type !== 'dir') return print(span('e', `cd: not a directory: ${esc(args[0])}`));
-  if (r.escaped) { print(span('m', "Can't go any higher than this. Here be dragons.")); }
+  if (r.escaped) { print(span('m', "Can't go any higher than this. Here be dragons.")); unlock('edge'); }
   cwd = r.segs; renderPrompt();
+  if (['experience', 'education', 'projects', 'articles'].includes(cwd[0])) track('rooms', cwd[0], 4, 'explorer');
 }, { usage: '<dir>' });
 
 def(['cat', 'less', 'more', 'bat'], 'nav', 'print a file', args => {
@@ -755,7 +818,7 @@ def('history', 'system', 'command history', () => hist.forEach((h, i) => print(`
 def('echo', 'system', 'print text', (args, raw) => print(esc(raw.replace(/^\s*echo\s?/, '').replace(/^(["'])(.*)\1$/, '$2'))));
 def('date', 'system', 'current date & time', () => print(new Date().toString()));
 def('banner', 'system', 'show the banner', () => banner());
-def(['neofetch', 'fastfetch', 'screenfetch'], 'system', 'system information', () => { neofetch(); });
+def(['neofetch', 'fastfetch', 'screenfetch'], 'system', 'system information', () => { unlock('neofetch'); neofetch(); });
 def('theme', 'system', 'change colour theme', args => {
   const themes = ['default', 'matrix', 'amber', 'dracula', 'solarized', 'light'];
   if (!args[0] || !themes.includes(args[0])) {
@@ -763,18 +826,49 @@ def('theme', 'system', 'change colour theme', args => {
     return print(themes.map(t => cmd('theme ' + t, t)).join('  '));
   }
   document.body.dataset.theme = args[0]; store.set('theme', args[0]);
-  print(span('a', `theme set to ${args[0]}`));
+  print(span('a', `theme set to ${args[0]}`)); unlock('theme');
 }, { usage: '<name>' });
 def('crt', 'system', 'toggle retro CRT effect', () => {
   const on = document.body.classList.toggle('crt'); store.set('crt', on);
-  print(span('a', `CRT mode ${on ? 'on' : 'off'}`));
+  print(span('a', `CRT mode ${on ? 'on' : 'off'}`)); if (on) unlock('crt');
 });
+def('achievements', 'system', 'easter eggs you found', () => {
+  const total = ACH_IDS.length;
+  print(span('w b', `Achievements ${unlocked.size}/${total}`));
+  ACH_IDS.forEach((id, i) => {
+    const [name, hint] = ACH[id], n = String(i + 1).padStart(2, ' ');
+    if (unlocked.has(id)) print(`  ${span('w', '★')} ${span('m', n)} ${esc(name)}  ${span('m', '(' + esc(ACH[id][2]) + ')')}`);
+    else print(`  ${span('m', '☆ ' + n + ' ???')}  ${hint ? span('m', '- ' + esc(hint)) : span('m', '(classic, no hint)')}`);
+  });
+  print('');
+  if (unlocked.size === total) print(span('a b', 'You found everything. Respect.'));
+  else print(span('m', 'Stuck? ') + cmd('hint') + span('m', ' gives a clearer tip for a random one, or ') + span('a2', 'hint &lt;n&gt;') + span('m', ' for a specific one.'));
+});
+def('hint', 'system', 'a nudge towards an achievement', args => {
+  const hinted = ACH_IDS.filter(id => ACH[id][1]);
+  const locked = hinted.filter(id => !unlocked.has(id));
+  const n = parseInt(args[0], 10);
+  let id;
+  if (n) {
+    id = ACH_IDS[n - 1];
+    if (!id) return print(span('e', `hint: there is no achievement #${n}`));
+    if (unlocked.has(id)) return print(span('m', `You already have #${n} (${esc(ACH[id][0])}): ${esc(ACH[id][2])}`));
+    if (!ACH[id][1]) return print(span('m', `#${n} is a classic, no hints for that one. Think of what everyone tries in a terminal.`));
+  } else {
+    if (!locked.length) {
+      const classics = ACH_IDS.filter(a => !ACH[a][1] && !unlocked.has(a)).length;
+      return print(span('m', classics ? `No hints left. The last ${classics} are classics, you either know them or you don't.` : 'Nothing left, you found everything.'));
+    }
+    id = locked[Math.floor(Math.random() * locked.length)];
+  }
+  print(`${span('w', 'hint #' + (ACH_IDS.indexOf(id) + 1))} ${esc(ACH[id][1])}  ${span('a2', '→ ' + esc(ACH[id][2]))}`);
+}, { usage: '[n]' });
 def(['gui', 'home', 'website'], 'system', 'go to the regular website', () => {
   print(span('m', 'switching to graphical mode... ') + link(SITE));
   setTimeout(() => { location.href = SITE; }, 700);
 });
 def(['exit', 'logout', 'quit', ':q'], 'system', 'leave the terminal', async () => {
- 
+  unlock('exit');
   print('logout'); await sleep(400);
   print(span('m', 'Connection to terminal.iantiemann.nl closed.')); await sleep(1100);
   print(span('w', 'just kidding, there is no escape.'));
@@ -798,14 +892,14 @@ def('sudo', null, '', (args, raw) => {
   if (/^(hire|talk)/.test(rest)) return C.talk.run([]);
   if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
   if (/^make\s+me\s+a\s+sandwich/i.test(rest)) return runAsRoot(rest); // xkcd 149
- 
+  unlock('sudo');
   print(`[sudo] password for guest: `);
   print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));
   print(span('m', '(to nobody, relax)'));
 });
 def('rm', null, '', async args => {
   if (!args.some(a => /^-\w*r/.test(a)) || !args.some(a => /^(\/|\*|~|\.)/.test(a))) return print(span('e', 'rm: refusing to remove that - this filesystem is read-only'));
- 
+  unlock('rm');
   const victims = ['/bin', '/etc', '/home/guest/experience', '/home/guest/articles', '/var/www/iantiemann.nl', '/boot', '/usr/lib/coffee'];
   for (const v of victims) { print(span('e', `removed '${v}'`)); await sleep(180); }
   await sleep(400);
@@ -818,17 +912,17 @@ def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, '', async (a, raw) => {
   const ed = raw.trim().split(/\s+/)[0];
   if (ed === 'emacs') return print(span('m', 'emacs: a great operating system, lacking only a decent text editor. Try ') + span('a2','vim') + span('m','?'));
   if (ed === 'nano') return print(span('m', 'nano: honest choice. But this terminal is read-only.'));
- 
+  unlock('vim');
   print(span('m', '~\n~\n~\n~                VIM - Vi IMproved\n~\n~        type :q to exit  (good luck)\n~'));
   await sleep(1400);
   print(span('w', 'E37: No write since last change (add ! to override)'));
   await sleep(900);
   print(span('m', 'Don\'t panic, I got you out. It took me years the first time.'));
 });
-def('matrix', null, '', () => { return matrix(); });
-def('sl', null, '', () => { return train(); });
+def('matrix', null, '', () => { unlock('matrix'); return matrix(); });
+def('sl', null, '', () => { unlock('sl'); return train(); });
 def(['coffee', 'koffie', 'brew'], null, '', () => {
- 
+  unlock('coffee');
   printLines([
     span('w', '      (  )   (   )  )'),
     span('w', '       ) (   )  (  ('),
@@ -846,7 +940,7 @@ def(['coffee', 'koffie', 'brew'], null, '', () => {
   ].map(l => l.includes('<span') ? l : esc(l)));
 });
 def('cowsay', null, '', args => {
- 
+  unlock('cow');
   const msg = args.join(' ') || 'moo';
   const line = '-'.repeat(msg.length + 2);
   printLines([` ${line}`, `< ${msg} >`, ` ${line}`,
@@ -864,18 +958,18 @@ const FORTUNES = [
   "Design thinking: understanding the problem before solving the wrong one beautifully.",
   "Works on my machine. Shipping my machine.",
 ];
-def('fortune', null, '', () => (print(span('w', FORTUNES[Math.floor(Math.random() * FORTUNES.length)]))));
+def('fortune', null, '', () => (unlock('fortune'), print(span('w', FORTUNES[Math.floor(Math.random() * FORTUNES.length)]))));
 def('ping', null, '', async args => {
   const host = args[0] || 'iantiemann.nl';
   print(`PING ${esc(host)} (127.0.4.2): 56 data bytes`);
   const local = /^(localhost|127\.0\.0\.1|::1)$/i.test(host);
   for (let i = 0; i < 4; i++) { await sleep(600); print(`64 bytes from ${esc(host)}: icmp_seq=${i} ttl=64 time=${local ? '0.0' + Math.floor(Math.random() * 9 + 1) : (Math.random() * 12 + 3).toFixed(1)} ms`); }
   print(span('m', `--- ${esc(host)} ping statistics ---\n4 packets transmitted, 4 received, 0% packet loss (unlike my old Wi-Fi)`));
-  if (local) { print(span('w', "There's no place like 127.0.0.1")); }
+  if (local) { print(span('w', "There's no place like 127.0.0.1")); unlock('home'); }
 });
 def('docker', null, '', args => {
   if (args[0] !== 'ps') return print(span('m', 'usage: docker ps   (the only command that matters)'));
- 
+  unlock('docker');
   const rows = [
     ['a1b2c3d4e5f6', 'traefik:v3', 'Up 213 days', 'reverse-proxy'],
     ['b2c3d4e5f6a7', 'grafana/grafana', 'Up 213 days', 'grafana'],
@@ -896,7 +990,7 @@ def('git', null, '', args => {
     span('w', 'commit 2016c'), '    Joined NetW as IT specialist', '',
     span('w', 'commit 0000init'), '    Initial commit: curious kid takes apart the family PC',
   ]);
-  if (args[0] === 'blame') { return print(span('m', 'It was DNS.')); }
+  if (args[0] === 'blame') { unlock('dns'); return print(span('m', 'It was DNS.')); }
   print(span('m', 'try ') + cmd('git log') + span('m', ' or ') + cmd('git blame'));
 });
 def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, '', async (args, raw) => {
@@ -936,7 +1030,7 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, '', async (
     const d = print('');
     for (let i = 1; i <= 20; i++) { d.textContent = `Unpacking ${pkg} (1.0-ian) [${'#'.repeat(i)}${'.'.repeat(20 - i)}] ${i * 5}%`; await sleep(40); }
     print(`Setting up ${esc(pkg)} (1.0-ian) ...`); await sleep(300);
-   
+    unlock('apt');
     if (pkg === 'coffee') return C.coffee.run([]);
     if (pkg === 'sl') { print(span('m', 'running post-install script')); return C.sl.run([]); }
     if (pkg === 'cowsay' || pkg === 'fortune') return C[pkg].run([]);
@@ -951,21 +1045,21 @@ def('hack', null, '', async () => {
     for (let i = 1; i <= 20; i++) { await sleep(25 + Math.random() * 40); d.textContent = `${pad(s, 24)} [${'#'.repeat(i)}${' '.repeat(20 - i)}] ${i * 5}%`; }
   }
   print(span('a b', 'ACCESS GRANTED'));
- 
+  unlock('hacker');
   print(span('m', 'You now have full access to... everything that was already public. Try ') + cmd('contact') + span('m', ' instead.'));
 });
-def('weather', null, '', () => (print(span('a2', "It's the Netherlands. It's raining. Probably also windy. Bring a coat for the bike ride."))));
+def('weather', null, '', () => (unlock('weather'), print(span('a2', "It's the Netherlands. It's raining. Probably also windy. Bring a coat for the bike ride."))));
 def(['stroopwafel', 'fiets', 'bike', 'kaas', 'gezellig'], null, '', () => {
- 
+  unlock('stroop');
   print(span('w', 'Place the stroopwafel on top of your coffee for 2 minutes. That\'s the only correct way.'));
   print(span('m', 'Bonus Dutch skill: cycling through a headwind while holding an umbrella.'));
 });
-def('42', null, '', () => { print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
+def('42', null, '', () => { unlock('answer'); print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
 def(['hello', 'hi', 'hey', 'hallo', 'hoi'], null, '', () => print(`Hoi! Type ${cmd('help')} to look around.`));
 def('make', null, '', args => {
   if (!args.join(' ').includes('sandwich')) return print(span('e', 'make: *** No targets specified and no makefile found. Stop.'));
   if (!asRoot) return print(span('e', 'What? Make it yourself.'));
- 
+  unlock('sandwich');
   printLines([
     'Okay.', '',
     span('w', '      _.-------._'),
@@ -978,11 +1072,11 @@ def('make', null, '', args => {
   ]);
 });
 def('ssh', null, '', args => print(span('e', `ssh: connect to host ${esc(args[0] || 'homelab')} port 22: Connection refused`) + span('m', ' - my homelab is not that open')));
-def(['reboot', 'shutdown', 'poweroff'], null, '', async () => { print(span('w', 'System is going down for reboot NOW!')); await sleep(800); boot(true); });
+def(['reboot', 'shutdown', 'poweroff'], null, '', async () => { unlock('reboot'); print(span('w', 'System is going down for reboot NOW!')); await sleep(800); boot(true); });
 def('uptime', null, '', () => print(`up ${uptime()}, 1 user, load average: 0.42, 0.13, 0.37`));
 def('please', null, '', async (args, raw) => {
   if (!args.length) return print(span('m', 'please what?'));
- 
+  unlock('manners');
   if (args[0] === 'sudo') {
     print(span('a', '[sudo] since you asked nicely... ok.'));
     const rest = raw.replace(/^\s*please\s+sudo\s*/, '');
@@ -997,7 +1091,7 @@ def('man', 'system', 'manual for a command', args => {
   const t = (args[0] || '').toLowerCase();
   if (!t) return print('What manual page do you want?' + span('m', ' (e.g. ') + cmd('man ls') + span('m', ')'));
   if (t === 'ian') {
-   
+    unlock('rtfm');
     return printLines([
       span('m', 'IAN(1)                        User Commands                        IAN(1)'), '',
       h2('NAME'), '       ian - project engineer, developer and professional tinkerer', '',
@@ -1022,7 +1116,7 @@ def('man', 'system', 'manual for a command', args => {
     ...(c.aliases.length ? [h2('ALIASES'), '       ' + esc(c.aliases.join(', '))] : [])]);
 }, { usage: '<command>' });
 def('rot13', null, '', (a, raw) => print(esc(rot13(raw.replace(/^\s*rot13\s?/, '')))));
-def('xyzzy', null, '', () => { print('Nothing happens.'); });
+def('xyzzy', null, '', () => { unlock('xyzzy'); print('Nothing happens.'); });
 def(['curl', 'wget'], null, '', args => print(/iantiemann/.test(args.join(' '))
   ? span('m', "You're already here. For the HTML version: ") + cmd('gui')
   : span('e', 'curl: (6) Could not resolve host') + span('m', ' - it\'s always DNS.')));
@@ -1185,7 +1279,7 @@ async function run(raw, { echo = true } = {}) {
   }
   busy = true; cancelled = false; inrow.style.visibility = 'hidden';
   try { await c.run(args, raw); }
-  catch (e) { if (e.message === 'SIGINT') { print(span('e', '^C')); } else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
+  catch (e) { if (e.message === 'SIGINT') { print(span('e', '^C')); unlock('ctrlc'); } else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
   finally { busy = false; inrow.style.visibility = ''; renderPrompt(); scrollDown(); focusInput(); }
 }
 
@@ -1236,7 +1330,7 @@ kb.addEventListener('keydown', e => {
   if (e.key === 'Enter') { const v = kb.value; kb.value = ''; run(v); e.preventDefault(); }
   else if (e.key === 'ArrowUp') { if (hIdx > 0) { kb.value = hist[--hIdx]; } e.preventDefault(); moveEnd(); }
   else if (e.key === 'ArrowDown') { if (hIdx < hist.length - 1) kb.value = hist[++hIdx]; else { hIdx = hist.length; kb.value = ''; } e.preventDefault(); }
-  else if (e.key === 'Tab') { e.preventDefault(); complete(e.shiftKey); }
+  else if (e.key === 'Tab') { e.preventDefault(); if (kb.value.trim()) unlock('tab'); complete(e.shiftKey); }
   else if (cycle && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) cycle = null;
   else if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
   else if (e.ctrlKey && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print(promptHTML() + esc(kb.value) + span('e', '^C')); kb.value = ''; }
@@ -1255,7 +1349,7 @@ addEventListener('keydown', e => {
   if (kPos === KONAMI.length) {
     kPos = 0; kb.value = '';
     print(span('w b', 'KONAMI CODE: +30 lives. Sadly this is a portfolio, not Contra.'));
-   
+    unlock('konami');
   }
 });
 
@@ -1270,7 +1364,7 @@ term.addEventListener('click', e => {
     bannerClicks = [];
     document.querySelectorAll('.banner').forEach(b => b.classList.toggle('rainbow'));
     print(span('w', 'ok ok, you broke the banner. Click it again to fix it.'));
-   
+    unlock('clicker');
   }
 });
 
@@ -1280,10 +1374,10 @@ setInterval(() => {
   if (idleShown || busy || document.hidden || Date.now() - lastActivity < 120000) return;
   idleShown = true;
   print(span('m', 'still there?'));
- 
+  unlock('patience');
 }, 5000);
 
-window.ian = () => { return 'hi!'; };
+window.ian = () => { unlock('console'); return 'check the terminal ;)'; };
 try {
   console.log('%c>_ iantiemann', 'font:bold 22px monospace;color:#50fa7b;background:#1b1b1e;padding:6px 12px;border-radius:4px');
   console.log('%cHey, you opened the console.\nNothing is minified, feel free to look around.\nType ian() for a little something.', 'font:13px monospace;color:#8be9fd');
@@ -1316,8 +1410,10 @@ async function boot(reboot = false) {
   print('');
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
   print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('skills')}  ${cmd('contact')}  ${cmd('ls')}`);
+  if (unlocked.size) print(span('m', `Welcome back - you've found ${unlocked.size}/${Object.keys(ACH).length} `) + cmd('achievements') + span('m', '.'));
   print('');
   store.set('visited', true);
+  if (nightOwl) unlock('nightowl');
   busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
 }
 
@@ -1326,7 +1422,7 @@ if (store.get('crt', false)) document.body.classList.add('crt');
 boot().then(() => {
   refreshFeed();
   const h = decodeURIComponent(location.hash.slice(1));
-  if (h) { run(h.replace(/[-_+]/g, ' ')); }
+  if (h) { unlock('deeplink'); run(h.replace(/[-_+]/g, ' ')); }
 });
 })();
 </script>
