@@ -754,7 +754,99 @@ def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, '', async (a, raw) => {
 });
 def('matrix', null, '', () => { return matrix(); });
 def('sl', null, '', () => { return train(); });
+def(['coffee', 'koffie', 'brew'], null, '', () => {
+ 
+  printLines([
+    span('w', '      (  )   (   )  )'),
+    span('w', '       ) (   )  (  ('),
+    span('w', '       ( )  (    ) )'),
+    '      _____________',
+    '     <_____________> ___',
+    '     |             |/ _ \\',
+    '     |   I T  ☕    | | | |',
+    '     |   F U E L   |_| |_|',
+    '  ___|             |\\___/',
+    ' /    \\___________/    \\',
+    ' \\_____________________/',
+    '',
+    span('m', 'HTTP 418: actually I\'m a teapot, but here you go.'),
+  ].map(l => l.includes('<span') ? l : esc(l)));
+});
+def('cowsay', null, '', args => {
+ 
+  const msg = args.join(' ') || 'moo';
+  const line = '-'.repeat(msg.length + 2);
+  printLines([` ${line}`, `< ${msg} >`, ` ${line}`,
+    '        \\   ^__^', '         \\  (oo)\\_______', '            (__)\\       )\\/\\', '                ||----w |', '                ||     ||'].map(esc));
+}, {});
+const FORTUNES = [
+  "It's always DNS. Except when it's the firewall. Then it's DNS.",
+  "There is no cloud. It's just someone else's Proxmox cluster.",
+  "A project without a deadline is just a hobby. A hobby without a deadline is a homelab.",
+  "Have you tried turning it off and on again? 8 years of IT support in one sentence.",
+  "The best monitoring dashboard is the one nobody needs to look at.",
+  "Weeks of coding can save you hours of planning.",
+  "Backups are worthless. Restores are priceless.",
+  "If it's stupid but it works, it's still stupid. Document it anyway.",
+  "Design thinking: understanding the problem before solving the wrong one beautifully.",
+  "Works on my machine. Shipping my machine.",
+];
+def('fortune', null, '', () => (print(span('w', FORTUNES[Math.floor(Math.random() * FORTUNES.length)]))));
+def('ping', null, '', async args => {
+  const host = args[0] || 'iantiemann.nl';
+  print(`PING ${esc(host)} (127.0.4.2): 56 data bytes`);
+  const local = /^(localhost|127\.0\.0\.1|::1)$/i.test(host);
+  for (let i = 0; i < 4; i++) { await sleep(600); print(`64 bytes from ${esc(host)}: icmp_seq=${i} ttl=64 time=${local ? '0.0' + Math.floor(Math.random() * 9 + 1) : (Math.random() * 12 + 3).toFixed(1)} ms`); }
+  print(span('m', `--- ${esc(host)} ping statistics ---\n4 packets transmitted, 4 received, 0% packet loss (unlike my old Wi-Fi)`));
+  if (local) { print(span('w', "There's no place like 127.0.0.1")); }
+});
+def('docker', null, '', args => {
+  if (args[0] !== 'ps') return print(span('m', 'usage: docker ps   (the only command that matters)'));
+ 
+  const rows = [
+    ['a1b2c3d4e5f6', 'traefik:v3', 'Up 213 days', 'reverse-proxy'],
+    ['b2c3d4e5f6a7', 'grafana/grafana', 'Up 213 days', 'grafana'],
+    ['c3d4e5f6a7b8', 'prom/prometheus', 'Up 213 days', 'prometheus'],
+    ['d4e5f6a7b8c9', 'grafana/loki', 'Up 128 days', 'loki'],
+    ['e5f6a7b8c9d0', 'grafana/alloy', 'Up 128 days', 'alloy'],
+    ['f6a7b8c9d0e1', 'ian/terminal:latest', 'Up ' + uptime(), 'terminal-iantiemann'],
+  ];
+  print(span('m', pad('CONTAINER ID', 14) + pad('IMAGE', 22) + pad('STATUS', 16) + 'NAMES'));
+  rows.forEach(r => print(pad(r[0], 14) + span('a2', esc(pad(r[1], 22))) + span('a', pad(r[2], 16)) + esc(r[3])));
+  print(span('m', '\nWant to run these yourself? ') + cmd('articles', 'my guides'));
+});
+def(['kubectl', 'k8s', 'helm'], null, '', () => print(span('m', 'We don\'t do that here. docker compose up -d is a lifestyle.')));
+def('git', null, '', args => {
+  if (args[0] === 'log') return printLines([
+    span('w', 'commit 2026a') + span('m', ' (HEAD -> main)'), '    Project engineer @ NetW, working on the CloudModule', '',
+    span('w', 'commit 2024b'), '    Software engineer @ Notive', '',
+    span('w', 'commit 2016c'), '    Joined NetW as IT specialist', '',
+    span('w', 'commit 0000init'), '    Initial commit: curious kid takes apart the family PC',
+  ]);
+  if (args[0] === 'blame') { return print(span('m', 'It was DNS.')); }
+  print(span('m', 'try ') + cmd('git log') + span('m', ' or ') + cmd('git blame'));
+});
+def('hack', null, '', async () => {
+  const steps = ['Bypassing firewall', 'Decrypting mainframe', 'Downloading CV.exe', 'Injecting caffeine', 'Escalating privileges'];
+  for (const s of steps) {
+    const d = print(`${pad(s, 24)} [${' '.repeat(20)}]`);
+    for (let i = 1; i <= 20; i++) { await sleep(25 + Math.random() * 40); d.textContent = `${pad(s, 24)} [${'#'.repeat(i)}${' '.repeat(20 - i)}] ${i * 5}%`; }
+  }
+  print(span('a b', 'ACCESS GRANTED'));
+ 
+  print(span('m', 'You now have full access to... everything that was already public. Try ') + cmd('contact') + span('m', ' instead.'));
+});
+def('weather', null, '', () => (print(span('a2', "It's the Netherlands. It's raining. Probably also windy. Bring a coat for the bike ride."))));
+def(['stroopwafel', 'fiets', 'bike', 'kaas', 'gezellig'], null, '', () => {
+ 
+  print(span('w', 'Place the stroopwafel on top of your coffee for 2 minutes. That\'s the only correct way.'));
+  print(span('m', 'Bonus Dutch skill: cycling through a headwind while holding an umbrella.'));
+});
 def('42', null, '', () => { print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
+def(['hello', 'hi', 'hey', 'hallo', 'hoi'], null, '', () => print(`Hoi! Type ${cmd('help')} to look around.`));
+def('ssh', null, '', args => print(span('e', `ssh: connect to host ${esc(args[0] || 'homelab')} port 22: Connection refused`) + span('m', ' - my homelab is not that open')));
+def(['reboot', 'shutdown', 'poweroff'], null, '', async () => { print(span('w', 'System is going down for reboot NOW!')); await sleep(800); boot(true); });
+def('uptime', null, '', () => print(`up ${uptime()}, 1 user, load average: 0.42, 0.13, 0.37`));
 def('man', 'system', 'manual for a command', args => {
   const t = (args[0] || '').toLowerCase();
   if (!t) return print('What manual page do you want?' + span('m', ' (e.g. ') + cmd('man ls') + span('m', ')'));
@@ -783,6 +875,11 @@ def('man', 'system', 'manual for a command', args => {
   printLines([h2('NAME'), `       ${esc(c.name)} - ${esc(c.desc)}`, h2('SYNOPSIS'), `       ${esc(c.name)}${c.usage ? ' ' + esc(c.usage) : ''}`,
     ...(c.aliases.length ? [h2('ALIASES'), '       ' + esc(c.aliases.join(', '))] : [])]);
 }, { usage: '<command>' });
+def('xyzzy', null, '', () => { print('Nothing happens.'); });
+def(['curl', 'wget'], null, '', args => print(/iantiemann/.test(args.join(' '))
+  ? span('m', "You're already here. For the HTML version: ") + cmd('gui')
+  : span('e', 'curl: (6) Could not resolve host') + span('m', ' - it\'s always DNS.')));
+def(['uname'], null, '', () => print('IanOS 6.1.0-coffee #1 SMP PREEMPT_DYNAMIC x86_64 GNU/JavaScript'));
 
 // ---- visuals ----
 function figlet(text) {
