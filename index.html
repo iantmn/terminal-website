@@ -895,7 +895,7 @@ def('sudo', null, '', (args, raw) => {
   unlock('sudo');
   print(`[sudo] password for guest: `);
   print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));
-  print(span('m', '(to nobody, relax)'));
+  print(span('m', '(to nobody, relax. Maybe if you ask nicely and say please, I might let you run a command as root.)'));
 });
 def('rm', null, '', async args => {
   if (!args.some(a => /^-\w*r/.test(a)) || !args.some(a => /^(\/|\*|~|\.)/.test(a))) return print(span('e', 'rm: refusing to remove that - this filesystem is read-only'));
