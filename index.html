@@ -91,6 +91,8 @@ const PROFILE = {
   linkedin: 'https://www.linkedin.com/in/ian-tiemann/',
   rss: SITE + '/feed.xml',
   email: '',
+  // traefik/whoami behind this path, '' to disable
+  whoamiApi: '/api/whoami',
 };
 
 const ABOUT = [
@@ -260,6 +262,7 @@ const POSTS = [
 // ---- terminal ----
 const $ = id => document.getElementById(id);
 const term = $('term'), out = $('out'), kb = $('kb'), ps = $('ps'), inrow = $('inrow');
+const BOOT_TIME = Date.now();
 const store = {
   get(k, d) { try { const v = localStorage.getItem('iterm.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('iterm.' + k, JSON.stringify(v)); } catch {} },
@@ -458,9 +461,91 @@ def(['help', 'h', '?'], 'system', 'show this help', () => {
   print(span('m', 'Tips: ') + 'Tab autocompletes · ↑/↓ history · Ctrl+L clears · Ctrl+C cancels · links are clickable');
 });
 
+const kv = rows => `<div class="tbl">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div>`;
 
+function parseUA() {
+  const u = navigator.userAgent;
+  const browsers = [['Edge', /Edg(?:iOS|A)?\/(\d+)/], ['Opera', /OPR\/(\d+)/], ['Samsung Internet', /SamsungBrowser\/(\d+)/],
+    ['Firefox', /(?:Firefox|FxiOS)\/(\d+)/], ['Chrome', /(?:Chrome|CriOS)\/(\d+)/], ['Safari', /Version\/(\d+).*Safari/]];
+  const oses = [['iOS', /iPhone|iPod/], ['iPadOS', /iPad/], ['Android', /Android/], ['Windows', /Windows/],
+    ['ChromeOS', /CrOS/], ['macOS', /Mac OS X/], ['Linux', /Linux/]];
+  let browser = 'Unknown', os = 'Unknown';
+  for (const [n, re] of browsers) { const m = re.exec(u); if (m) { browser = `${n} ${m[1]}`; break; } }
+  for (const [n, re] of oses) if (re.test(u)) { os = n; break; }
+  if (os === 'macOS' && navigator.maxTouchPoints > 1) os = 'iPadOS';
+  const device = /Mobi/.test(u) ? 'mobile' : navigator.maxTouchPoints > 0 ? 'touch device' : 'desktop';
+  return { browser, os, device };
+}
 
+async function fetchWhoami() {
+  if (!PROFILE.whoamiApi) return null;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 2500);
+  try {
+    const res = await fetch(PROFILE.whoamiApi, { cache: 'no-store', signal: ctl.signal });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && data.headers ? data : null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
 
+def('whoami', 'me', 'what I can see about you', async args => {
+ 
+  const all = args.includes('-a') || args.includes('--all');
+  const ua = parseUA(), conn = navigator.connection;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const off = -new Date().getTimezoneOffset();
+  const utc = `UTC${off >= 0 ? '+' : '-'}${String(Math.floor(Math.abs(off) / 60)).padStart(2, '0')}:${String(Math.abs(off) % 60).padStart(2, '0')}`;
+
+  print(span('u', 'guest') + span('m', ', this is what your browser tells me:'));
+  print('');
+  print(span('w b', 'Your browser'));
+  print(kv([
+    ['Browser', ua.browser],
+    ['OS', `${ua.os} (${ua.device})`],
+    ['Languages', (navigator.languages || [navigator.language]).join(', ')],
+    ['Timezone', `${tz} (${utc})`],
+    ['Local time', new Date().toLocaleString()],
+    ['Screen', `${screen.width}×${screen.height} @${devicePixelRatio}x · window ${innerWidth}×${innerHeight}`],
+    ['Colour scheme', matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'],
+    navigator.hardwareConcurrency ? ['CPU cores', String(navigator.hardwareConcurrency)] : null,
+    navigator.deviceMemory ? ['Memory', `≥ ${navigator.deviceMemory} GB`] : null,
+    conn && conn.effectiveType ? ['Network', conn.effectiveType + (conn.downlink ? ` · ~${conn.downlink} Mbps` : '')] : null,
+    ['Do Not Track', navigator.doNotTrack === '1' || navigator.globalPrivacyControl ? 'on' : 'off'],
+    ['Referrer', document.referrer || '(direct visit)'],
+  ].filter(Boolean)));
+
+  print('');
+  const wait = print(span('m', 'asking the server what your request looked like...'));
+  const data = await fetchWhoami();
+  if (!data) {
+    wait.innerHTML = span('m', '(server-side header echo is not available right now)');
+  } else {
+    wait.remove();
+    const h = {};
+    for (const [k, v] of Object.entries(data.headers)) h[k.toLowerCase()] = [].concat(v).join(', ');
+    const ip = h['cf-connecting-ip'] || h['x-real-ip'] || (h['x-forwarded-for'] || '').split(',')[0].trim()
+      || String(data.remoteAddr || '').replace(/:\d+$/, '');
+    print(span('w b', 'As seen by the server'));
+    print(kv([
+      ip ? ['IP address', ip] : null,
+      h['x-forwarded-proto'] ? ['Protocol', h['x-forwarded-proto'].toUpperCase()] : null,
+      data.method ? ['Request', `${data.method} ${data.host || location.host}`] : null,
+    ].filter(Boolean)));
+    print('');
+    const interesting = ['user-agent', 'accept-language', 'accept-encoding', 'accept', 'sec-ch-ua', 'sec-ch-ua-platform',
+      'sec-ch-ua-mobile', 'dnt', 'sec-gpc', 'referer'];
+    const keys = all ? Object.keys(h).sort() : interesting.filter(k => h[k]);
+    const secret = k => /^(cookie|authorization|proxy-authorization)$/.test(k);
+    print(span('w b', 'Request headers'));
+    print(kv(keys.map(k => [k, secret(k) ? '[redacted]' : h[k]])));
+    if (!all && Object.keys(h).length > keys.length)
+      print(span('m', `showing ${keys.length} of ${Object.keys(h).length} headers - `) + cmd('whoami -a', 'show all'));
+  }
+  print('');
+  print(span('m', 'Nothing gets stored. Your browser sends all of this with every request anyway.'));
+  print(span('m', `And me? I'm Ian → `) + cmd('about'));
+}, { usage: '[-a]' });
 
 def(['about', 'ian', 'bio'], 'me', 'who is Ian?', () => printLines(ABOUT.map(esc)));
 
@@ -587,6 +672,7 @@ def('history', 'system', 'command history', () => hist.forEach((h, i) => print(`
 def('echo', 'system', 'print text', (args, raw) => print(esc(raw.replace(/^\s*echo\s?/, '').replace(/^(["'])(.*)\1$/, '$2'))));
 def('date', 'system', 'current date & time', () => print(new Date().toString()));
 def('banner', 'system', 'show the banner', () => banner());
+def(['neofetch', 'fastfetch', 'screenfetch'], 'system', 'system information', () => { neofetch(); });
 def('theme', 'system', 'change colour theme', args => {
   const themes = ['default', 'matrix', 'amber', 'dracula', 'solarized', 'light'];
   if (!args[0] || !themes.includes(args[0])) {
@@ -640,6 +726,42 @@ function banner() {
   if (charsPerLine() >= 66) print(esc(figlet('ian tiemann')), 'banner');
   else print(span('banner', '» ian tiemann'));
   print(span('m', 'Project engineer · IT · development · project management'));
+}
+function uptime() {
+  const s = Math.floor((Date.now() - BOOT_TIME) / 1000);
+  const m = Math.floor(s / 60), h = Math.floor(m / 60);
+  return h ? `${h}h ${m % 60}m` : m ? `${m} min` : `${s} sec`;
+}
+function neofetch() {
+  const logo = [
+    '  ___________  ',
+    ' |  _______  | ',
+    ' | | >_    | | ',
+    ' | |       | | ',
+    ' | |_______| | ',
+    ' |___________| ',
+    '    _|___|_    ',
+    '               ',
+    '               ',
+    '               ',
+    '               ',
+  ];
+  const info = [
+    span('u', 'guest') + '@' + span('u', 'iantiemann'),
+    span('m', '----------------'),
+    span('a2', 'OS') + ': IanOS 2026 (Jekyll-flavoured)',
+    span('a2', 'Host') + ': terminal.iantiemann.nl',
+    span('a2', 'Uptime') + ': ' + uptime(),
+    span('a2', 'Shell') + ': ish 1.0',
+    span('a2', 'Role') + ': ' + esc(PROFILE.role),
+    span('a2', 'Location') + ': ' + esc(PROFILE.location) + '',
+    span('a2', 'Packages') + `: ${POSTS.filter(p => p.type === 'guide').length} guides, ${POSTS.filter(p => p.type === 'project').length} projects`,
+    span('a2', 'Theme') + ': ' + document.body.dataset.theme,
+    ['--fg','--accent','--accent2','--link','--warn','--err'].map(v => `<span style="color:var(${v})">███</span>`).join(''),
+  ];
+  const cpl = charsPerLine();
+  if (cpl < 45) return printLines(info);
+  info.forEach((l, i) => print(span('a', esc(logo[i] || '')) + '  ' + l));
 }
 
 
