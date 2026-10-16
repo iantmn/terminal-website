@@ -94,8 +94,6 @@ const PROFILE = {
   linkedin: 'https://www.linkedin.com/in/ian-tiemann/',
   rss: SITE + '/feed.xml',
   email: '',
-  // traefik/whoami behind this path, '' to disable
-  whoamiApi: '/api/whoami',
 };
 
 const ABOUT = [
@@ -618,22 +616,9 @@ function parseUA() {
   return { browser, os, device };
 }
 
-async function fetchWhoami() {
-  if (!PROFILE.whoamiApi) return null;
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 2500);
-  try {
-    const res = await fetch(PROFILE.whoamiApi, { cache: 'no-store', signal: ctl.signal });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data && data.headers ? data : null;
-  } catch { return null; } finally { clearTimeout(t); }
-}
-
-def('whoami', 'me', 'what I can see about you', async args => {
+def('whoami', 'me', 'what I can see about you', () => {
   if (asRoot) return print('root' + span('m', ' (just for this command)'));
   unlock('whoami');
-  const all = args.includes('-a') || args.includes('--all');
   const ua = parseUA(), conn = navigator.connection;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const off = -new Date().getTimezoneOffset();
@@ -658,36 +643,9 @@ def('whoami', 'me', 'what I can see about you', async args => {
   ].filter(Boolean)));
 
   print('');
-  const wait = print(span('m', 'asking the server what your request looked like...'));
-  const data = await fetchWhoami();
-  if (!data) {
-    wait.innerHTML = span('m', '(server-side header echo is not available right now)');
-  } else {
-    wait.remove();
-    const h = {};
-    for (const [k, v] of Object.entries(data.headers)) h[k.toLowerCase()] = [].concat(v).join(', ');
-    const ip = h['cf-connecting-ip'] || h['x-real-ip'] || (h['x-forwarded-for'] || '').split(',')[0].trim()
-      || String(data.remoteAddr || '').replace(/:\d+$/, '');
-    print(span('w b', 'As seen by the server'));
-    print(kv([
-      ip ? ['IP address', ip] : null,
-      h['x-forwarded-proto'] ? ['Protocol', h['x-forwarded-proto'].toUpperCase()] : null,
-      data.method ? ['Request', `${data.method} ${data.host || location.host}`] : null,
-    ].filter(Boolean)));
-    print('');
-    const interesting = ['user-agent', 'accept-language', 'accept-encoding', 'accept', 'sec-ch-ua', 'sec-ch-ua-platform',
-      'sec-ch-ua-mobile', 'dnt', 'sec-gpc', 'referer'];
-    const keys = all ? Object.keys(h).sort() : interesting.filter(k => h[k]);
-    const secret = k => /^(cookie|authorization|proxy-authorization)$/.test(k);
-    print(span('w b', 'Request headers'));
-    print(kv(keys.map(k => [k, secret(k) ? '[redacted]' : h[k]])));
-    if (!all && Object.keys(h).length > keys.length)
-      print(span('m', `showing ${keys.length} of ${Object.keys(h).length} headers - `) + cmd('whoami -a', 'show all'));
-  }
-  print('');
   print(span('m', 'Nothing gets stored. Your browser sends all of this with every request anyway.'));
   print(span('m', `And me? I'm Ian → `) + cmd('about'));
-}, { usage: '[-a]' });
+});
 
 def(['about', 'ian', 'bio'], 'me', 'who is Ian?', () => printLines(ABOUT.map(esc)));
 

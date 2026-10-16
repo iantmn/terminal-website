@@ -18,7 +18,7 @@ Everything you see (about, experience, education, skills, posts) lives in the co
 
 ## whoami
 
-`whoami` shows what the browser reports. If [traefik/whoami](https://github.com/traefik/whoami) is reachable at `/api/whoami`, it also shows the request headers. On GitHub Pages that endpoint doesn't exist, so set `whoamiApi: ''` in `PROFILE` to skip it.
+`whoami` shows what the browser reports.
 
 ## Easter eggs
 
