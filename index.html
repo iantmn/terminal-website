@@ -91,6 +91,7 @@ const PROFILE = {
   role: 'Project engineer @ NetW',
   location: 'The Netherlands',
   github: 'https://github.com/iantmn',
+  repo: 'https://github.com/iantmn/terminal-website',
   linkedin: 'https://www.linkedin.com/in/ian-tiemann/',
   rss: SITE + '/feed.xml',
   email: '',
@@ -762,10 +763,10 @@ def('tree', 'nav', 'show directory tree', args => {
 
 def(['open', 'xdg-open'], 'nav', 'open a post or link', args => {
   const a = (args[0] || '').toLowerCase();
-  const map = { github: PROFILE.github, linkedin: PROFILE.linkedin, site: SITE, blog: SITE, cv: SITE + '/CV/', rss: PROFILE.rss };
+  const map = { github: PROFILE.github, repo: PROFILE.repo, linkedin: PROFILE.linkedin, site: SITE, blog: SITE, cv: SITE + '/CV/', rss: PROFILE.rss };
   const p = POSTS.find(p => p.n === parseInt(a, 10));
   const url = p ? absUrl(p.url) : map[a] || (/^https?:\/\//.test(args[0] || '') ? args[0] : null);
-  if (!url) return print(span('e', 'usage: open <n|github|linkedin|site|cv|rss>'));
+  if (!url) return print(span('e', 'usage: open <n|github|repo|linkedin|site|cv|rss>'));
   print(span('m', 'opening ') + link(url) + span('m', ' ...'));
   window.open(url, '_blank', 'noopener');
 }, { usage: '<n|name>' });
@@ -834,6 +835,10 @@ def(['exit', 'logout', 'quit', ':q'], 'system', 'leave the terminal', async () =
 });
 def('github', null, '', () => C.open.run(['github']));
 def('linkedin', null, '', () => C.open.run(['linkedin']));
+def(['repo', 'source', 'src'], 'system', 'source code of this site', () => {
+  print(span('m', 'This terminal is open source: ') + link(PROFILE.repo));
+  print(span('m', 'Stars, issues and pull requests are welcome.'));
+});
 def('mail', null, '', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 
 // hidden fun
@@ -1369,6 +1374,7 @@ async function boot(reboot = false) {
   print('');
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
   print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('skills')}  ${cmd('contact')}  ${cmd('ls')}`);
+  print(span('m', 'Source code: ') + link(PROFILE.repo) + span('m', ' (') + cmd('repo') + span('m', ')'));
   if (unlocked.size) print(span('m', `Welcome back - you've found ${unlocked.size}/${Object.keys(ACH).length} `) + cmd('achievements') + span('m', '.'));
   print('');
   store.set('visited', true);
