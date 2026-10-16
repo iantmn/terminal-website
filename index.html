@@ -172,6 +172,7 @@ const renderPrompt = () => { ps.innerHTML = promptHTML(); };
 const h2 = t => span('w b', '## ' + esc(t));
 const bullet = b => `  ${span('a','•')} ${esc(b)}`;
 const tags = list => list.map(t => `<span class="tag">${esc(t)}</span>`).join('');
+const cvLines = () => [`The full CV lives at ${link(SITE + '/CV/')}`, `${span('m','Or explore here:')} ${cmd('experience')} ${cmd('education')} ${cmd('certs')} `];
 
 
 const fmtExp = e => [
@@ -197,6 +198,13 @@ const fmtEdu = e => [
 
 
 // content renderers
+function contactLines() {
+  const l = [
+    `<div class="tbl"><span>GitHub</span><span>${link(PROFILE.github)}</span><span>LinkedIn</span><span>${link(PROFILE.linkedin)}</span><span>Website</span><span>${link(SITE)}</span><span>RSS</span><span>${link(PROFILE.rss)}</span>${PROFILE.email ? `<span>Email</span><span>${link('mailto:' + PROFILE.email, PROFILE.email)}</span>` : ''}</div>`,
+  ];
+  l.push('', span('m', 'Shortcuts: ') + `${cmd('github')} ${cmd('linkedin')} ${cmd('gui')}${PROFILE.email ? ' ' + cmd('mail') : ''}`);
+  return l;
+}
 const pad = (s, n) => s + ' '.repeat(Math.max(0, n - s.length));
 
 
@@ -249,12 +257,31 @@ def(['certs', 'courses'], 'me', 'courses & certificates', () =>
 
 
 
+def(['cv', 'resume'], 'me', 'my CV', () => printLines(cvLines()));
+def(['contact', 'socials', 'social'], 'me', 'how to reach me', () => printLines(contactLines()));
+def(['talk', 'hire', 'chat'], null, '', () => {
+ 
+  printLines([
+    "I'm not really looking for a new job right now, but I'm always happy to talk.",
+    'Tech, projects, homelabs, ideas, or just a coffee. Send me a message:',
+    '',
+    `  ${cmd('linkedin')}   ${cmd('contact')}`,
+  ]);
+});
 
 
 
 
 
 
+def(['open', 'xdg-open'], 'nav', 'open a link', args => {
+  const a = (args[0] || '').toLowerCase();
+  const map = { github: PROFILE.github, linkedin: PROFILE.linkedin, site: SITE, blog: SITE, cv: SITE + '/CV/', rss: PROFILE.rss };
+  const url = map[a] || (/^https?:\/\//.test(args[0] || '') ? args[0] : null);
+  if (!url) return print(span('e', 'usage: open <github|linkedin|site|cv|rss>'));
+  print(span('m', 'opening ') + link(url) + span('m', ' ...'));
+  window.open(url, '_blank', 'noopener');
+}, { usage: '<name>' });
 
 // system
 def(['clear', 'cls'], 'system', 'clear the screen', () => { out.innerHTML = ''; });
@@ -273,6 +300,9 @@ def(['exit', 'logout', 'quit', ':q'], 'system', 'leave the terminal', async () =
   print(span('w', 'just kidding, there is no escape.'));
   print(span('m', 'Want the normal site? ') + cmd('gui'));
 });
+def('github', null, '', () => C.open.run(['github']));
+def('linkedin', null, '', () => C.open.run(['linkedin']));
+def('mail', null, '', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 
 
 
@@ -392,7 +422,7 @@ async function boot(reboot = false) {
   banner();
   print('');
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
-  print(`Try: ${cmd('about')}  ${cmd('experience')}  `);
+  print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('contact')}  `);
   print('');
   store.set('visited', true);
   busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
