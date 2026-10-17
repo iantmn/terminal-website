@@ -388,7 +388,11 @@ const sleep = ms => new Promise((res, rej) => setTimeout(() => cancelled ? rej(n
 let cwd = []; // path segments under ~
 const pathStr = () => '~' + (cwd.length ? '/' + cwd.join('/') : '');
 const promptHTML = () => `${span('u','guest@iantiemann')}${span('m',':')}${span('h', esc(pathStr()))}${span('m','$')} `;
-const renderPrompt = () => { ps.innerHTML = promptHTML(); };
+const renderPrompt = () => { ps.innerHTML = asking ? asking.q : promptHTML(); };
+
+// the next line typed answers the question instead of running as a command
+let asking = null;
+const ask = q => new Promise(resolve => { asking = { q, resolve }; renderPrompt(); focusInput(); });
 
 // achievements
 // [name, hint, how]. empty hint = classic, how is only shown once unlocked
@@ -915,8 +919,18 @@ def('achievements', 'system', 'easter eggs you found', () => {
     else print(`  ${span('m', '☆ ' + n + ' ???')}  ${hint ? span('m', '- ' + esc(hint)) : span('m', '(classic, no hint)')}`);
   });
   print('');
+  if (unlocked.size) print(span('m', 'Want to start over? ') + cmd('reset-achievements'));
   if (unlocked.size === total) print(span('a b', 'You found everything. Respect.'));
   else print(span('m', 'Stuck? ') + cmd('hint') + span('m', ' gives a clearer tip for a random one, or ') + span('a2', 'hint &lt;n&gt;') + span('m', ' for a specific one.'));
+});
+def('reset-achievements', 'system', 'forget all achievements', async () => {
+  if (!unlocked.size) return print(span('m', 'Nothing to reset, you have no achievements yet.'));
+  busy = false; inrow.style.visibility = '';
+  const answer = await ask(span('w', `Delete ${unlocked.size === 1 ? 'your 1 achievement' : `all ${unlocked.size} achievements`}? This cannot be undone. [y/N] `));
+  if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Aborted. Your achievements are safe.'));
+  unlocked = new Set();
+  ['ach', 'read', 'rooms'].forEach(k => store.set(k, []));
+  print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
 });
 def('hint', 'system', 'a nudge towards an achievement', args => {
   const hinted = ACH_IDS.filter(id => ACH[id][1]);
@@ -1342,6 +1356,11 @@ async function execLine(line) {
 
 async function run(raw, { echo = true } = {}) {
   raw = raw.trim();
+  if (asking) {
+    const a = asking; asking = null;
+    print(a.q + esc(raw));
+    return a.resolve(raw);
+  }
   if (echo) print(promptHTML() + esc(raw));
   if (!raw) return;
   if (raw === '!!') { if (!hist.length) return; raw = hist[hist.length - 1]; print(span('m', raw)); }
@@ -1412,7 +1431,7 @@ kb.addEventListener('keydown', e => {
   else if (e.key === 'Tab') { e.preventDefault(); if (kb.value.trim()) unlock('tab'); complete(e.shiftKey); }
   else if (cycle && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) cycle = null;
   else if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
-  else if (e.ctrlKey && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print(promptHTML() + esc(kb.value) + span('e', '^C')); kb.value = ''; }
+  else if (e.ctrlKey && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print((asking ? asking.q : promptHTML()) + esc(kb.value) + span('e', '^C')); kb.value = ''; if (asking) { const a = asking; asking = null; a.resolve(''); } }
 });
 const moveEnd = () => requestAnimationFrame(() => kb.setSelectionRange(kb.value.length, kb.value.length));
 
