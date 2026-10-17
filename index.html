@@ -439,6 +439,8 @@ const ACH = {
   explorer: ['Explorer',                   'Visit every room in the house.',                          'cd into experience, education, projects and articles.'],
   tab:      ['Lazy typist',                'Real terminal users never type the whole thing.',        'Press Tab while typing a command.'],
   ctrlc:    ['Interrupt handler',          'Stop a command in its tracks.',                           'Press Ctrl+C while a command like ping is running.'],
+  top:      ['Task manager',               'See what keeps Ian busy all day.',                         'Type top or htop.'],
+  kill:     ['Process reaper',             'Some processes cannot be stopped. Try anyway.',            'kill coffee'],
   deeplink: ['Teleporter',                 'The address bar is a terminal too.',                      'Open the site with #command after the URL, e.g. #fortune.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
@@ -1214,6 +1216,152 @@ def(['curl', 'wget'], null, '', args => print(/iantiemann/.test(args.join(' '))
   ? span('m', "You're already here. For the HTML version: ") + cmd('gui')
   : span('e', 'curl: (6) Could not resolve host') + span('m', ' - it\'s always DNS.')));
 def(['uname'], null, '', () => print('IanOS 6.1.0-coffee #1 SMP PREEMPT_DYNAMIC x86_64 GNU/JavaScript'));
+
+// common commands, with Ian's day as the process list
+const PROCS = [
+  { pid: 1,    user: 'root', cpu: 0.1,  mem: 0.4,  cmd: 'init --curiosity' },
+  { pid: 42,   user: 'ian',  cpu: 34.0, mem: 18.2, cmd: 'cloudmodule-dev --product' },
+  { pid: 101,  user: 'ian',  cpu: 21.5, mem: 9.6,  cmd: 'project-planning --stakeholders' },
+  { pid: 128,  user: 'ian',  cpu: 12.8, mem: 6.1,  cmd: 'coffee.service' },
+  { pid: 256,  user: 'ian',  cpu: 9.3,  mem: 22.4, cmd: 'homelab --proxmox --docker' },
+  { pid: 404,  user: 'ian',  cpu: 6.7,  mem: 4.8,  cmd: 'write-guide --next-article' },
+  { pid: 512,  user: 'ian',  cpu: 4.2,  mem: 3.3,  cmd: 'learn kubernetes' },
+  { pid: 1337, user: 'ian',  cpu: 2.0,  mem: 1.0,  cmd: 'stroopwafel-daemon' },
+  { pid: 2016, user: 'ian',  cpu: 0.6,  mem: 0.9,  cmd: 'fix-the-printer --again' },
+  { pid: 9000, user: 'guest', cpu: 0.3, mem: 0.2,  cmd: 'terminal.iantiemann.nl' },
+];
+const jitter = v => Math.max(0, v + (Math.random() - 0.5) * v * 0.4);
+function topLines() {
+  const rows = PROCS.map(p => ({ ...p, cpu: jitter(p.cpu) })).sort((a, b) => b.cpu - a.cpu);
+  const total = rows.reduce((t, p) => t + p.cpu, 0);
+  const bar = (pct, w = 30) => '|'.repeat(Math.round(pct / 100 * w)).padEnd(w, ' ');
+  return [
+    `top - ${new Date().toLocaleTimeString()} up ${uptime()},  1 user,  load average: 0.42, 0.13, 0.37`,
+    `Tasks: ${PROCS.length} total,   ${PROCS.length - 1} running,   1 sleeping (that's Ian, after midnight)`,
+    `CPU [${span('a', bar(Math.min(total, 100)))}] ${Math.min(total, 100).toFixed(1)}%`,
+    `Mem [${span('a2', bar(67.2))}] 10.7G/16.0G   (mostly browser tabs)`,
+    '',
+    span('w b', '  PID USER      %CPU  %MEM  COMMAND'),
+    ...rows.map(p => `${String(p.pid).padStart(5)} ${pad(p.user, 8)} ${p.cpu.toFixed(1).padStart(5)} ${p.mem.toFixed(1).padStart(5)}  ${p.cmd === 'coffee.service' ? span('w', esc(p.cmd)) : esc(p.cmd)}`),
+  ];
+}
+def(['top', 'htop', 'btop'], null, '', async () => {
+  unlock('top');
+  const box = print('');
+  for (let i = 0; i < 8; i++) {
+    box.innerHTML = topLines().join('\n');
+    scrollDown();
+    await sleep(1000);
+  }
+  print(span('m', 'top exited after 8 refreshes. Press Ctrl+C to quit earlier next time.'));
+});
+def('ps', null, '', () => printLines([
+  span('w b', '  PID TTY      STAT  COMMAND'),
+  ...PROCS.map(p => `${String(p.pid).padStart(5)} ${pad(p.user === 'guest' ? 'pts/0' : '?', 8)} ${p.pid === 2016 ? 'S   ' : 'R   '}  ${esc(p.cmd)}`),
+]));
+def(['kill', 'killall', 'pkill'], null, '', args => {
+  const t = args.filter(a => !a.startsWith('-')).join(' ').toLowerCase();
+  if (!t) return print(span('e', 'kill: usage: kill [-s sigspec | -n signum | -sigspec] pid | name'));
+  const p = PROCS.find(p => String(p.pid) === t || p.cmd.split(' ')[0].replace('.service', '') === t || p.cmd.startsWith(t));
+  if (!p) return print(span('e', `kill: (${esc(t)}) - No such process`));
+  if (p.user === 'root') return print(span('e', `kill: (${p.pid}) - Operation not permitted`));
+  if (p.cmd === 'coffee.service') { unlock('kill'); return print(span('w', 'Terminated: coffee.service') + span('m', '\ncoffee.service respawned (Restart=always). Some things are not negotiable.')); }
+  if (p.user === 'guest') return print(span('m', 'You tried to kill the terminal you are using. Bold. Try ') + cmd('exit') + span('m', ' instead.'));
+  unlock('kill');
+  print(`[1]+  Terminated              ${esc(p.cmd)}`);
+  print(span('m', `${esc(p.cmd.split(' ')[0])} will be back tomorrow morning, probably before the coffee.`));
+});
+def('df', null, '', () => printLines([
+  span('w b', 'Filesystem      Size  Used Avail Use% Mounted on'),
+  '/dev/brain      1.0T  987G   13G  99% /',
+  'experience       10y   10y     ∞  12% /home/guest/experience',
+  'tmpfs           640K  640K     0 100% /dev/ideas',
+  'coffee           2.0L  1.9L  0.1L  95% /mnt/mug',
+  span('m', '/dev/brain is nearly full. Mostly config syntax and Dutch weather forecasts.'),
+]));
+def('free', null, '', () => printLines([
+  span('w b', '               total        used        free      shared  buff/cache'),
+  'Mem:            16Gi        10Gi       1.2Gi       512Mi       4.8Gi',
+  'Swap:          2.0Gi       0.0Gi       2.0Gi',
+  span('m', 'buff/cache is 80% stroopwafel recipes.'),
+]));
+def(['ip', 'ifconfig'], null, '', () => printLines([
+  esc('1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536'), '    inet 127.0.0.1/8 scope host lo',
+  esc('2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500'), '    inet 127.0.4.2/24 brd 127.0.4.255 scope global eth0',
+  esc('3: wg0: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420'), '    inet 10.42.0.1/24 scope global wg0',
+  span('m', 'wg0 goes to the homelab. No, you cannot have the key.'),
+]));
+def('hostname', null, '', () => print('iantiemann'));
+def('id', null, '', () => print('uid=1000(guest) gid=1000(guest) groups=1000(guest),27(curious),42(coffee)'));
+def(['which', 'type', 'whereis', 'command'], null, '', args => {
+  if (!args[0]) return print(span('e', 'usage: which <command>'));
+  args.forEach(a => print(C[a.toLowerCase()] ? `/usr/bin/${esc(a)}` : span('e', `${esc(a)} not found`)));
+});
+def(['env', 'printenv', 'export', 'set'], null, '', () => printLines([
+  'USER=guest', 'HOME=/home/guest', 'SHELL=/bin/zsh', 'LANG=nl_NL.UTF-8', 'TERM=xterm-256color',
+  'EDITOR=vim  ' + span('m', '# good luck getting out'), 'COFFEE_LEVEL=high', 'DNS_BLAME=always', `PWD=${esc(pathStr())}`,
+]));
+def(['touch', 'mkdir', 'mv', 'cp', 'chmod', 'chown', 'ln', 'rmdir'], null, '', (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0];
+  print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`));
+});
+def('systemctl', null, '', args => {
+  const unit = (args[1] || '').replace('.service', '');
+  if (args[0] === 'status' && unit) {
+    const p = PROCS.find(p => p.cmd.split(' ')[0].replace('.service', '') === unit);
+    if (!p) return print(span('e', `Unit ${esc(unit)}.service could not be found.`));
+    return printLines([
+      `${span('a', '●')} ${esc(unit)}.service`,
+      `     Loaded: loaded (/etc/systemd/system/${esc(unit)}.service; enabled)`,
+      `     Active: ${span('a', 'active (running)')} since ${unit === 'coffee' ? '06:45 every morning' : 'boot'}`,
+      `   Main PID: ${p.pid} (${esc(unit)})`,
+    ]);
+  }
+  if (['start', 'stop', 'restart', 'enable', 'disable'].includes(args[0])) return print(span('e', 'Failed to ' + esc(args[0]) + ' unit: Access denied') + span('m', ' (try asking nicely)'));
+  printLines([
+    span('w b', 'UNIT                        LOAD   ACTIVE SUB     DESCRIPTION'),
+    'coffee.service              loaded active running Keeps Ian operational',
+    'cloudmodule-dev.service     loaded active running CloudModule product development',
+    'homelab.service             loaded active running Proxmox, Docker and too many dashboards',
+    'curiosity.target            loaded active active  Wants to know how everything works',
+    span('m', 'Try ') + cmd('systemctl status coffee'),
+  ]);
+});
+def('journalctl', null, '', () => printLines([
+  span('m', '-- Logs begin at boot --'),
+  'coffee[128]: Brewing cup 1 of many',
+  'cloudmodule-dev[42]: Roadmap updated, stakeholders aligned',
+  'homelab[256]: Proxmox Backup Server: nightly sync to offsite completed',
+  'homelab[256]: Grafana alert resolved: it was DNS',
+  'fix-the-printer[2016]: Printer is out of paper. Again.',
+  `terminal[9000]: guest connected, uptime ${uptime()}`,
+]));
+def(['dig', 'nslookup', 'host'], null, '', args => {
+  const host = args.find(a => !a.startsWith('-')) || 'iantiemann.nl';
+  printLines([
+    `;; QUESTION SECTION:`, `;${esc(host)}.            IN  A`, '',
+    `;; ANSWER SECTION:`, `${esc(host)}.     300  IN  A  192.0.2.42`, '',
+    span('m', ';; Query time: 42 msec. If something is broken, it was probably DNS.'),
+  ]);
+});
+def(['traceroute', 'tracert', 'mtr'], null, '', async args => {
+  const host = args[0] || 'iantiemann.nl';
+  print(`traceroute to ${esc(host)}, 30 hops max`);
+  const hops = ['your-router.lan', 'curiosity.gw', 'tudelft.ide.edu', 'avans.breda.edu', 'notive.zwijndrecht', 'netw.stellendam', esc(host)];
+  for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${hops[i]}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
+});
+def('cal', null, '', () => {
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth();
+  const first = (new Date(y, m, 1).getDay() + 6) % 7, days = new Date(y, m + 1, 0).getDate();
+  const title = d.toLocaleString('en', { month: 'long' }) + ' ' + y;
+  const cells = [...Array(first).fill('  '), ...Array.from({ length: days }, (_, i) => {
+    const n = String(i + 1).padStart(2);
+    return i + 1 === d.getDate() ? span('a b', n) : n;
+  })];
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7).join(' '));
+  printLines([' '.repeat(Math.max(0, Math.floor((20 - title.length) / 2))) + title, span('m', 'Mo Tu We Th Fr Sa Su'), ...weeks]);
+});
 
 // ---- visuals ----
 function figlet(text) {
