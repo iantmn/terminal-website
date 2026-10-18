@@ -33,6 +33,8 @@
     background:var(--bg); color:var(--fg);
     font:15px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     -webkit-font-smoothing:antialiased; overflow:hidden;
+    /* JetBrains Mono joins --- and === into ligatures, which makes typed text vanish in the input */
+    font-variant-ligatures:none; font-feature-settings:"liga" 0, "calt" 0;
   }
   ::selection { background:var(--sel); }
   #term {
