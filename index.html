@@ -100,6 +100,7 @@
   a.cmd { color:var(--accent2); }
   a.dir { color:var(--accent2); font-weight:700; border:0; }
   a.file { color:var(--fg); border:0; }
+  a.file.exec { color:var(--accent); }
   #term.glitching { transform:translate(2px, -1px) skewX(-1.5deg); text-shadow:-2px 0 rgba(255,0,80,.75), 2px 0 rgba(0,220,255,.75); filter:hue-rotate(35deg); }
   .ln.tear { transform:translateX(10px); clip-path:inset(0 0 45% 0); opacity:.85; }
   .power { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1.2em; min-height:75vh; text-align:center; }
@@ -444,8 +445,12 @@ let cancelled = false;
 const sleep = ms => new Promise((res, rej) => setTimeout(() => cancelled ? rej(new Error('SIGINT')) : res(), ms));
 
 // prompt / path
-let cwd = []; // path segments under ~
-const pathStr = () => '~' + (cwd.length ? '/' + cwd.join('/') : '');
+const HOME = ['home', 'guest'];
+let cwd = [...HOME]; // absolute path segments
+const underHome = segs => segs[0] === HOME[0] && segs[1] === HOME[1];
+// ~ for anything inside the home folder, a normal absolute path everywhere else
+const displayPath = segs => underHome(segs) ? '~' + (segs.length > 2 ? '/' + segs.slice(2).join('/') : '') : '/' + segs.join('/');
+const pathStr = () => displayPath(cwd);
 const promptHTML = () => `${span('u','guest@iantiemann')}${span('m',':')}${span('h', esc(pathStr()))}${span('m','$')} `;
 const renderPrompt = () => { ps.innerHTML = asking ? asking.q : promptHTML(); };
 
@@ -494,7 +499,7 @@ const ACH = {
   dns:      ['It was DNS',                 'Ask git who broke it.',                                   'git blame'],
   docker:   ['Containerised',              'See what is running on the server.',                      'docker ps'],
   hacker:   ["I'm in",                     'Play the movie hacker.',                                  'Type hack.'],
-  edge:     ['Here be dragons',            'Go up. Then further up.',                                 'cd .. from your home folder.'],
+  edge:     ['Here be dragons',            'Go up. Then further up.',                                 'cd / (or cd .. until you cannot go higher).'],
   neofetch: ['Ricer',                      'Show off your system specs, unixporn style.',             'Type neofetch.'],
   reboot:   ['Off and on again',           'The oldest fix in IT support.',                           'Type reboot.'],
   reader:   ['Bookworm',                   'Actually read about my work.',                            'Read 5 different posts with read <n>.'],
@@ -629,7 +634,7 @@ function buildFS() {
       'map.txt': file(() => [
         span('w b', '🗺  treasure map'), '',
         'Three fragments, one password. Glue them together in order.', '',
-        `  1. The system keeps a diary. Read it.`,
+        `  1. The system keeps a journal. Read it.`,
         `  2. History is written in commits.`,
         `  3. Every host knows the others by name. Look in /etc.`, '',
         'Then open the chest:  ' + span('a2', 'open chest &lt;password&gt;'),
@@ -731,31 +736,32 @@ const SYSFILES = {
 };
 
 function resolve(p) {
-  let segs;
   if (!p) p = '.';
-  if (p === '~') segs = [];
-  else if (p.startsWith('~/')) segs = p.slice(2).split('/');
-  else if (p.startsWith('/home/guest')) segs = p.slice(11).split('/');
-  else if (p.startsWith('/')) return { error: 'root' };
+  let segs;
+  if (p === '~') segs = [...HOME];
+  else if (p.startsWith('~/')) segs = [...HOME, ...p.slice(2).split('/')];
+  else if (p.startsWith('/')) segs = p.split('/');
   else segs = [...cwd, ...p.split('/')];
   const stack = [];
-  let escaped = false;
   for (const s of segs) {
     if (!s || s === '.') continue;
-    if (s === '..') { if (!stack.length) escaped = true; stack.pop(); continue; }
+    if (s === '..') { stack.pop(); continue; } // .. at / stays at /, like a real shell
     stack.push(s);
   }
-  let node = FS;
-  for (const s of stack) {
-    if (node.type !== 'dir' || !node.children[s]) return { error: 'missing', segs: stack };
-    node = node.children[s];
+  let node = ROOT;
+  for (let i = 0; i < stack.length; i++) {
+    if (node.type !== 'dir' || !node.children[stack[i]]) return { error: 'missing', segs: stack };
+    node = node.children[stack[i]];
+    // locked folders and files (owned by root or ian) need the please sudo trick
+    if (node.locked && !asRoot) return { error: 'denied', segs: stack };
   }
-  return { node, segs: stack, escaped };
+  return { node, segs: stack };
 }
 
 function lsEntry(name, node, segs) {
-  const path = '~/' + [...segs, name].join('/');
+  const path = displayPath([...segs, name]);
   if (node.type === 'dir') return `<a class="dir" data-cmd="cd ${esc(path)}">${esc(name)}/</a>`;
+  if (node.exec) return `<a class="file exec" data-cmd="${esc(node.exec)}">${esc(name)}</a>`;
   return `<a class="file" data-cmd="cat ${esc(path)}">${esc(name)}</a>`;
 }
 
@@ -973,8 +979,9 @@ function lsLong(name, node) {
   const links = dir ? 2 + Object.values(node.children).filter(c => c.type === 'dir').length : 1;
   const size = dir ? 4096 : 200 + (h % 3800);
   const date = `${d.toLocaleString('en', { month: 'short' })} ${String(d.getDate()).padStart(2)}  ${d.getFullYear()}`;
-  const owner = node.owner ? node.owner() : 'ian';
-  return span('m', `${perm} ${String(links).padStart(2)} ${pad(owner, 5)} guest ${String(size).padStart(5)} ${date}`) + ' ';
+  const owner = node.owner ? node.owner() : node.own || 'ian';
+  const group = node.own === 'root' ? 'root' : 'guest';
+  return span('m', `${perm} ${String(links).padStart(2)} ${pad(owner, 5)} ${pad(group, 5)} ${String(size).padStart(5)} ${date}`) + ' ';
 }
 
 def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
@@ -983,7 +990,7 @@ def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
   const all = flags.includes('a'), long = flags.includes('l');
   const target = args.find(a => !a.startsWith('-'));
   const r = resolve(target);
-  if (r.error === 'root') return print(span('e', `ls: cannot open directory '${esc(target)}': Permission denied`));
+  if (r.error === 'denied') return print(span('e', `ls: cannot open directory '${esc(target)}': Permission denied`));
   if (r.error) return print(span('e', `ls: cannot access '${esc(target)}': No such file or directory`));
   if (r.node.type === 'file') return print((long ? lsLong(r.segs.at(-1), r.node) : '') + lsEntry(r.segs.at(-1), r.node, r.segs.slice(0, -1)));
   const entries = Object.entries(r.node.children).filter(([n]) => all || !n.startsWith('.'))
@@ -1002,33 +1009,33 @@ def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
 
 def('cd', 'nav', 'change directory', args => {
   const r = resolve(args[0] || '~');
-  if (r.error === 'root') return print(span('e', `cd: ${esc(args[0])}: Permission denied`));
+  if (r.error === 'denied') return print(span('e', `cd: ${esc(args[0])}: Permission denied`));
   if (r.error) return print(span('e', `cd: no such file or directory: ${esc(args[0])}`));
   if (r.node.type !== 'dir') return print(span('e', `cd: not a directory: ${esc(args[0])}`));
-  if (r.escaped) { print(span('m', "Can't go any higher than this. Here be dragons.")); unlock('edge'); }
+  if (!r.segs.length) { print(span('m', "You're at the root of everything. Can't go any higher. Here be dragons.")); unlock('edge'); }
   cwd = r.segs; renderPrompt();
-  if (['experience', 'education', 'projects', 'articles'].includes(cwd[0])) track('rooms', cwd[0], 4, 'explorer');
+  if (underHome(cwd) && ['experience', 'education', 'projects', 'articles'].includes(cwd[2])) track('rooms', cwd[2], 4, 'explorer');
 }, { usage: '<dir>' });
 
 def(['cat', 'less', 'more', 'bat'], 'nav', 'print a file', args => {
   if (!args.length) return print(span('e', 'usage: cat &lt;file&gt;'));
   for (const a of args) {
-    if (SYSFILES[a]) { printLines(SYSFILES[a]()); continue; }
     const r = resolve(a);
-    if (r.error === 'root') { print(span('e', `cat: ${esc(a)}: Permission denied`)); continue; }
+    if (r.error === 'denied') { print(span('e', `cat: ${esc(a)}: Permission denied`)); continue; }
     if (r.error) { print(span('e', `cat: ${esc(a)}: No such file or directory`)); continue; }
     if (r.node.type === 'dir') { print(span('e', `cat: ${esc(a)}: Is a directory`)); continue; }
     printLines(r.node.read());
   }
 }, { usage: '<file>' });
 
-def('pwd', 'nav', 'print working directory', () => print('/home/guest' + (cwd.length ? '/' + cwd.join('/') : '')));
+def('pwd', 'nav', 'print working directory', () => print('/' + cwd.join('/')));
 
 def('tree', 'nav', 'show directory tree', args => {
   const r = resolve(args.find(a => !a.startsWith('-')));
   const all = args.includes('-a');
+  if (r.error === 'denied') return print(span('e', 'tree: Permission denied'));
   if (r.error || r.node.type !== 'dir') return print(span('e', 'tree: invalid directory'));
-  print(span('h b', r.segs.length ? r.segs.at(-1) : '~'));
+  print(span('h b', displayPath(r.segs)));
   let dirs = 0, files = 0;
   const walk = (node, prefix, segs) => {
     const ents = Object.entries(node.children).filter(([n]) => all || !n.startsWith('.'));
@@ -2002,6 +2009,21 @@ def('fsck', null, '', async () => {
   print('/dev/brain: 1337/4096 files (0.4% non-contiguous), 987/1000 blocks');
   print(span('m', '1 corrupted theme found and left in place. It still loads though. At your own risk.'));
 });
+def(['netstat', 'ss'], null, '', () => printLines([
+  'Active Internet connections (servers and established)',
+  span('w b', 'Proto Local Address        Foreign Address      State        PID/Program'),
+  ...[
+    ['tcp', '0.0.0.0:22', '0.0.0.0:*', 'LISTEN', '412/sshd', '# not for you'],
+    ['tcp', '0.0.0.0:443', '0.0.0.0:*', 'LISTEN', '1201/traefik', ''],
+    ['tcp', '127.0.0.1:3000', '0.0.0.0:*', 'LISTEN', '1388/grafana', ''],
+    ['tcp', '127.0.0.1:9090', '0.0.0.0:*', 'LISTEN', '1402/prometheus', ''],
+    ['tcp', '127.0.0.1:3100', '0.0.0.0:*', 'LISTEN', '1417/loki', ''],
+    ['tcp', '127.0.0.1:4242', '0.0.0.0:*', 'LISTEN', '128/coffee', '# the coffee machine'],
+    ['udp', '0.0.0.0:51820', '0.0.0.0:*', '', '-/wireguard', '# wg0 to the homelab'],
+    ['tcp', '10.42.0.1:8006', '10.42.0.12:41822', 'ESTABLISHED', '256/homelab', '# proxmox'],
+    ['tcp', '127.0.4.2:443', 'you:52731', 'ESTABLISHED', '9000/terminal', "# that's you"],
+  ].map(([pr, l, f, st, pid, note]) => esc(`${pad(pr, 5)} ${pad(l, 20)} ${pad(f, 20)} ${pad(st, 12)} ${pid}`) + (note ? '  ' + span('m', esc(note)) : '')),
+]));
 def('dmesg', null, '', () => printLines([
   '[    0.000000] Linux version 6.1.0-coffee (ian@iantiemann) #1 SMP PREEMPT_DYNAMIC',
   '[    0.004200] Memory: 16G available (mostly browser tabs)',
@@ -2216,7 +2238,8 @@ const expandAlias = line => {
 async function execOne(line) {
   const [name, ...args] = tokenize(line);
   if (!name) return;
-  const c = C[name.toLowerCase()];
+  let c = C[name.toLowerCase()];
+  if (!c && name.includes('/')) { const r = resolve(name); if (!r.error && r.node.exec) c = C[r.node.exec]; }
   if (!c) {
     const visible = Object.values(C).filter(x => x.group && !x.alias).map(x => x.name);
     const best = visible.map(n => [n, lev(name.toLowerCase(), n)]).sort((a, b) => a[1] - b[1])[0];
@@ -2437,7 +2460,7 @@ term.addEventListener('click', e => {
 
 // ---- boot ----
 async function boot() {
-  out.innerHTML = ''; cwd = []; renderPrompt();
+  out.innerHTML = ''; cwd = [...HOME]; renderPrompt();
   busy = true; inrow.style.visibility = 'hidden';
   // the boot lines always show, so they match the startup sound (browsers often allow it again after a reload)
   bootSound('start');
@@ -2499,6 +2522,107 @@ function powerScreen() {
     addEventListener('keydown', go, true); addEventListener('pointerdown', go, true);
   });
 }
+
+// ---- the root filesystem ----
+// built here, after every command is defined, so /usr/bin can list them. ~ (FS) hangs in at /home/guest.
+const ROOT = (() => {
+  const dir = (children, extra = {}) => ({ type: 'dir', children, own: 'root', ...extra });
+  const file = (lines, extra = {}) => ({ type: 'file', own: 'root', read: typeof lines === 'function' ? lines : () => lines.map(l => l.startsWith('<span') ? l : esc(l)), ...extra });
+  const locked = (children, extra = {}) => dir(children, { locked: true, mode: () => 'drwx------', ...extra });
+
+  // programs: the real-Linux commands, not the easter-egg words
+  const SECRET_WORDS = new Set(['42', 'xyzzy', 'hello', 'stroopwafel', 'hack', 'please', 'talk', 'weather', 'koffie', 'coffee', 'make', 'mail', 'github', 'linkedin', 'deploy']);
+  const bin = {};
+  for (const c of new Set(Object.values(C).filter(c => !c.alias).map(c => c.name))) {
+    if (SECRET_WORDS.has(c) || /[^a-z0-9-]/.test(c)) continue;
+    bin[c] = { type: 'file', own: 'root', exec: c, mode: () => '-rwxr-xr-x', read: () => [
+      span('m', esc('\x7fELF\x02\x01\x01' + Array.from({ length: 40 }, () => String.fromCharCode(33 + Math.floor(Math.random() * 90))).join(''))),
+      span('m', `(that's a program, not a text file. Run it: `) + cmd(c) + span('m', ')'),
+    ] };
+  }
+
+  // themes as files; the corrupt one hides as a dotfile, gold stays sealed until the treasure hunt
+  const themeFiles = {};
+  for (const t of [...document.querySelector('style').textContent.matchAll(/data-theme="(\w+)"/g)].map(m => m[1])) {
+    if (t === 'corrupt') themeFiles['.c0rrupt.theme'] = file(() => [span('e', esc('th▒me: c0rr░pt')), span('m', esc('checksum: 0xDEAD▓EEF (mismatch)')), span('m', 'loads anyway, if you know its name')]);
+    else if (t === 'gold') themeFiles['gold.theme'] = file(() => unlocked.has('treasure') ? [`# gold`, 'apply with: ' + cmd('theme gold')] : [span('w', 'Sealed. Something in ~/.secrets knows how to open it.')]);
+    else themeFiles[t + '.theme'] = file(() => [`# ${t}`, 'apply with: ' + cmd('theme ' + t)]);
+  }
+
+  return dir({
+    bin: dir(bin, { mode: () => 'lrwxrwxrwx' }),
+    boot: dir({
+      'vmlinuz-6.1.0-coffee': file(() => [span('m', 'binary kernel image. It boots on coffee.')]),
+      grub: dir({ 'grub.cfg': file(['menuentry "IanOS 2.6 (Stroopwafel)" {', '    linux /boot/vmlinuz-6.1.0-coffee root=/dev/brain quiet curiosity=high', '}', 'menuentry "Windows" {', '    # nope', '}']) }),
+    }),
+    dev: dir({
+      null: file(() => []),
+      urandom: file(SYSFILES['/dev/urandom']),
+      zero: file(() => [esc('\\0'.repeat(32)), span('m', '(nothing but zeros. like a monday before coffee.)')]),
+      brain: file(() => [span('m', 'block device. Check it with ') + cmd('fsck') + span('m', '.')]),
+      tty: file(() => [span('m', "that's you, typing.")]),
+    }),
+    etc: dir({
+      passwd: file(SYSFILES['/etc/passwd']),
+      shadow: file(SYSFILES['/etc/shadow'], { mode: () => '-rw-r-----' }),
+      hostname: file(SYSFILES['/etc/hostname']),
+      hosts: file(SYSFILES['/etc/hosts']),
+      motd: file(SYSFILES['/etc/motd']),
+      'os-release': file(['NAME="IanOS"', 'VERSION="2.6 (Stroopwafel)"', 'ID=ianos', 'ID_LIKE=debian', 'PRETTY_NAME="IanOS 2.6 (Stroopwafel)"', `HOME_URL="${SITE}"`, 'SUPPORT_URL="type contact"']),
+      issue: file(['IanOS 2.6 (Stroopwafel) \\n \\l', '', 'Unauthorised curiosity is strongly encouraged.']),
+      crontab: file([
+        '# m  h  dom mon dow  user  command',
+        '45 6   *   *   1-5  ian   /usr/bin/coffee --brew --strong',
+        '0  3   *   *   *    root  /usr/sbin/backup --offsite --encrypt',
+        '*/5 *  *   *   *    root  /usr/bin/check-dns   # it is always dns',
+        '0  17  *   *   5    root  /usr/bin/deploy --never',
+      ]),
+      fstab: file(['# <device>    <mount>       <type>  <options>', '/dev/brain    /             ext4    defaults,curious  0 1', '/dev/coffee   /mnt/mug      tmpfs   rw,hot            0 0', 'tmpfs         /dev/ideas    tmpfs   size=640K         0 0']),
+      'resolv.conf': file(['nameserver 127.0.0.53', '# if something is broken, check this file first. it was DNS.']),
+      shells: file(['/bin/bash', '/bin/zsh', '/usr/bin/coffee', '/bin/ish']),
+      timezone: file(['Europe/Amsterdam']),
+      sudoers: file(() => asRoot ? ['root   ALL=(ALL:ALL) ALL', 'ian    ALL=(ALL:ALL) ALL', '# guest is not in here. guest has manners instead.', 'guest  ALL=(please) ONE_COMMAND'].map(esc) : [span('e', 'cat: /etc/sudoers: Permission denied')], { mode: () => '-r--r-----' }),
+    }),
+    home: dir({
+      guest: Object.assign(FS, { own: undefined }),
+      ian: locked({
+        'todo.txt': file(['[x] build a terminal website', '[x] add way too many easter eggs', '[ ] finish the terminal website', '[ ] (this list never gets shorter)']),
+        '.vimrc': file(['" I still do not know how to exit', 'set number', 'syntax on']),
+      }, { own: 'ian' }),
+    }),
+    'lost+found': dir({
+      'stroopwafel.half-eaten': file(['Found by fsck in pass 3.', 'Still edible. Probably.']),
+    }),
+    mnt: dir({ mug: dir({ 'coffee.txt': file(['level: 95%', 'temperature: hot', 'status: being consumed']) }) }),
+    opt: dir({ cloudmodule: dir({ README: file(() => ['CloudModule: a networking appliance for secure connectivity and cloud services.', 'Status page: ' + cmd('cloudmodule')]) }) }),
+    proc: dir({
+      cpuinfo: file(() => ['processor   : 0', 'model name  : Ian Tiemann brain v1.0 @ caffeine-boosted GHz', `cpu cores   : ${navigator.hardwareConcurrency || 4} (yours, actually)`, 'flags       : curious coffee dns-blame design-thinking'].map(esc)),
+      meminfo: file(() => [`MemTotal:   ${navigator.deviceMemory ? navigator.deviceMemory + ' GB' : '16 GB'}`, 'MemFree:    not much, too many browser tabs', 'Cached:     stroopwafel recipes'].map(esc)),
+      uptime: file(() => [esc(`up ${uptime()}`)]),
+      version: file(['Linux version 6.1.0-coffee (ian@iantiemann) (gcc, but mostly coffee) #1 SMP PREEMPT_DYNAMIC']),
+    }),
+    root: locked({
+      'secret-recipe.txt': file(['THE PERFECT STROOPWAFEL', '1. Get a stroopwafel.', '2. Put it on top of a hot cup of coffee.', '3. Wait 2 minutes.', '4. That is the whole secret. Do not tell anyone.']),
+    }),
+    tmp: dir({ 'ian-was-here.tmp': file(['temporary file, permanent since 2016']) }, { mode: () => 'drwxrwxrwt' }),
+    usr: dir({
+      bin: dir(bin),
+      share: dir({ themes: dir(themeFiles) }),
+    }),
+    var: dir({
+      log: dir({
+        syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'homelab[256]: Proxmox Backup Server: nightly sync to offsite completed', 'homelab[256]: Grafana alert resolved: it was DNS', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
+        'auth.log': file([
+          'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/cat /etc/shadow',
+          'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/chmod +r diary.txt',
+          'please: guest : asked nicely ; TTY=pts/0 ; granted for ONE command',
+          'sshd: Connection closed by 192.0.2.66 port 22 [preauth]   # the homelab is not that open',
+        ]),
+      }),
+      www: dir({ 'iantiemann.nl': dir({ 'index.html': file(() => [esc('<!-- you are looking at it right now -->'), 'Source: ' + link(PROFILE.repo)]) }) }),
+    }),
+  });
+})();
 
 powerScreen().then(boot).then(() => {
   const h = decodeURIComponent(location.hash.slice(1));
