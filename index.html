@@ -1,5 +1,20 @@
 <!doctype html>
 <html lang="en">
+<!--
+  Hi there, source reader. 👋
+
+  Yes, every achievement, the treasure hunt and the incident are all in this
+  file. The full list with solutions sits in the script, search for "const ACH".
+
+  But it's way more fun to find them by trying things. Poke around the terminal,
+  type the commands you'd use on a real Linux box, read the files, and use
+  `hint` when you're stuck. The solutions will still be here if you give up.
+
+  Reading the answers in here is like skipping to the last page of a murder
+  mystery. Fine, I'll spoil that one for free: it was DNS.
+
+  Curious how it's built instead? https://github.com/iantmn/terminal-website
+-->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -405,6 +420,9 @@ let asking = null;
 const ask = q => new Promise(resolve => { asking = { q, resolve }; renderPrompt(); focusInput(); });
 
 // achievements
+// SPOILERS BELOW: every solution is in this list. Last chance to close DevTools and type `hint` instead ;)
+// Still scrolling? Fair enough, real sysadmins skip the docs and go straight to the source too.
+// If you read this far, we should talk: type `contact`.
 // [name, hint, how]. empty hint = classic, how is only shown once unlocked
 const ACH = {
   sudo:     ['Nice try, root', '', 'sudo <anything>'],
