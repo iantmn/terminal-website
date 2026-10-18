@@ -509,6 +509,7 @@ const ACH = {
   pipe:     ['Plumber',                    'Real shells connect commands with a vertical bar.',        'Pipe one command into another, like skills -a | grep proxmox.'],
   alias:    ['Shortcut maker',             'Too lazy to type the whole thing? Make your own command.', "alias ll='ls -a'"],
   deeplink: ['Teleporter',                 'The address bar is a terminal too.',                      'Open the site with #command after the URL, e.g. #fortune.'],
+  chmod:    ['Permission granted',         'One file in the home folder is locked. Ask nicely for the keys.', 'please sudo chmod +r diary.txt (or please sudo chown guest diary.txt)'],
   corrupt:  ['Bit rot',                    'Not every theme is on the list. One of them is broken on purpose.', 'theme corrupt'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
@@ -600,17 +601,23 @@ function buildFS() {
     'contact.txt': file(() => contactLines()),
     'skills.txt':  file(() => skillLines('all')),
     'cv.txt':      file(cvLines),
+    'diary.txt':   DIARY,
     'experience':  dir(exp),
     'education':   dir(edu),
     'articles':    dir(arts),
     'projects':    dir(projs),
     '.bash_history': file(() => { unlock('history'); return [
       span('m','# what has ian been up to here...'),
-      'docker ps', 'ping iantiemann.nl', 'vim notes.txt', span('m','# how do I exit this thing'),
-      'talk', 'fortune', 'cowsay moo', 'matrix', 'sl', 'coffee', 'weather',
-      'hack', 'stroopwafel', 'theme amber', 'crt', 'cat .secrets/flag.txt', 'achievements',
-      'diff ian-2016 ian-2026', 'skills -a | grep proxmox', 'watch -n 1 date',
-      'fortune | lolcat', 'cowsay -f tux hoi', 'beep tune', 'curl wttr.in', 'deploy',
+      'docker compose up -d', 'systemctl status coffee', 'journalctl | tail', 'git log --graph',
+      'ssh homelab', span('m','# right, the homelab is not that open'),
+      'ls -a', span('m','# note to self: dotfiles are not as hidden as you think'),
+      'diff ian-2016 ian-2026', 'watch -n 1 date',
+      'vim notes.txt', span('m','# how do I exit this thing'), span('m','# ...'), span('m','# google: "how to exit vim"'),
+      'deploy', span('m','# never on a friday'),
+      'cat /etc/motd', span('m','# the motd always has a P.S. these days'),
+      'theme list', span('m','# that list is not complete, I swear one is missing'),
+      'fsck', 'beep tune',
+      span('m','# DevTools also has a console, just saying'),
     ]; }),
     '.secrets': dir({
       'flag.txt': file(() => { unlock('secrets'); return [
@@ -655,6 +662,25 @@ function buildFS() {
     }),
   });
 }
+// a locked file for the chmod/chown puzzle: owned by ian, only ian may read it
+const DIARY_LOCKED = { owner: 'ian', mode: '-r--------' };
+let diary = store.get('diary', DIARY_LOCKED);
+const diaryReadable = () => (diary.owner === 'guest' && diary.mode[1] === 'r') || diary.mode[7] === 'r';
+const DIARY = {
+  type: 'file',
+  mode: () => diary.mode,
+  owner: () => diary.owner,
+  read: () => diaryReadable() ? [
+    span('w b', 'Dear diary,'), '',
+    'Day 1:  started a terminal version of my website. Seemed like a small project.',
+    'Day 2:  added achievements. It is no longer a small project.',
+    'Day 5:  someone asked for snake. There is snake now.',
+    'Day 9:  spent an evening building a fake fsck. No regrets.',
+    'Day 12: locked this diary, just to see if anyone would get in.', '',
+    span('a', 'Day 13: you got in. You found a locked file and talked your way into it.'),
+    span('a', '        That is basically my job description. ') + cmd('contact'),
+  ] : [span('e', 'cat: diary.txt: Permission denied') + span('m', '  (who owns it? ') + cmd('ls -l') + span('m', ')')],
+};
 const FS = buildFS();
 
 // something special on certain days
@@ -690,6 +716,13 @@ const SYSFILES = {
     span('m', '# Hashes are as real as this filesystem. Nice manners though.'),
   ].map(l => l.startsWith('<') ? l : esc(l)) : [span('e', 'cat: /etc/shadow: Permission denied') + span('m', ' - some doors stay closed. Try /etc/passwd, it\'s friendlier.')],
   '/etc/hostname': () => ['iantiemann'],
+  // clue for the hidden corrupt theme
+  '/dev/urandom': () => {
+    const junk = '!#$%&*+/<>?@[]^{}|~0123456789abcdefXYZ░▒▓';
+    const line = () => Array.from({ length: 30 + Math.floor(Math.random() * 40) }, () => junk[Math.floor(Math.random() * junk.length)]).join('');
+    return [...Array.from({ length: 9 }, () => span('m', esc(line()))), span('e', '^C'), '',
+      span('m', '...after staring at all that, this terminal looks like it could use a ') + span('e', 'corrupt') + span('m', ' theme.')];
+  },
   '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.', ...(season() ? [season().msg] : []), span('m', 'P.S. treasure hunters start at ~/.secrets/map.txt')],
   '/etc/hosts': () => [
     '127.0.0.1    localhost', '127.0.4.2    iantiemann', '10.42.0.1    homelab', '192.0.2.42   iantiemann.nl',
@@ -936,11 +969,12 @@ function lsLong(name, node) {
   const h = hashOf(name), dir = node.type === 'dir', hidden = name.startsWith('.') && name.length > 2;
   const post = POSTS.find(p => p.file === name);
   const d = post ? new Date(post.date) : new Date(Date.now() - (h % 300 + 1) * 864e5);
-  const perm = dir ? (hidden ? 'drwx------' : 'drwxr-xr-x') : (hidden ? '-rw-------' : '-rw-r--r--');
+  const perm = node.mode ? node.mode() : dir ? (hidden ? 'drwx------' : 'drwxr-xr-x') : (hidden ? '-rw-------' : '-rw-r--r--');
   const links = dir ? 2 + Object.values(node.children).filter(c => c.type === 'dir').length : 1;
   const size = dir ? 4096 : 200 + (h % 3800);
   const date = `${d.toLocaleString('en', { month: 'short' })} ${String(d.getDate()).padStart(2)}  ${d.getFullYear()}`;
-  return span('m', `${perm} ${String(links).padStart(2)} ian guest ${String(size).padStart(5)} ${date}`) + ' ';
+  const owner = node.owner ? node.owner() : 'ian';
+  return span('m', `${perm} ${String(links).padStart(2)} ${pad(owner, 5)} guest ${String(size).padStart(5)} ${date}`) + ' ';
 }
 
 def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
@@ -1201,7 +1235,7 @@ def('achievements', 'system', 'easter eggs you found', () => {
   print('');
   if (unlocked.size) print(span('m', 'Want to start over? ') + cmd('reset-achievements'));
   if (unlocked.size === total) print(span('a b', 'You found everything. Respect.'));
-  else print(span('m', 'Stuck? ') + cmd('hint') + span('m', ' gives a clearer tip for a random one, or ') + span('a2', 'hint &lt;n&gt;') + span('m', ' for a specific one.'));
+  else print(span('m', 'Stuck? ') + cmd('hint -r') + span('m', ' gives a random tip, ') + span('a2', 'hint &lt;n&gt;') + span('m', ' a tip for a specific one.'));
 });
 def('reset-achievements', 'system', 'forget all achievements', async () => {
   if (!unlocked.size) return print(span('m', 'Nothing to reset, you have no achievements yet.'));
@@ -1210,27 +1244,43 @@ def('reset-achievements', 'system', 'forget all achievements', async () => {
   if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Aborted. Your achievements are safe.'));
   unlocked = new Set();
   ['ach', 'read', 'rooms'].forEach(k => store.set(k, []));
+  diary = DIARY_LOCKED; store.set('diary', diary);
   print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
 });
-def('hint', 'system', 'a nudge towards an achievement', args => {
-  const hinted = ACH_IDS.filter(id => ACH[id][1]);
-  const locked = hinted.filter(id => !unlocked.has(id));
+// classics have no hint, secrets have a hint but never a solution: those you find yourself
+const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt'];
+const noSolution = id => !ACH[id][1] || SECRET_ACH.includes(id);
+def('hint', 'system', 'a nudge towards an achievement', async args => {
   const n = parseInt(args[0], 10);
-  let id;
-  if (n) {
-    id = ACH_IDS[n - 1];
-    if (!id) return print(span('e', `hint: there is no achievement #${n}`));
-    if (unlocked.has(id)) return print(span('m', `You already have #${n} (${esc(ACH[id][0])}): ${esc(ACH[id][2])}`));
-    if (!ACH[id][1]) return print(span('m', `#${n} is a classic, no hints for that one. Think of what everyone tries in a terminal.`));
-  } else {
+  if (args[0] === '-r' || args[0] === '--random') {
+    const locked = ACH_IDS.filter(id => ACH[id][1] && !unlocked.has(id));
     if (!locked.length) {
       const classics = ACH_IDS.filter(a => !ACH[a][1] && !unlocked.has(a)).length;
       return print(span('m', classics ? `No hints left. The last ${classics} are classics, you either know them or you don't.` : 'Nothing left, you found everything.'));
     }
-    id = locked[Math.floor(Math.random() * locked.length)];
+    const id = locked[Math.floor(Math.random() * locked.length)];
+    return print(`${span('w', 'hint #' + (ACH_IDS.indexOf(id) + 1))} ${esc(ACH[id][1])}`);
   }
-  print(`${span('w', 'hint #' + (ACH_IDS.indexOf(id) + 1))} ${esc(ACH[id][1])}  ${span('a2', '→ ' + esc(ACH[id][2]))}`);
-}, { usage: '[n]' });
+  if (!n) return printLines([
+    span('m', 'usage: ') + cmd('hint -r') + span('m', ' | --random      a random tip for something you have not found yet'),
+    span('m', '       ') + span('a2', 'hint &lt;n&gt;') + span('m', '                 a tip for achievement &lt;n&gt;'),
+    span('m', '       ') + span('a2', 'hint &lt;n&gt; --solution') + span('m', '      the answer (spoiler!)'),
+    '', span('m', 'Numbers come from ') + cmd('achievements') + span('m', '.'),
+  ]);
+  const id = ACH_IDS[n - 1];
+  if (!id) return print(span('e', `hint: there is no achievement #${n}`));
+  if (unlocked.has(id)) return print(span('m', `You already have #${n} (${esc(ACH[id][0])}): ${esc(ACH[id][2])}`));
+  if (!ACH[id][1]) return print(span('m', `#${n} is a classic, no hints or solutions for that one. Think of what everyone tries in a terminal.`));
+  if (!args.includes('--solution') && !args.includes('-s')) {
+    print(`${span('w', 'hint #' + n)} ${esc(ACH[id][1])}`);
+    return print(noSolution(id) ? span('m', 'This one is a secret: no solution, only this hint.') : span('m', 'Still stuck? ') + cmd(`hint ${n} --solution`));
+  }
+  if (noSolution(id)) return print(span('e', `#${n} is a secret.`) + span('m', ' No solution for this one, you will have to find it yourself. The hint is all you get: ') + esc(ACH[id][1]));
+  busy = false; inrow.style.visibility = '';
+  const answer = await ask(span('w', `Show the solution for #${n}? That spoils the fun. [y/N] `));
+  if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Good call. Keep trying.'));
+  print(`${span('w', 'solution #' + n)} ${span('a2', esc(ACH[id][2]))}`);
+}, { usage: '[-r | n [--solution]]' });
 def(['gui', 'home', 'website'], 'system', 'go to the regular website', () => {
   print(span('m', 'switching to graphical mode... ') + link(SITE));
   setTimeout(() => { location.href = SITE; }, 700);
@@ -1848,7 +1898,38 @@ def(['env', 'printenv', 'export', 'set'], null, '', () => printLines([
   'USER=guest', 'HOME=/home/guest', 'SHELL=/bin/zsh', 'LANG=nl_NL.UTF-8', 'TERM=xterm-256color',
   'EDITOR=vim  ' + span('m', '# good luck getting out'), 'COFFEE_LEVEL=high', 'DNS_BLAME=always', `PWD=${esc(pathStr())}`,
 ]));
-def(['touch', 'mkdir', 'mv', 'cp', 'chmod', 'chown', 'ln', 'rmdir'], null, '', (args, raw) => {
+def(['chmod', 'chown'], null, '', (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0].toLowerCase();
+  const target = args.filter(a => !a.startsWith('-')).pop();
+  const r = target ? resolve(target) : { error: true };
+  if (r.error || r.node !== DIARY) return print(span('e', `${esc(tool)}: cannot modify '${esc(target || '.')}': Read-only file system`));
+  if (args.length < 2) return print(span('e', `${tool}: missing operand`));
+  if (tool === 'chown') {
+    if (!asRoot) return print(span('e', "chown: changing ownership of 'diary.txt': Operation not permitted"));
+    const who = args[0].split(':')[0];
+    if (!['ian', 'guest', 'root'].includes(who)) return print(span('e', `chown: invalid user: '${esc(args[0])}'`));
+    diary = { ...diary, owner: who };
+  } else {
+    if (!asRoot && diary.owner !== 'guest') return print(span('e', "chmod: changing permissions of 'diary.txt': Operation not permitted") + span('m', '  (it belongs to ian)'));
+    const m = args[0], bits = diary.mode.split('');
+    if (/^[0-7]{3,4}$/.test(m)) {
+      m.slice(-3).split('').forEach((d, i) => ['r', 'w', 'x'].forEach((b, j) => { bits[1 + i * 3 + j] = (d & (4 >> j)) ? b : '-'; }));
+    } else if (/^[ugoa]*[+=-][rwx]+$/.test(m)) {
+      const [, who, op, perms] = m.match(/^([ugoa]*)([+=-])([rwx]+)$/);
+      const groups = (who || 'a').replace('a', 'ugo').split('').map(c => 'ugo'.indexOf(c));
+      groups.forEach(g => ['r', 'w', 'x'].forEach((b, j) => {
+        const i = 1 + g * 3 + j;
+        if (op === '=') bits[i] = perms.includes(b) ? b : '-';
+        else if (perms.includes(b)) bits[i] = op === '+' ? b : '-';
+      }));
+    } else return print(span('e', `chmod: invalid mode: '${esc(m)}'`));
+    diary = { ...diary, mode: bits.join('') };
+  }
+  store.set('diary', diary);
+  if (diaryReadable()) { unlock('chmod'); return print(span('a', 'Done.') + span('m', ' Go ahead: ') + cmd('cat diary.txt')); }
+  print(span('m', `Done. Now ${diary.owner} can read it. You are not ${diary.owner}, though.`));
+});
+def(['touch', 'mkdir', 'mv', 'cp', 'ln', 'rmdir'], null, '', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0];
   print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`));
 });
@@ -1874,6 +1955,64 @@ def('systemctl', null, '', args => {
     span('m', 'Try ') + cmd('systemctl status coffee'),
   ]);
 });
+// fsck in the style of e2fsck: five passes, the last one finds the hidden corrupt theme
+def('fsck', null, '', async () => {
+  const bar = async label => {
+    const d = print('');
+    for (let i = 0; i <= 20; i++) { d.textContent = `${label.padEnd(44)} [${'#'.repeat(i)}${'.'.repeat(20 - i)}] ${i * 5}%`; await sleep(25 + Math.random() * 35); }
+  };
+  const count = dir => Object.keys(FS.children[dir]?.children || {}).length;
+  print('fsck from util-linux 2.39.3');
+  print('e2fsck 1.47.0 (5-Feb-2023)');
+  print(span('w', '/dev/brain contains a file system with errors, check forced.'));
+  await sleep(500);
+
+  await bar('Pass 1: Checking inodes, blocks, and sizes');
+  print(span('m', '  inode 42 (coffee.service) has an unusually high access count. Leaving as is.'));
+  await sleep(300);
+
+  await bar('Pass 2: Checking directory structure');
+  for (const dir of ['experience', 'education', 'projects', 'articles']) {
+    await sleep(140);
+    print(`  /home/guest/${pad(dir + '/', 13)} ${span('a', 'ok')} ${span('m', `(${count(dir)} files)`)}`);
+  }
+  await sleep(140);
+  print(`  /home/guest/${pad('.secrets/', 13)} ${span('w', 'permissions 0700, not peeking')}`);
+  await sleep(300);
+
+  await bar('Pass 3: Checking directory connectivity');
+  print(span('m', "  Unattached inode 1337 found: 'stroopwafel.half-eaten'. Connected to /lost+found."));
+  await sleep(300);
+
+  await bar('Pass 4: Checking reference counts');
+  print(span('m', "  'it was DNS' referenced 128 times, expected 1. Count is accurate, leaving as is."));
+  await sleep(300);
+
+  await bar('Pass 5: Checking group summary information');
+  print('  /usr/share/themes:');
+  for (const t of ['default', 'matrix', 'amber', 'dracula', 'nord', 'tokyonight', 'synthwave', 'light']) { await sleep(120); print(`    ${pad(t, 12)} ${span('a', 'ok')}`); }
+  await sleep(500);
+  print(`    ${pad('c?rr?pt', 12)} ${span('e', 'checksum mismatch, 3 bits flipped')}`);
+  await sleep(400);
+  print(`  Fix? ${span('e', 'no')} ${span('m', '(read-only file system)')}`);
+  await sleep(300);
+
+  print('');
+  print(span('e', '/dev/brain: ***** FILE SYSTEM WAS NOT FULLY REPAIRED *****'));
+  print('/dev/brain: 1337/4096 files (0.4% non-contiguous), 987/1000 blocks');
+  print(span('m', '1 corrupted theme found and left in place. It still loads though. At your own risk.'));
+});
+def('dmesg', null, '', () => printLines([
+  '[    0.000000] Linux version 6.1.0-coffee (ian@iantiemann) #1 SMP PREEMPT_DYNAMIC',
+  '[    0.004200] Memory: 16G available (mostly browser tabs)',
+  '[    0.120000] coffee: brewer initialised, 1 mug detected',
+  '[    1.337000] eth0: link up, 1000 Mbps, full duplex',
+  '[    2.016000] wg0: tunnel to homelab established',
+  '[    3.141592] theme: loaded 17 themes',
+  span('w', "[    3.141600] theme: bit rot detected in hidden theme 'c0rrupt', not listed"),
+  '[    4.200000] curiosity: target reached',
+  `[${String(Math.floor((Date.now() - BOOT_TIME) / 1000)).padStart(5)}.000000] guest: still reading kernel logs, respect`,
+].map(l => l.startsWith('<') ? l : esc(l))));
 def('journalctl', null, '', () => printLines([
   span('m', '-- Logs begin at boot --'),
   'coffee[128]: Brewing cup 1 of many',
