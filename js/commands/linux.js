@@ -174,7 +174,7 @@ def('ssh', null, 'log in to another machine', args => {
   const [o, [host]] = getopt(args, ['p', 'i', 'l', 'o']);
   print(span('e', `ssh: connect to host ${esc(host || 'homelab')} port ${esc(o.p || 22)}: Connection refused`) + span('m', ' - my homelab is not that open'));
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
-def(['reboot', 'shutdown', 'poweroff'], null, 'restart the system', async () => { unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); boot(); });
+def(['reboot', 'shutdown', 'poweroff'], null, 'restart the system', async () => { unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot(); });
 def('uptime', null, 'how long this terminal has been running', args => {
   const [o] = getopt(args);
   if (o.s || o.since) {
