@@ -58,9 +58,12 @@ export const ACH = {
   chmod:    ['Permission granted',         'One file in the home folder is locked. Ask nicely for the keys.', 'please sudo chmod +r diary.txt (or please sudo chown guest diary.txt)'],
   corrupt:  ['Bit rot',                    'Not every theme is on the list. One of them is broken on purpose.', 'theme corrupt'],
   pwd:      ['Recalculating route...',     'Lost? Even a terminal gives directions if you ask.',      'pwd'],
+  ghost:    ['Ghost in the shell',         'Some things only come out on one night of the year.',      'cat /dev/null on Halloween (31 October).'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);
+// only possible on one day a year, so completionist does not wait for them
+export const SEASONAL_ACH = ['ghost'];
 export const unlocked = new Set(store.get('ach', []).filter(id => ACH[id]));
 export function unlock(id) {
   if (!ACH[id] || unlocked.has(id)) return;
@@ -69,12 +72,12 @@ export function unlock(id) {
   const cap = state.capture; state.capture = null;
   print(span('ach', `★ achievement unlocked: ${ACH[id][0]} (${unlocked.size}/${ACH_IDS.length})`));
   state.capture = cap;
-  if (id !== 'completionist' && ACH_IDS.every(a => a === 'completionist' || unlocked.has(a))) unlock('completionist');
+  if (id !== 'completionist' && ACH_IDS.every(a => a === 'completionist' || SEASONAL_ACH.includes(a) || unlocked.has(a))) unlock('completionist');
 }
 export function track(key, value, goal, ach) {
   const set = new Set(store.get(key, [])); set.add(value); store.set(key, [...set]);
   if (set.size >= goal) unlock(ach);
 }
 // classics have no hint, secrets have a hint but never a solution: those you find yourself
-export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt'];
+export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost'];
 export const noSolution = id => !ACH[id][1] || SECRET_ACH.includes(id);

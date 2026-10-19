@@ -219,7 +219,17 @@ export function initRoot() {
       grub: dir({ 'grub.cfg': file(['menuentry "IanOS 2.6 (Stroopwafel)" {', '    linux /boot/vmlinuz-6.1.0-coffee root=/dev/brain quiet curiosity=high', '}', 'menuentry "Windows" {', '    # nope', '}']) }),
     }),
     dev: dir({
-      null: file(() => []),
+      // empty, except on Halloween: the day message says something lurks in here
+      null: file(() => {
+        const d = new Date();
+        if (d.getMonth() !== 9 || d.getDate() !== 31) return [];
+        unlock('ghost');
+        return [
+          ...['     .-.', '    (o o)   boo!', '    | O \\', '     \\   \\', "      `~~~'"].map(l => span('w', esc(l))),
+          '', 'You found the only thing that ever came back out of /dev/null.',
+          span('m', 'Everything else you send here stays gone. Happy Halloween.'),
+        ];
+      }),
       urandom: file(SYSFILES['/dev/urandom']),
       zero: file(() => [esc('\\0'.repeat(32)), span('m', '(nothing but zeros. like a monday before coffee.)')]),
       brain: file(() => [span('m', 'block device. Check it with ') + cmd('fsck') + span('m', '.')]),
