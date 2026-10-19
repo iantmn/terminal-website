@@ -237,7 +237,7 @@ def('watch', null, 'run a command again and again', async (args, raw) => {
     rest = rest.slice(m[0].length);
   }
   if (!rest) return print(span('e', 'usage: watch [-n seconds] &lt;command&gt;') + span('m', '   e.g. ') + cmd('watch -n 1 date'));
-  if (/^(watch|top|htop|btop|snake|incident|yes|matrix|sl|hack|reboot|shutdown|poweroff|exit|logout|clear|reset-achievements)\b/.test(rest))
+  if (/^(watch|top|htop|btop|snake|incident|yes|matrix|sl|hack|reboot|shutdown|poweroff|exit|logout|clear|reset-achievements|reset-settings)\b/.test(rest))
     return print(span('e', `watch: ${esc(rest.split(' ')[0])} is not something you want to watch`));
   const box = print('');
   for (let i = 0; i < 60; i++) {

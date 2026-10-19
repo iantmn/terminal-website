@@ -135,6 +135,17 @@ def('reset-achievements', 'system', 'forget all achievements', async () => {
   resetDiary();
   print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
 });
+// settings only: achievements, read posts, the diary and the snake high score stay
+def('reset-settings', 'system', 'theme, sound, CRT and aliases back to default', async () => {
+  state.busy = false; inrow.style.visibility = '';
+  const answer = await ask(span('w', 'Reset theme, sound, CRT mode and aliases to their defaults? Your achievements stay. [y/N] '));
+  if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Aborted. Nothing changed.'));
+  document.body.dataset.theme = 'default'; store.set('theme', 'default');
+  document.body.classList.remove('crt'); store.set('crt', false);
+  setSound(true);
+  Object.keys(aliases).forEach(k => delete aliases[k]); store.set('aliases', aliases);
+  print(span('a', 'Settings reset to the defaults.') + span('m', ` Your progress is untouched (${unlocked.size}/${ACH_IDS.length} achievements).`));
+});
 def('hint', 'system', 'a nudge towards an achievement', async args => {
   const n = parseInt(args[0], 10);
   if (args[0] === '-r' || args[0] === '--random') {
