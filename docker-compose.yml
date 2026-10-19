@@ -1,0 +1,9 @@
+# serves the site on http://localhost:8080
+# browsers only load ES modules over http(s), so opening index.html from disk does not work
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/usr/share/nginx/html:ro
