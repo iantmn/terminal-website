@@ -1,7 +1,7 @@
 import { unlocked, unlock, ACH } from './achievements.js';
 import { PROFILE } from './content.js';
 import { out, inrow, state, print, span, cmd, link, sleep, renderPrompt, focusInput, HOME } from './core.js';
-import { season } from './season.js';
+import { dayMessage } from './days.js';
 import { bootSound, soundOn, setSound, resumeAudio } from './sound.js';
 import { banner } from './visuals.js';
 
@@ -32,7 +32,9 @@ export async function boot() {
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
   print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('skills')}  ${cmd('contact')}  ${cmd('ls')}`);
   print(span('m', 'Source code: ') + link(PROFILE.repo) + span('m', ' (') + cmd('repo') + span('m', ')'));
-  const sn = season();
+  const sn = dayMessage();
+  // today's message and the achievement count get their own block
+  if (sn || unlocked.size) print('');
   if (sn) print(span('w', sn.msg));
   if (sn && sn.theme && document.body.dataset.theme === 'default') document.body.dataset.theme = sn.theme;
   if (unlocked.size) print(span('m', `Welcome back - you've found ${unlocked.size}/${Object.keys(ACH).length} `) + cmd('achievements') + span('m', '.'));

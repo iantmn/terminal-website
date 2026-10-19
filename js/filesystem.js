@@ -4,7 +4,7 @@ import { PROFILE, EXPERIENCE, EDUCATION, POSTS, SITE } from './content.js';
 import { esc, span, cmd, link, pad, store, state, displayPath, uptime, rot13, HOME } from './core.js';
 import { C } from './registry.js';
 import { fmtExp, fmtEdu, fmtPost, aboutLines, contactLines, skillLines, cvLines } from './render.js';
-import { season } from './season.js';
+import { dayMessage } from './days.js';
 import { THEMES } from './themes.js';
 
 // a locked file for the chmod/chown puzzle: owned by ian, only ian may read it
@@ -127,7 +127,7 @@ const SYSFILES = {
     return [...Array.from({ length: 9 }, () => span('m', esc(line()))), span('e', '^C'), '',
       span('m', '...after staring at all that, this terminal looks like it could use a ') + span('e', 'corrupt') + span('m', ' theme.')];
   },
-  '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.', ...(season() ? [season().msg] : []), span('m', 'P.S. treasure hunters start at ~/.secrets/map.txt')],
+  '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.', ...(dayMessage() ? [dayMessage().msg] : []), span('m', 'P.S. treasure hunters start at ~/.secrets/map.txt')],
   '/etc/hosts': () => [
     '127.0.0.1    localhost', '127.0.4.2    iantiemann', '10.42.0.1    homelab', '192.0.2.42   iantiemann.nl',
     span('m', '# fragment 3/3 = "fel"'),

@@ -3,7 +3,7 @@ import { unlock } from '../achievements.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, store, state, inrow, scrollDown, getopt } from '../core.js';
 import { def } from '../registry.js';
-import { SINTERKLAAS, season } from '../season.js';
+import { SINTERKLAAS } from '../days.js';
 import { matrix, train } from '../visuals.js';
 
 def('matrix', null, 'digital rain (any key stops it)', () => { unlock('matrix'); return matrix(); });
@@ -222,7 +222,7 @@ def('incident', 'fun', 'be on call for one night', async () => {
 
 def('deploy', null, '', async args => {
   const target = args[0] || 'production';
-  if (season() && season().friday) return print(span('e', `deploy: refusing to deploy to ${esc(target)} on a Friday.`) + span('m', ' Go home. It can wait until Monday.'));
+  if (new Date().getDay() === 5) return print(span('e', `deploy: refusing to deploy to ${esc(target)} on a Friday.`) + span('m', ' Go home. It can wait until Monday.'));
   for (const s of ['Running tests', 'Building image', 'Pushing to registry', `Rolling out to ${target}`]) {
     const d = print(`${pad(s, 28)} ...`); await sleep(500); d.innerHTML = `${esc(pad(s, 28))} ${span('a', 'done')}`;
   }
