@@ -176,7 +176,7 @@ def(['chmod', 'chown'], null, 'change who may read a file (chmod) or who owns it
   if (diaryReadable()) { unlock('chmod'); return print(span('a', 'Done.') + span('m', ' Go ahead: ') + cmd('cat diary.txt')); }
   print(span('m', `Done. Now ${diary.owner} can read it. You are not ${diary.owner}, though.`));
 });
-def(['touch', 'mkdir', 'mv', 'cp', 'ln', 'rmdir'], null, 'change files (this filesystem is read-only)', (args, raw) => {
+def(['touch', 'mkdir', 'mv', 'cp', 'ln', 'rmdir'], 'more', 'change files (this filesystem is read-only)', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0];
   print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`));
 });

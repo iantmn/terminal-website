@@ -83,7 +83,7 @@ def(['stroopwafel', 'fiets', 'bike', 'kaas', 'gezellig'], null, '', () => {
   print(span('m', 'Bonus Dutch skill: cycling through a headwind while holding an umbrella.'));
 });
 def('42', null, '', () => { unlock('answer'); print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
-def(['hello', 'hi', 'hey', 'hallo', 'hoi'], null, '', () => print(`Hoi! Type ${cmd('help')} to look around.`));
+def(['hello', 'hi', 'hey', 'hallo', 'hoi'], 'more', 'say hi', () => print(`Hoi! Type ${cmd('help')} to look around.`));
 def('make', null, 'build a target', args => {
   if (!args.join(' ').includes('sandwich')) return print(span('e', 'make: *** No targets specified and no makefile found. Stop.'));
   if (!state.asRoot) return print(span('e', 'What? Make it yourself.'));
@@ -220,7 +220,7 @@ def('incident', 'fun', 'be on call for one night', async () => {
   }
 });
 
-def('deploy', null, '', async args => {
+def('deploy', 'more', 'ship it (never on a Friday)', async args => {
   const target = args[0] || 'production';
   if (new Date().getDay() === 5) return print(span('e', `deploy: refusing to deploy to ${esc(target)} on a Friday.`) + span('m', ' Go home. It can wait until Monday.'));
   for (const s of ['Running tests', 'Building image', 'Pushing to registry', `Rolling out to ${target}`]) {
@@ -229,7 +229,7 @@ def('deploy', null, '', async args => {
   print(span('a b', `Deployed to ${esc(target)}.`) + span('m', ' Monitoring is green. Nobody touch anything.'));
 });
 
-def('diff', null, 'compare two files', args => {
+def('diff', 'more', 'compare two files', args => {
   const files = args.filter(a => !a.startsWith('-'));
   if (files.join(' ') !== 'ian-2016 ian-2026') return print(span('e', `diff: ${esc(files.join(' ') || 'missing operand')}`) + span('m', '  try ') + cmd('diff ian-2016 ian-2026'));
   const guides = POSTS.filter(p => p.type === 'guide').length;

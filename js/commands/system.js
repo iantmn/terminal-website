@@ -5,7 +5,7 @@ import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, st
 import { resetDiary } from '../filesystem.js';
 import { hist } from '../input.js';
 import { C, def } from '../registry.js';
-import { aliases } from '../shell.js';
+import { aliases, found } from '../shell.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
 import { startGlitch, THEMES } from '../themes.js';
 import { banner, neofetch } from '../visuals.js';
@@ -20,9 +20,17 @@ def(['help', 'h', '?'], 'system', 'show this help', () => {
     list.forEach(c => print(`  ${cmd(c.name, pad(c.name + (c.usage ? ' ' + c.usage : ''), 18))} ${span('m', esc(c.desc))}`));
     print('');
   }
+  // the rest only by name; each one explains itself with --help
+  const names = list => list.map(c => cmd(c.name)).join('  ');
+  print(span('w b', 'More commands'));
+  print('  ' + names(Object.values(C).filter(c => c.group === 'more' && !c.alias).sort((a, b) => a.name.localeCompare(b.name))));
+  print('');
+  // hidden ones (an achievement or a puzzle) join the list once you used them
+  const hidden = Object.values(C).filter(c => !c.group && !c.alias), mine = hidden.filter(c => found.has(c.name)).sort((a, b) => a.name.localeCompare(b.name));
+  if (mine.length) { print(span('w b', `Found by you (${mine.length}/${hidden.length})`)); print('  ' + names(mine)); print(''); }
   print(span('m', 'Tips: ') + 'Tab autocompletes · ↑/↓ history · Ctrl+L clears · Ctrl+C cancels · links are clickable');
-  print(span('m', 'Shell: ') + 'pipes (' + cmd('skills -a | grep linux') + ') · ' + span('a2', '&amp;&amp;') + ' and ' + span('a2', ';') + ' chain commands · ' + cmd('alias') + ' makes shortcuts');
-  print(span('m', 'Not every command is listed here. Try ls -a ;)'));
+  print(span('m', 'Shell: ') + 'pipes (' + cmd('skills -a | grep linux') + ') · ' + span('a2', '&amp;&amp;') + ' and ' + span('a2', ';') + ' chain commands · ' + cmd('alias') + ' makes shortcuts · ' + span('a2', '&lt;command&gt; --help'));
+  print(span('m', mine.length === hidden.length ? 'You found every hidden command. Nothing left to hide.' : 'Not every command is listed here. Try ls -a ;)'));
 });
 
 // system
@@ -98,7 +106,7 @@ def('sound', 'system', 'turn sound on or off', args => {
   if (soundOn && args[0] === 'on') try { chime(0); } catch {}
 }, { usage: '[on|off]' });
 
-def('beep', null, 'make a sound', args => {
+def('beep', 'more', 'make a sound', args => {
   if (!soundOn) return print(span('m', 'Sound is off. ') + cmd('sound on'));
   try {
     if (args[0] === 'tune' || args[0] === '-m') [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.11));
@@ -131,7 +139,8 @@ def('reset-achievements', 'system', 'forget all achievements', async () => {
   const answer = await ask(span('w', `Delete ${unlocked.size === 1 ? 'your 1 achievement' : `all ${unlocked.size} achievements`}? This cannot be undone. [y/N] `));
   if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Aborted. Your achievements are safe.'));
   unlocked.clear();
-  ['ach', 'read', 'rooms'].forEach(k => store.set(k, []));
+  ['ach', 'read', 'rooms', 'found'].forEach(k => store.set(k, []));
+  found.clear();
   resetDiary();
   print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
 });
@@ -188,13 +197,13 @@ def(['exit', 'logout', 'quit', ':q'], 'system', 'leave the terminal', async () =
   print(span('w', 'just kidding, there is no escape.'));
   print(span('m', 'Want the normal site? ') + cmd('gui'));
 });
-def('github', null, 'open my GitHub', () => C.open.run(['github']));
-def('linkedin', null, 'open my LinkedIn', () => C.open.run(['linkedin']));
+def('github', 'more', 'open my GitHub', () => C.open.run(['github']));
+def('linkedin', 'more', 'open my LinkedIn', () => C.open.run(['linkedin']));
 def(['repo', 'source', 'src'], 'system', 'source code of this site', () => {
   print(span('m', 'This terminal is open source: ') + link(PROFILE.repo));
   print(span('m', 'Stars, issues and pull requests are welcome.'));
 });
-def('mail', null, 'send me an email', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
+def('mail', 'more', 'send me an email', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 def(['man', 'apropos'], 'system', 'manual for a command', (args, raw) => {
   const [o, rest] = getopt(args);
   // man -k (or apropos) searches names and descriptions
@@ -253,7 +262,7 @@ def('alias', 'system', 'make your own shortcuts', args => {
   }
   store.set('aliases', aliases);
 }, { usage: "[name='cmd']", flags: [['-p', 'print every alias']] });
-def('unalias', null, 'remove a shortcut', args => {
+def('unalias', 'more', 'remove a shortcut', args => {
   if (!args[0]) return print(span('e', 'usage: unalias &lt;name&gt; | -a'));
   if (args[0] === '-a') Object.keys(aliases).forEach(k => delete aliases[k]);
   else if (aliases[args[0]]) delete aliases[args[0]];

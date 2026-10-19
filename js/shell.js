@@ -1,5 +1,5 @@
 // parsing and running command lines: aliases, pipes, && and ;
-import { unlock } from './achievements.js';
+import { unlock, unlocked } from './achievements.js';
 import { esc, span, cmd, pad, print, printLines, state, store, getopt } from './core.js';
 import { resolve } from './filesystem.js';
 import { C } from './registry.js';
@@ -36,8 +36,21 @@ export function helpLines(c, name = c.name) {
   return l;
 }
 const wantsHelp = (c, args) => args.includes('--help') || (args.includes('-h') && !ownsH(c));
+// hidden commands (an achievement or part of a puzzle) show up in help once someone used them
+export const found = new Set(store.get('found', []));
+// achievements earned before this list existed count as found too
+const FOUND_BY = { sudo: 'sudo', rm: 'rm', vim: 'vim', matrix: 'matrix', sl: 'sl', coffee: 'coffee', cow: 'cowsay', fortune: 'fortune', hacker: 'hack',
+  weather: 'weather', stroop: 'stroopwafel', answer: '42', xyzzy: 'xyzzy', sandwich: 'make', docker: 'docker', dns: 'git', apt: 'apt',
+  reboot: 'reboot', top: 'top', kill: 'kill', manners: 'please', home: 'ping', chmod: 'chmod', talk: 'talk' };
+for (const [ach, name] of Object.entries(FOUND_BY)) if (unlocked.has(ach)) found.add(name);
+function noteFound(c) {
+  if (c.group || found.has(c.name)) return;
+  found.add(c.name); store.set('found', [...found]);
+}
+
 // a wrapper (sudo, please, watch) hands the rest of the line to another command, so only its first arg counts
 function invoke(c, name, args, line) {
+  noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
   if (wantsHelp(c, own)) return printLines(helpLines(c, name));
   if (own.includes('--version') && !c.version) return printLines([`${esc(name)} (IanOS) 2.6 (Stroopwafel)`, span('m', 'Written by Ian Tiemann. Runs on coffee.')]);
