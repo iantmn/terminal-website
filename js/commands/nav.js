@@ -98,7 +98,7 @@ def(['cat', 'less', 'more', 'bat'], 'nav', 'print a file', args => {
 }, { usage: '[-n] <file>', flags: [['-n, --number', 'number every line'], ['-b, --number-nonblank', 'number lines that are not empty'], ['-s, --squeeze-blank', 'squeeze repeated empty lines into one']] });
 
 // there are no symlinks to resolve, so -P and -L agree
-def('pwd', 'nav', 'print working directory', () => print('/' + state.cwd.join('/')),
+def('pwd', 'nav', 'print working directory', () => { print('/' + state.cwd.join('/')); unlock('pwd'); },
   { flags: [['-L', 'logical path (default)'], ['-P', 'physical path, without symlinks']] });
 
 def('tree', 'nav', 'show directory tree', args => {
