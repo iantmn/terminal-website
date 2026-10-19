@@ -2,15 +2,21 @@
 import { unlock } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, sleep, state, scrollDown, pathStr, uptime, BOOT_TIME } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, sleep, state, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
 import { FS } from '../filesystem.js';
 import { C, def } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow } from '../shell.js';
 import { bootSound } from '../sound.js';
 
-def('sudo', null, '', (args, raw) => {
+def('sudo', null, 'run a command as root', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
   if (state.asRoot) return print(span('m', "You're already root. Don't let the power go to your head."));
+  if (args[0] === '-l') return printLines([
+    'User guest may run the following commands on iantiemann:',
+    '    (please) ONE_COMMAND',
+    span('m', 'In other words: say please first.'),
+  ]);
+  if (args[0] === '-i' || args[0] === '-s') return print(span('e', 'sudo: a root shell? Not a chance.') + span('m', ' One command at a time, and only if you ask nicely.'));
   if (/^(hire|talk)/.test(rest)) return C.talk.run([]);
   if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
   if (/^make\s+me\s+a\s+sandwich/i.test(rest)) return runAsRoot(rest); // xkcd 149
@@ -18,8 +24,8 @@ def('sudo', null, '', (args, raw) => {
   print(`[sudo] password for guest: `);
   print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));
   print(span('m', '(to nobody, relax. Maybe if you ask nicely and say please, I might let you run a command as root.)'));
-});
-def('rm', null, '', async args => {
+}, { usage: '[-l] <command>', wrap: true, flags: [['-l', 'list what you are allowed to run'], ['-i', 'open a root shell']] });
+def('rm', null, 'remove files', async args => {
   if (!args.some(a => /^-\w*r/.test(a)) || !args.some(a => /^(\/|\*|~|\.)/.test(a))) return print(span('e', 'rm: refusing to remove that - this filesystem is read-only'));
   unlock('rm');
   const victims = ['/bin', '/etc', '/home/guest/experience', '/home/guest/articles', '/var/www/iantiemann.nl', '/boot', '/usr/lib/coffee'];
@@ -31,8 +37,8 @@ def('rm', null, '', async args => {
   // post numbers shift when the feed adds new posts, so look the guide up by url
   const backup = POSTS.find(p => p.url === '/posts/2026/7/PBSHetzner/');
   if (backup) print(span('m', 'Speaking of which: ') + cmd('read ' + backup.n, 'read my backup guide'));
-});
-def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, '', async (a, raw) => {
+}, { usage: '[-rf] <path>', flags: [['-r, --recursive', 'remove directories and everything in them'], ['-f, --force', 'never ask'], ['-i', 'ask before every file']] });
+def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, 'edit a file (good luck leaving)', async (a, raw) => {
   const ed = raw.trim().split(/\s+/)[0];
   if (ed === 'emacs') return print(span('m', 'emacs: a great operating system, lacking only a decent text editor. Try ') + span('a2','vim') + span('m','?'));
   if (ed === 'nano') return print(span('m', 'nano: honest choice. But this terminal is read-only.'));
@@ -42,17 +48,28 @@ def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, '', async (a, raw) => {
   print(span('w', 'E37: No write since last change (add ! to override)'));
   await sleep(900);
   print(span('m', 'Don\'t panic, I got you out. It took me years the first time.'));
-});
-def('ping', null, '', async args => {
-  const host = args[0] || 'iantiemann.nl';
-  print(`PING ${esc(host)} (127.0.4.2): 56 data bytes`);
+}, { usage: '[file]' });
+def('ping', null, 'check if a host answers', async args => {
+  const [o, [target]] = getopt(args, ['c', 'i', 'W', 's']);
+  const host = target || 'iantiemann.nl';
+  const n = Math.min(Math.max(parseInt(o.c ?? 4, 10) || 4, 1), 20);
+  const wait = Math.max(200, (parseFloat(o.i) || 0.6) * 1000), size = parseInt(o.s ?? 56, 10) || 56;
+  print(`PING ${esc(host)} (127.0.4.2): ${size} data bytes`);
   const local = /^(localhost|127\.0\.0\.1|::1)$/i.test(host);
-  for (let i = 0; i < 4; i++) { await sleep(600); print(`64 bytes from ${esc(host)}: icmp_seq=${i} ttl=64 time=${local ? '0.0' + Math.floor(Math.random() * 9 + 1) : (Math.random() * 12 + 3).toFixed(1)} ms`); }
-  print(span('m', `--- ${esc(host)} ping statistics ---\n4 packets transmitted, 4 received, 0% packet loss (unlike my old Wi-Fi)`));
+  const times = [];
+  for (let i = 0; i < n; i++) {
+    await sleep(wait);
+    const t = local ? Math.random() * 0.09 + 0.01 : Math.random() * 12 + 3;
+    times.push(t);
+    if (!o.q) print(`${size + 8} bytes from ${esc(host)}: icmp_seq=${i} ttl=64 time=${t.toFixed(local ? 3 : 1)} ms`);
+  }
+  const avg = times.reduce((a, b) => a + b, 0) / n;
+  print(span('m', `--- ${esc(host)} ping statistics ---\n${n} packets transmitted, ${n} received, 0% packet loss (unlike my old Wi-Fi)\nround-trip min/avg/max = ${Math.min(...times).toFixed(3)}/${avg.toFixed(3)}/${Math.max(...times).toFixed(3)} ms`));
   if (local) { print(span('w', "There's no place like 127.0.0.1")); unlock('home'); }
-});
-def('docker', null, '', args => {
-  if (args[0] !== 'ps') return print(span('m', 'usage: docker ps   (the only command that matters)'));
+}, { usage: '[-c count] [-i s] [-q] <host>', flags: [['-c count', 'stop after this many replies (max 20)'], ['-i seconds', 'wait between pings'], ['-s size', 'packet size in bytes'], ['-q', 'quiet: only the summary']] });
+def('docker', null, 'list the containers on the server', args => {
+  if (args[0] !== 'ps') return print(span('m', 'usage: docker ps [-aq]   (the only command that matters)'));
+  const [o] = getopt(args.slice(1));
   unlock('docker');
   const rows = [
     ['a1b2c3d4e5f6', 'traefik:v3', 'Up 213 days', 'reverse-proxy'],
@@ -61,14 +78,18 @@ def('docker', null, '', args => {
     ['d4e5f6a7b8c9', 'grafana/loki', 'Up 128 days', 'loki'],
     ['e5f6a7b8c9d0', 'grafana/alloy', 'Up 128 days', 'alloy'],
     ['f6a7b8c9d0e1', 'ian/terminal:latest', 'Up ' + uptime(), 'terminal-iantiemann'],
+    // only with -a, like every container that ever gave up
+    ...(o.a || o.all ? [['0badc0ffee00', 'ian/printer-fix:latest', 'Exited (1) 3 years ago', 'printer']] : []),
   ];
-  print(span('m', pad('CONTAINER ID', 14) + pad('IMAGE', 22) + pad('STATUS', 16) + 'NAMES'));
-  rows.forEach(r => print(pad(r[0], 14) + span('a2', esc(pad(r[1], 22))) + span('a', pad(r[2], 16)) + esc(r[3])));
+  if (o.q || o.quiet) return printLines(rows.map(r => r[0]));
+  print(span('m', pad('CONTAINER ID', 14) + pad('IMAGE', 24) + pad('STATUS', 24) + 'NAMES'));
+  rows.forEach(r => print(pad(r[0], 14) + span('a2', esc(pad(r[1], 24))) + span(r[2].startsWith('Up') ? 'a' : 'e', esc(pad(r[2], 24))) + esc(r[3])));
   print(span('m', '\nWant to run these yourself? ') + cmd('articles', 'my guides'));
-});
-def(['kubectl', 'k8s', 'helm'], null, '', () => print(span('m', 'I am still learning Kubernetes. Docker compose up -d for now.')));
-def('git', null, '', args => {
-  if (args[0] === 'log' && args.includes('--graph')) {
+}, { usage: 'ps [-aq]', flags: [['-a, --all', 'also stopped containers'], ['-q, --quiet', 'only the container IDs']] });
+def(['kubectl', 'k8s', 'helm'], null, 'Kubernetes (still learning)', () => print(span('m', 'I am still learning Kubernetes. Docker compose up -d for now.')));
+def('git', null, "version control, Ian's career edition", args => {
+  const [o, [sub]] = getopt(args);
+  if (sub === 'log' && o.graph) {
     const c = (h, msg, ref = '') => `${span('w', h)}${ref ? ' ' + span('a2', ref) : ''} ${esc(msg)}`;
     return printLines([
       '* ' + c('2026a', 'Project engineer @ NetW: leading the CloudModule', '(HEAD -> main)'),
@@ -86,20 +107,26 @@ def('git', null, '', args => {
       '* ' + c('0000init', 'Initial commit: curious kid takes apart the family PC'),
     ]);
   }
-  if (args[0] === 'log') return printLines([
-    span('w', 'commit 2026a') + span('m', ' (HEAD -> main)'), '    Project engineer @ NetW, working on the CloudModule', '',
-    span('w', 'commit 2024b'), '    Software engineer @ Notive', '',
-    span('w', 'commit 2016c'), '    Joined NetW as IT specialist', '',
-    span('w', 'commit 7r345ur'), '    fragment 2/3 = "wa"', '',
-    span('w', 'commit 0000init'), '    Initial commit: curious kid takes apart the family PC', '',
-    span('m', 'try ') + cmd('git log --graph'),
+  const commits = [
+    ['2026a', 'Project engineer @ NetW, working on the CloudModule', '(HEAD -> main)'],
+    ['2024b', 'Software engineer @ Notive'],
+    ['2016c', 'Joined NetW as IT specialist'],
+    ['7r345ur', 'fragment 2/3 = "wa"'],
+    ['0000init', 'Initial commit: curious kid takes apart the family PC'],
+  ];
+  if (sub === 'log' && o.oneline) return printLines(commits.map(([h, msg, ref]) => `${span('w', h)}${ref ? ' ' + span('a2', ref) : ''} ${esc(msg)}`));
+  if (sub === 'log') return printLines([
+    ...commits.flatMap(([h, msg, ref]) => [span('w', 'commit ' + h) + (ref ? span('m', ' ' + ref) : ''), '    ' + esc(msg), '']),
+    span('m', 'try ') + cmd('git log --graph') + span('m', ' or ') + cmd('git log --oneline'),
   ]);
-  if (args[0] === 'blame') { unlock('dns'); return print(span('m', 'It was DNS.')); }
-  print(span('m', 'try ') + cmd('git log') + span('m', ' or ') + cmd('git blame'));
-});
-def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, '', async (args, raw) => {
+  if (sub === 'status') return printLines(['On branch main', "Your branch is up to date with 'origin/main'.", '', 'nothing to commit, working tree clean', span('m', '(the CV is always committed)')]);
+  if (sub === 'blame') { unlock('dns'); return print(span('m', 'It was DNS.')); }
+  print(span('m', 'try ') + cmd('git log') + span('m', ', ') + cmd('git status') + span('m', ' or ') + cmd('git blame'));
+}, { usage: 'log [--graph|--oneline] | status | blame', flags: [['log --graph', 'the branches of a career'], ['log --oneline', 'one commit per line']] });
+def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install packages (as root)', async (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0];
-  const [sub, ...pkgs] = args;
+  // -y and friends change nothing here
+  const [sub, ...pkgs] = args.filter(a => !a.startsWith('-'));
   if (tool === 'brew') return print(state.asRoot ? span('e', 'Error: Running Homebrew as root is extremely dangerous and no longer supported.')
     : span('e', 'zsh: command not found: brew') + span('m', ' - this is a Linux box.'));
   if (!state.asRoot) {
@@ -142,11 +169,26 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, '', async (
     return print(span('m', "and it's gone again, everything resets on reload."));
   }
   print(span('e', `E: Invalid operation ${esc(sub)}`));
-});
-def('ssh', null, '', args => print(span('e', `ssh: connect to host ${esc(args[0] || 'homelab')} port 22: Connection refused`) + span('m', ' - my homelab is not that open')));
-def(['reboot', 'shutdown', 'poweroff'], null, '', async () => { unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); boot(); });
-def('uptime', null, '', () => print(`up ${uptime()}, 1 user, load average: 0.42, 0.13, 0.37`));
-def('please', null, '', async (args, raw) => {
+}, { usage: 'update | upgrade | install <pkg>', flags: [['-y, --yes', 'assume yes (it never asks anyway)']] });
+def('ssh', null, 'log in to another machine', args => {
+  const [o, [host]] = getopt(args, ['p', 'i', 'l', 'o']);
+  print(span('e', `ssh: connect to host ${esc(host || 'homelab')} port ${esc(o.p || 22)}: Connection refused`) + span('m', ' - my homelab is not that open'));
+}, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
+def(['reboot', 'shutdown', 'poweroff'], null, 'restart the system', async () => { unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); boot(); });
+def('uptime', null, 'how long this terminal has been running', args => {
+  const [o] = getopt(args);
+  if (o.s || o.since) {
+    const d = new Date(BOOT_TIME), p = n => String(n).padStart(2, '0');
+    return print(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`);
+  }
+  if (o.p || o.pretty) {
+    const m = Math.floor((Date.now() - BOOT_TIME) / 60000), h = Math.floor(m / 60);
+    const part = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    return print('up ' + (h ? [part(h, 'hour'), part(m % 60, 'minute')].join(', ') : part(m, 'minute')));
+  }
+  print(`up ${uptime()}, 1 user, load average: 0.42, 0.13, 0.37`);
+}, { flags: [['-p, --pretty', 'up 5 minutes, in words'], ['-s, --since', 'when it started']] });
+def('please', null, 'ask nicely (it works on sudo too)', async (args, raw) => {
   if (!args.length) return print(span('m', 'please what?'));
   unlock('manners');
   if (args[0] === 'sudo') {
@@ -158,9 +200,10 @@ def('please', null, '', async (args, raw) => {
   }
   print(span('m', 'since you asked nicely:'));
   return execLine(raw.replace(/^\s*please\s*/, ''));
-});
-def(['curl', 'wget'], null, '', async args => {
-  const w = args.join(' ').match(/wttr\.in\/?([^\s?]*)/);
+}, { usage: '<command>', wrap: true });
+def(['curl', 'wget'], null, 'fetch a URL', async args => {
+  const [o, [url = '']] = getopt(args, ['o', 'O', 'X', 'H', 'A', 'd']);
+  const w = url.match(/wttr\.in\/?([^\s?]*)/);
   if (w) {
     const city = decodeURIComponent(w[1] || '') || 'Stellendam';
     try {
@@ -170,17 +213,29 @@ def(['curl', 'wget'], null, '', async args => {
       return print(esc((await res.text()).trimEnd()));
     } catch { return print(span('e', 'curl: (28) wttr.in did not answer') + span('m', '. Safe bet: it is raining in the Netherlands.')); }
   }
-  return curlDefault(args);
-});
-const curlDefault = args => print(/iantiemann/.test(args.join(' '))
-  ? span('m', "You're already here. For the HTML version: ") + cmd('gui')
+  if ((o.I || o.head) && /iantiemann/.test(url)) return printLines([
+    'HTTP/2 200', 'server: traefik (powered by coffee)', 'content-type: text/html; charset=utf-8',
+    'cache-control: max-age=600', 'x-dns: not the problem this time', 'x-clacks-overhead: GNU Terry Pratchett',
+  ].map(esc));
+  return curlDefault(url);
+}, { usage: '[-I] <url>', flags: [['-I, --head', 'only the response headers'], ['-s, --silent', 'no progress output'], ['-L, --location', 'follow redirects'], ['-o file', 'write to a file (read-only here)']] });
+const curlDefault = url => print(/iantiemann/.test(url)
+  ? span('m', "You're already here. For the HTML version: ") + cmd('gui') + span('m', ', or the headers: ') + cmd('curl -I iantiemann.nl')
   : span('e', 'curl: (6) Could not resolve host') + span('m', ' - it\'s always DNS.'));
-def(['uname'], null, '', () => print('IanOS 6.1.0-coffee #1 SMP PREEMPT_DYNAMIC x86_64 GNU/JavaScript'));
+def(['uname'], null, 'what system this is', args => {
+  const [o] = getopt(args);
+  const parts = [['s', 'kernel-name', 'IanOS'], ['n', 'nodename', 'iantiemann'], ['r', 'kernel-release', '6.1.0-coffee'],
+    ['v', 'kernel-version', '#1 SMP PREEMPT_DYNAMIC'], ['m', 'machine', 'x86_64'], ['o', 'operating-system', 'GNU/JavaScript']];
+  const pick = o.a || o.all ? parts : parts.filter(([s, l]) => o[s] || o[l]);
+  print((pick.length ? pick : parts.slice(0, 1)).map(p => p[2]).join(' '));
+}, { flags: [['-a, --all', 'everything'], ['-s', 'kernel name (default)'], ['-n', 'host name'], ['-r', 'kernel release'], ['-v', 'kernel version'], ['-m', 'machine'], ['-o', 'operating system']] });
 
-def('watch', null, '', async (args, raw) => {
-  let rest = raw.replace(/^\s*watch\s*/, ''), n = 2;
-  const m = rest.match(/^-n\s*([\d.]+)\s+/);
-  if (m) { n = Math.max(0.5, parseFloat(m[1])); rest = rest.slice(m[0].length); }
+def('watch', null, 'run a command again and again', async (args, raw) => {
+  let rest = raw.replace(/^\s*watch\s*/, ''), n = 2, title = true;
+  for (let m; (m = rest.match(/^(?:-n\s*([\d.]+)|--interval[= ]([\d.]+)|(-t|--no-title))\s+/));) {
+    if (m[3]) title = false; else n = Math.max(0.5, parseFloat(m[1] ?? m[2]));
+    rest = rest.slice(m[0].length);
+  }
   if (!rest) return print(span('e', 'usage: watch [-n seconds] &lt;command&gt;') + span('m', '   e.g. ') + cmd('watch -n 1 date'));
   if (/^(watch|top|htop|btop|snake|incident|yes|matrix|sl|hack|reboot|shutdown|poweroff|exit|logout|clear|reset-achievements)\b/.test(rest))
     return print(span('e', `watch: ${esc(rest.split(' ')[0])} is not something you want to watch`));
@@ -189,18 +244,18 @@ def('watch', null, '', async (args, raw) => {
     const prev = state.capture; state.capture = [];
     let html;
     try { await execChain(rest); } finally { html = state.capture; state.capture = prev; }
-    box.innerHTML = `${span('m', `Every ${n.toFixed(1)}s: ${esc(rest)}`)}    ${span('m', new Date().toLocaleTimeString())}\n\n${html.join('\n')}`;
+    box.innerHTML = (title ? `${span('m', `Every ${n.toFixed(1)}s: ${esc(rest)}`)}    ${span('m', new Date().toLocaleTimeString())}\n\n` : '') + html.join('\n');
     scrollDown();
     await sleep(n * 1000);
   }
   print(span('m', 'watch stopped after 60 refreshes.'));
-}, { usage: '[-n s] <cmd>' });
+}, { usage: '[-n s] [-t] <cmd>', wrap: true, flags: [['-n seconds', 'time between runs (default 2)'], ['-t, --no-title', 'hide the header']] });
 
-def('yes', null, '', async args => {
+def('yes', null, 'say yes, a lot', async args => {
   const t = esc(args.join(' ') || 'y');
   for (let i = 0; i < 100; i++) { for (let j = 0; j < 20; j++) print(t); await sleep(30); }
   print(span('m', 'yes: stopped after 2000 lines. Ctrl+C stops it sooner, your scrollback says thanks.'));
-});
+}, { usage: '[text]' });
 
 // common commands, with Ian's day as the process list
 const PROCS = [
@@ -230,21 +285,46 @@ function topLines() {
     ...rows.map(p => `${String(p.pid).padStart(5)} ${pad(p.user, 8)} ${p.cpu.toFixed(1).padStart(5)} ${p.mem.toFixed(1).padStart(5)}  ${p.cmd === 'coffee.service' ? span('w', esc(p.cmd)) : esc(p.cmd)}`),
   ];
 }
-def(['top', 'htop', 'btop'], null, '', async () => {
+def(['top', 'htop', 'btop'], null, 'show running processes, live', async args => {
+  const [o] = getopt(args, ['n', 'd']);
+  const rounds = Math.min(parseInt(o.n ?? 8, 10) || 8, 60), delay = Math.max(0.2, parseFloat(o.d) || 1) * 1000;
   unlock('top');
   const box = print('');
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < rounds; i++) {
     box.innerHTML = topLines().join('\n');
     scrollDown();
-    await sleep(1000);
+    if (i < rounds - 1 || rounds === 8) await sleep(delay);
   }
-  print(span('m', 'top exited after 8 refreshes. Press Ctrl+C to quit earlier next time.'));
-});
-def('ps', null, '', () => printLines([
-  span('w b', '  PID TTY      STAT  COMMAND'),
-  ...PROCS.map(p => `${String(p.pid).padStart(5)} ${pad(p.user === 'guest' ? 'pts/0' : '?', 8)} ${p.pid === 2016 ? 'S   ' : 'R   '}  ${esc(p.cmd)}`),
-]));
-def(['kill', 'killall', 'pkill'], null, '', args => {
+  if (!o.n) print(span('m', 'top exited after 8 refreshes. Press Ctrl+C to quit earlier next time.'));
+}, { usage: '[-n rounds] [-d s]', flags: [['-n rounds', 'refresh this many times, then stop'], ['-d seconds', 'time between refreshes']] });
+def('ps', null, 'list processes', args => {
+  const [o, rest] = getopt(args);
+  // BSD style (ps aux) has no dash, so look at the bare letters too
+  const bsd = rest.join('');
+  const proc = p => p.cmd.split(' ')[0];
+  const tty = p => p.user === 'guest' ? 'pts/0' : '?';
+  const start = p => p.pid === 128 ? '06:45' : p.pid === 1 ? 'boot' : '08:00';
+  if (/u/.test(bsd) || o.u) return printLines([
+    span('w b', 'USER       PID %CPU %MEM TTY      STAT START  COMMAND'),
+    ...PROCS.map(p => `${pad(p.user, 8)} ${String(p.pid).padStart(5)} ${p.cpu.toFixed(1).padStart(4)} ${p.mem.toFixed(1).padStart(4)} ${pad(tty(p), 8)} ${p.pid === 2016 ? 'S   ' : 'R   '} ${pad(start(p), 6)} ${esc(p.cmd)}`),
+  ]);
+  if (o.f || o.F) return printLines([
+    span('w b', 'UID          PID  PPID  C STIME TTY          TIME CMD'),
+    ...PROCS.map(p => `${pad(p.user, 8)} ${String(p.pid).padStart(7)} ${String(p.pid === 1 ? 0 : 1).padStart(5)}  ${Math.round(p.cpu / 10)} ${pad(start(p), 5)} ${pad(tty(p), 8)} 00:00:42 ${esc(p.cmd)}`),
+  ]);
+  const list = o.e || o.A || /a|x/.test(bsd) ? PROCS : PROCS.filter(p => p.user === 'guest' || p.pid === 128);
+  printLines([
+    span('w b', '  PID TTY      STAT  COMMAND'),
+    ...list.map(p => `${String(p.pid).padStart(5)} ${pad(tty(p), 8)} ${p.pid === 2016 ? 'S   ' : 'R   '}  ${esc(o.e || /a|x/.test(bsd) ? p.cmd : proc(p))}`),
+    ...(list === PROCS ? [] : [span('m', 'only yours (and the coffee). Everything: ') + cmd('ps aux') + span('m', ' or ') + cmd('ps -ef')]),
+  ]);
+}, { usage: '[aux | -ef]', flags: [['aux', 'every process, with user, CPU and memory'], ['-e, -A', 'every process'], ['-f', 'full format, with parent PIDs']] });
+const SIGNALS = ['HUP', 'INT', 'QUIT', 'ILL', 'TRAP', 'ABRT', 'BUS', 'FPE', 'KILL', 'USR1', 'SEGV', 'USR2', 'PIPE', 'ALRM', 'TERM'];
+def(['kill', 'killall', 'pkill'], null, 'stop a process', args => {
+  if (args[0] === '-l' || args[0] === '--list') return printLines([
+    SIGNALS.map((s, i) => `${String(i + 1).padStart(2)}) SIG${pad(s, 6)}`).reduce((rows, s, i) => (i % 5 ? rows[rows.length - 1] += ' ' + s : rows.push(s), rows), []).join('\n'),
+    '42) SIGCOFFEE  ' + span('m', '(refill, never terminate)'),
+  ]);
   const t = args.filter(a => !a.startsWith('-')).join(' ').toLowerCase();
   if (!t) return print(span('e', 'kill: usage: kill [-s sigspec | -n signum | -sigspec] pid | name'));
   const p = PROCS.find(p => String(p.pid) === t || p.cmd.split(' ')[0].replace('.service', '') === t || p.cmd.startsWith(t));
@@ -255,42 +335,109 @@ def(['kill', 'killall', 'pkill'], null, '', args => {
   unlock('kill');
   print(`[1]+  Terminated              ${esc(p.cmd)}`);
   print(span('m', `${esc(p.cmd.split(' ')[0])} will be back tomorrow morning, probably before the coffee.`));
+}, { usage: '[-9] <pid|name>', flags: [['-l, --list', 'list the signals'], ['-9', 'SIGKILL: no mercy'], ['-s signal', 'send this signal']] });
+def('df', null, 'free disk space', args => {
+  const [o] = getopt(args);
+  const type = o.T || o['print-type'];
+  const rows = [
+    ['/dev/brain', 'ext4', '1.0T', '987G', '13G', '99%', '/'],
+    ['experience', 'years', '10y', '10y', '∞', '12%', '/home/guest/experience'],
+    ['tmpfs', 'tmpfs', '640K', '640K', '0', '100%', '/dev/ideas'],
+    ['coffee', 'liquid', '2.0L', '1.9L', '0.1L', '95%', '/mnt/mug'],
+  ];
+  const line = r => `${pad(r[0], 15)}${type ? pad(r[1], 8) : ''}${r[2].padStart(5)} ${r[3].padStart(5)} ${r[4].padStart(5)} ${r[5].padStart(4)} ${r[6]}`;
+  printLines([
+    span('w b', line(['Filesystem', 'Type', 'Size', 'Used', 'Avail', 'Use%', 'Mounted on'])),
+    ...rows.map(r => esc(line(r))),
+    span('m', '/dev/brain is nearly full. Mostly config syntax and Dutch weather forecasts.'),
+  ]);
+}, { flags: [['-h, --human-readable', 'sizes like 1.0T (the default here)'], ['-T, --print-type', 'show the filesystem type']] });
+def('free', null, 'memory usage', args => {
+  const [o] = getopt(args);
+  const Ki = 1024, Mi = Ki * 1024, Gi = Mi * 1024;
+  const mem = [16 * Gi, 10 * Gi, 1.2 * Gi, 512 * Mi, 4.8 * Gi, 5.5 * Gi], swap = [2 * Gi, 0, 2 * Gi];
+  const unit = o.b || o.bytes ? 1 : o.k || o.kibi ? Ki : o.m || o.mebi ? Mi : o.g || o.gibi ? Gi : null;
+  const human = v => v >= Gi ? (v / Gi < 10 ? (v / Gi).toFixed(1) : Math.round(v / Gi)) + 'Gi' : v >= Mi ? Math.round(v / Mi) + 'Mi' : v ? Math.round(v / Ki) + 'Ki' : '0B';
+  const fmt = v => (unit ? String(Math.round(v / unit)) : human(v)).padStart(12);
+  printLines([
+    span('w b', '      ' + ['total', 'used', 'free', 'shared', 'buff/cache', 'available'].map(h => h.padStart(12)).join('')),
+    'Mem:  ' + mem.map(fmt).join(''),
+    'Swap: ' + swap.map(fmt).join(''),
+    ...(o.t || o.total ? ['Total:' + [mem[0] + swap[0], mem[1] + swap[1], mem[2] + swap[2]].map(fmt).join('')] : []),
+    span('m', 'buff/cache is 80% stroopwafel recipes.'),
+  ]);
+}, { flags: [['-h, --human', 'sizes like 16Gi (the default here)'], ['-b, -k, -m, -g', 'in bytes, KiB, MiB or GiB'], ['-t, --total', 'add a line with RAM + swap']] });
+def(['ip', 'ifconfig'], null, 'network interfaces and routes', (args, raw) => {
+  const [o, rest] = getopt(args);
+  const sub = /^\s*ifconfig\b/.test(raw) ? 'a' : rest[0] || 'a';
+  const ifs = [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '127.0.4.2/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.1/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420]];
+  if (/^r(oute)?$/.test(sub)) return printLines([
+    'default via 127.0.4.1 dev eth0 proto dhcp metric 100',
+    '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.1',
+    '127.0.4.0/24 dev eth0 proto kernel scope link src 127.0.4.2',
+    span('m', 'all roads lead to the homelab.'),
+  ]);
+  if (args.includes('-br') || o.brief) return printLines(ifs.map(([n, st, addr]) => `${pad(n, 16)} ${pad(st, 14)} ${addr}`));
+  if (/^l(ink)?$/.test(sub)) return printLines(ifs.map(([n, , , fl, mtu], i) => esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`)));
+  printLines([
+    ...ifs.flatMap(([n, , addr, fl, mtu], i) => [esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`), `    inet ${addr}${n === 'eth0' ? ' brd 127.0.4.255' : ''} scope ${n === 'lo' ? 'host' : 'global'} ${n}`]),
+    span('m', 'wg0 goes to the homelab. No, you cannot have the key.'),
+  ]);
+}, { usage: '[-br] [a | route | link]', flags: [['a, addr', 'addresses (default)'], ['route', 'the routing table'], ['link', 'interfaces only'], ['-br', 'brief: one line per interface']] });
+def('hostname', null, 'the name of this machine', args => {
+  const [o] = getopt(args);
+  if (o.I || o['all-ip-addresses']) return print('127.0.4.2 10.42.0.1');
+  if (o.i || o['ip-address']) return print('127.0.4.2');
+  if (o.f || o.fqdn || o.long) return print('terminal.iantiemann.nl');
+  if (o.d || o.domain) return print('iantiemann.nl');
+  print('iantiemann');
+}, { flags: [['-s, --short', 'the short name (default)'], ['-f, --fqdn', 'the full name with domain'], ['-d, --domain', 'only the domain'], ['-i', 'its IP address'], ['-I', 'every IP address']] });
+const USERS = { guest: [1001, [[1001, 'guest'], [27, 'curious'], [42, 'coffee']]], ian: [1000, [[1000, 'ian'], [27, 'sudo'], [42, 'coffee']]], root: [0, [[0, 'root']]] };
+def('id', null, 'who you are, as numbers', args => {
+  const [o, [who = state.asRoot ? 'root' : 'guest']] = getopt(args);
+  const u = USERS[who];
+  if (!u) return print(span('e', `id: '${esc(who)}': no such user`));
+  const [uid, groups] = u, names = o.n || o.name;
+  if (o.u || o.user) return print(names ? who : String(uid));
+  if (o.g || o.group) return print(names ? groups[0][1] : String(groups[0][0]));
+  if (o.G || o.groups) return print(groups.map(([id, n]) => names ? n : id).join(' '));
+  print(`uid=${uid}(${who}) gid=${groups[0][0]}(${groups[0][1]}) groups=${groups.map(([id, n]) => `${id}(${n})`).join(',')}`);
+}, { usage: '[-ugGn] [user]', flags: [['-u, --user', 'only the user ID'], ['-g, --group', 'only the group ID'], ['-G, --groups', 'every group ID'], ['-n, --name', 'with -u, -g or -G: names instead of numbers']] });
+const BUILTINS = ['cd', 'alias', 'unalias', 'echo', 'history', 'pwd', 'exit', 'type', 'export', 'set'];
+def(['which', 'type', 'whereis', 'command'], null, 'where a command lives', (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0].toLowerCase();
+  const [o, names] = getopt(args);
+  if (!names[0]) return print(span('e', `usage: ${esc(tool)} &lt;command&gt;`));
+  names.forEach(a => {
+    const n = a.toLowerCase(), known = C[n];
+    if (!known) return print(span('e', tool === 'type' ? `${esc(a)}: not found` : `${esc(a)} not found`));
+    if (tool === 'type') return print(BUILTINS.includes(n) ? `${esc(a)} is a shell builtin` : C[n].alias ? `${esc(a)} is aliased to '${esc(C[n].name)}'` : `${esc(a)} is /usr/bin/${esc(a)}`);
+    if (tool === 'whereis') return print(`${esc(a)}: /usr/bin/${esc(a)} /usr/share/man/man1/${esc(a)}.1.gz`);
+    print(`/usr/bin/${esc(a)}` + (o.a ? `\n/bin/${esc(a)}` : ''));
+  });
+}, { usage: '[-a] <command>', flags: [['-a', 'every match, not just the first']] });
+const ENV = () => ({
+  USER: 'guest', HOME: '/home/guest', SHELL: '/bin/zsh', LANG: 'nl_NL.UTF-8', TERM: 'xterm-256color',
+  EDITOR: 'vim', COFFEE_LEVEL: 'high', DNS_BLAME: 'always', PWD: pathStr(),
 });
-def('df', null, '', () => printLines([
-  span('w b', 'Filesystem      Size  Used Avail Use% Mounted on'),
-  '/dev/brain      1.0T  987G   13G  99% /',
-  'experience       10y   10y     ∞  12% /home/guest/experience',
-  'tmpfs           640K  640K     0 100% /dev/ideas',
-  'coffee           2.0L  1.9L  0.1L  95% /mnt/mug',
-  span('m', '/dev/brain is nearly full. Mostly config syntax and Dutch weather forecasts.'),
-]));
-def('free', null, '', () => printLines([
-  span('w b', '               total        used        free      shared  buff/cache'),
-  'Mem:            16Gi        10Gi       1.2Gi       512Mi       4.8Gi',
-  'Swap:          2.0Gi       0.0Gi       2.0Gi',
-  span('m', 'buff/cache is 80% stroopwafel recipes.'),
-]));
-def(['ip', 'ifconfig'], null, '', () => printLines([
-  esc('1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536'), '    inet 127.0.0.1/8 scope host lo',
-  esc('2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500'), '    inet 127.0.4.2/24 brd 127.0.4.255 scope global eth0',
-  esc('3: wg0: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420'), '    inet 10.42.0.1/24 scope global wg0',
-  span('m', 'wg0 goes to the homelab. No, you cannot have the key.'),
-]));
-def('hostname', null, '', () => print('iantiemann'));
-def('id', null, '', () => print('uid=1000(guest) gid=1000(guest) groups=1000(guest),27(curious),42(coffee)'));
-def(['which', 'type', 'whereis', 'command'], null, '', args => {
-  if (!args[0]) return print(span('e', 'usage: which &lt;command&gt;'));
-  args.forEach(a => print(C[a.toLowerCase()] ? `/usr/bin/${esc(a)}` : span('e', `${esc(a)} not found`)));
-});
-def(['env', 'printenv', 'export', 'set'], null, '', () => printLines([
-  'USER=guest', 'HOME=/home/guest', 'SHELL=/bin/zsh', 'LANG=nl_NL.UTF-8', 'TERM=xterm-256color',
-  'EDITOR=vim  ' + span('m', '# good luck getting out'), 'COFFEE_LEVEL=high', 'DNS_BLAME=always', `PWD=${esc(pathStr())}`,
-]));
-def('systemctl', null, '', args => {
-  const unit = (args[1] || '').replace('.service', '');
-  if (args[0] === 'status' && unit) {
+def(['env', 'printenv', 'export', 'set'], null, 'environment variables', (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0].toLowerCase(), env = ENV();
+  if (tool === 'export' && args.length) return print(span('e', 'export: read-only environment') + span('m', ' - but nice try. Want a shortcut? ') + cmd('alias'));
+  if (tool === 'printenv' && args.length) {
+    const vals = args.filter(a => a in env);
+    if (!vals.length) state.failed = true;
+    return printLines(vals.map(a => esc(env[a])));
+  }
+  printLines(Object.entries(env).map(([k, v]) => esc(`${k}=${v}`) + (k === 'EDITOR' ? '  ' + span('m', '# good luck getting out') : '')));
+}, { usage: '[VAR]', flags: [['VAR', 'printenv VAR prints just that value']] });
+def('systemctl', null, 'manage services', args => {
+  const [o, [sub, unitArg = '']] = getopt(args);
+  const unit = unitArg.replace('.service', '');
+  if (o.failed || sub === '--failed') return printLines(['  UNIT LOAD ACTIVE SUB DESCRIPTION', '0 loaded units listed.', span('m', 'nothing has failed. Today.')]);
+  if ((sub === 'status' || sub === 'is-active') && unit) {
     const p = PROCS.find(p => p.cmd.split(' ')[0].replace('.service', '') === unit);
-    if (!p) return print(span('e', `Unit ${esc(unit)}.service could not be found.`));
+    if (!p) { state.failed = true; return print(sub === 'is-active' ? 'inactive' : span('e', `Unit ${esc(unit)}.service could not be found.`)); }
+    if (sub === 'is-active') return print('active');
     return printLines([
       `${span('a', '●')} ${esc(unit)}.service`,
       `     Loaded: loaded (/etc/systemd/system/${esc(unit)}.service; enabled)`,
@@ -298,7 +445,7 @@ def('systemctl', null, '', args => {
       `   Main PID: ${p.pid} (${esc(unit)})`,
     ]);
   }
-  if (['start', 'stop', 'restart', 'enable', 'disable'].includes(args[0])) return print(span('e', 'Failed to ' + esc(args[0]) + ' unit: Access denied') + span('m', ' (try asking nicely)'));
+  if (['start', 'stop', 'restart', 'enable', 'disable'].includes(sub)) return print(span('e', 'Failed to ' + esc(sub) + ' unit: Access denied') + span('m', ' (try asking nicely)'));
   printLines([
     span('w b', 'UNIT                        LOAD   ACTIVE SUB     DESCRIPTION'),
     'coffee.service              loaded active running Keeps Ian operational',
@@ -307,9 +454,9 @@ def('systemctl', null, '', args => {
     'curiosity.target            loaded active active  Wants to know how everything works',
     span('m', 'Try ') + cmd('systemctl status coffee'),
   ]);
-});
+}, { usage: '[status|is-active <unit>] [--failed]', flags: [['status <unit>', 'details of one service'], ['is-active <unit>', 'just active or inactive'], ['--failed', 'services that crashed']] });
 // fsck in the style of e2fsck: five passes, the last one finds the hidden corrupt theme
-def('fsck', null, '', async () => {
+def('fsck', null, 'check the filesystem for errors', async () => {
   const bar = async label => {
     const d = print('');
     for (let i = 0; i <= 20; i++) { d.textContent = `${label.padEnd(44)} [${'#'.repeat(i)}${'.'.repeat(20 - i)}] ${i * 5}%`; await sleep(25 + Math.random() * 35); }
@@ -354,11 +501,10 @@ def('fsck', null, '', async () => {
   print(span('e', '/dev/brain: ***** FILE SYSTEM WAS NOT FULLY REPAIRED *****'));
   print('/dev/brain: 1337/4096 files (0.4% non-contiguous), 987/1000 blocks');
   print(span('m', '1 corrupted theme found and left in place. It still loads though. At your own risk.'));
-});
-def(['netstat', 'ss'], null, '', () => printLines([
-  'Active Internet connections (servers and established)',
-  span('w b', 'Proto Local Address        Foreign Address      State        PID/Program'),
-  ...[
+}, { usage: '[device]' });
+def(['netstat', 'ss'], null, 'network connections', args => {
+  const [o] = getopt(args);
+  const rows = [
     ['tcp', '0.0.0.0:22', '0.0.0.0:*', 'LISTEN', '412/sshd', '# not for you'],
     ['tcp', '0.0.0.0:443', '0.0.0.0:*', 'LISTEN', '1201/traefik', ''],
     ['tcp', '127.0.0.1:3000', '0.0.0.0:*', 'LISTEN', '1388/grafana', ''],
@@ -368,55 +514,127 @@ def(['netstat', 'ss'], null, '', () => printLines([
     ['udp', '0.0.0.0:51820', '0.0.0.0:*', '', '-/wireguard', '# wg0 to the homelab'],
     ['tcp', '10.42.0.1:8006', '10.42.0.12:41822', 'ESTABLISHED', '256/homelab', '# proxmox'],
     ['tcp', '127.0.4.2:443', 'you:52731', 'ESTABLISHED', '9000/terminal', "# that's you"],
-  ].map(([pr, l, f, st, pid, note]) => esc(`${pad(pr, 5)} ${pad(l, 20)} ${pad(f, 20)} ${pad(st, 12)} ${pid}`) + (note ? '  ' + span('m', esc(note)) : '')),
-]));
-def('dmesg', null, '', () => printLines([
-  '[    0.000000] Linux version 6.1.0-coffee (ian@iantiemann) #1 SMP PREEMPT_DYNAMIC',
-  '[    0.004200] Memory: 16G available (mostly browser tabs)',
-  '[    0.120000] coffee: brewer initialised, 1 mug detected',
-  '[    1.337000] eth0: link up, 1000 Mbps, full duplex',
-  '[    2.016000] wg0: tunnel to homelab established',
-  '[    3.141592] theme: loaded 17 themes',
-  span('w', "[    3.141600] theme: bit rot detected in hidden theme 'c0rrupt', not listed"),
-  '[    4.200000] curiosity: target reached',
-  `[${String(Math.floor((Date.now() - BOOT_TIME) / 1000)).padStart(5)}.000000] guest: still reading kernel logs, respect`,
-].map(l => l.startsWith('<') ? l : esc(l))));
-def('journalctl', null, '', () => printLines([
-  span('m', '-- Logs begin at boot --'),
-  'coffee[128]: Brewing cup 1 of many',
-  'cloudmodule-dev[42]: Roadmap updated, stakeholders aligned',
-  'treasure[7]: fragment 1/3 = "stroop"',
-  'homelab[256]: Proxmox Backup Server: nightly sync to offsite completed',
-  'homelab[256]: Grafana alert resolved: it was DNS',
-  'fix-the-printer[2016]: Printer is out of paper. Again.',
-  `terminal[9000]: guest connected, uptime ${uptime()}`,
-]));
-def(['dig', 'nslookup', 'host'], null, '', args => {
-  const host = args.find(a => !a.startsWith('-')) || 'iantiemann.nl';
+  ].filter(([pr, , , st]) => (!(o.t || o.tcp || o.u || o.udp) || ((o.t || o.tcp) && pr === 'tcp') || ((o.u || o.udp) && pr === 'udp'))
+    && (!(o.l || o.listening) || st !== 'ESTABLISHED'));
+  printLines([
+    `Active Internet connections (${o.l || o.listening ? 'only servers' : 'servers and established'})`,
+    span('w b', 'Proto Local Address        Foreign Address      State        PID/Program'),
+    ...rows.map(([pr, l, f, st, pid, note]) => esc(`${pad(pr, 5)} ${pad(l, 20)} ${pad(f, 20)} ${pad(st, 12)} ${pid}`) + (note ? '  ' + span('m', esc(note)) : '')),
+  ]);
+}, { usage: '[-tulnp]', flags: [['-t, --tcp', 'TCP only'], ['-u, --udp', 'UDP only'], ['-l, --listening', 'only ports that wait for connections'], ['-n, -p', 'numbers and programs (always on here)']] });
+def('dmesg', null, 'kernel messages', args => {
+  const [o] = getopt(args);
+  const lines = [
+    [0, 'Linux version 6.1.0-coffee (ian@iantiemann) #1 SMP PREEMPT_DYNAMIC'],
+    [0.0042, 'Memory: 16G available (mostly browser tabs)'],
+    [0.12, 'coffee: brewer initialised, 1 mug detected'],
+    [1.337, 'eth0: link up, 1000 Mbps, full duplex'],
+    [2.016, 'wg0: tunnel to homelab established'],
+    [3.141592, 'theme: loaded 17 themes'],
+    [3.1416, "theme: bit rot detected in hidden theme 'c0rrupt', not listed", 'w'],
+    [4.2, 'curiosity: target reached'],
+    [Math.floor((Date.now() - BOOT_TIME) / 1000), 'guest: still reading kernel logs, respect'],
+  ];
+  // -T prints wall-clock time instead of seconds since boot
+  const stamp = t => o.T || o.ctime ? `[${new Date(BOOT_TIME + t * 1000).toString().slice(0, 24)}]` : `[${t.toFixed(6).padStart(12)}]`;
+  printLines(lines.map(([t, msg, cls]) => cls ? span(cls, esc(`${stamp(t)} ${msg}`)) : esc(`${stamp(t)} ${msg}`)));
+}, { flags: [['-T, --ctime', 'human readable timestamps']] });
+const JOURNAL = [
+  ['coffee', 128, 'Brewing cup 1 of many'],
+  ['cloudmodule-dev', 42, 'Roadmap updated, stakeholders aligned'],
+  ['treasure', 7, 'fragment 1/3 = "stroop"'],
+  ['homelab', 256, 'Proxmox Backup Server: nightly sync to offsite completed'],
+  ['homelab', 256, 'Grafana alert resolved: it was DNS'],
+  ['fix-the-printer', 2016, 'Printer is out of paper. Again.'],
+  ['terminal', 9000, () => `guest connected, uptime ${uptime()}`],
+];
+const LIVE = [['coffee', 128, 'Brewing cup {n} of many'], ['homelab', 256, 'heartbeat ok'], ['cloudmodule-dev', 42, 'build passed'], ['homelab', 256, 'Grafana: all green'], ['terminal', 9000, 'guest is still here, nice']];
+def('journalctl', null, 'system logs', async args => {
+  const [o] = getopt(args, ['n', 'u', 'lines', 'unit']);
+  const unit = o.u ?? o.unit, n = o.n ?? o.lines;
+  const stamp = at => { const s = at.toString(); return s.slice(4, 10) + s.slice(15, 24); };
+  const fmt = (name, pid, msg, at = new Date()) => `${span('m', esc(stamp(at)))} iantiemann ${esc(`${name}[${pid}]: ${typeof msg === 'function' ? msg() : msg}`)}`;
+  let rows = JOURNAL.filter(([name]) => !unit || name === unit.replace('.service', ''));
+  if (n !== undefined) rows = rows.slice(-parseInt(n, 10) || 0);
+  if (o.r || o.reverse) rows = [...rows].reverse();
+  print(span('m', '-- Logs begin at boot --'));
+  rows.forEach((r, i) => print(fmt(...r, new Date(BOOT_TIME + i * 1000))));
+  if (!rows.length) print(span('m', '-- No entries --'));
+  if (!(o.f || o.follow)) return;
+  // follow: new lines keep coming until Ctrl+C (or 30 of them)
+  for (let i = 0, cup = 2; i < 30; i++) {
+    await sleep(1500 + Math.random() * 1500);
+    const live = LIVE.filter(([name]) => !unit || name === unit.replace('.service', ''));
+    if (!live.length) continue;
+    const [name, pid, msg] = live[Math.floor(Math.random() * live.length)];
+    print(fmt(name, pid, msg.replace('{n}', () => cup++)));
+  }
+}, { usage: '[-n lines] [-u unit] [-f] [-r]', flags: [['-n lines', 'only the last lines'], ['-u unit', 'one service, like -u coffee'], ['-f, --follow', 'keep printing new lines (Ctrl+C stops)'], ['-r, --reverse', 'newest first']] });
+def(['dig', 'nslookup', 'host'], null, 'look up a DNS record', (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0].toLowerCase();
+  const host = args.find(a => !a.startsWith('-') && !a.startsWith('+') && !/^(A|AAAA|MX|TXT|NS|CNAME)$/i.test(a)) || 'iantiemann.nl';
+  if (tool === 'host') return print(`${esc(host)} has address 192.0.2.42`);
+  if (tool === 'nslookup') return printLines(['Server:         127.0.0.53', 'Address:        127.0.0.53#53', '', 'Non-authoritative answer:', `Name:   ${esc(host)}`, 'Address: 192.0.2.42']);
+  if (args.includes('+short')) return print('192.0.2.42');
   printLines([
     `;; QUESTION SECTION:`, `;${esc(host)}.            IN  A`, '',
     `;; ANSWER SECTION:`, `${esc(host)}.     300  IN  A  192.0.2.42`, '',
     span('m', ';; Query time: 42 msec. If something is broken, it was probably DNS.'),
   ]);
-});
-def(['traceroute', 'tracert', 'mtr'], null, '', async args => {
-  const host = args[0] || 'iantiemann.nl';
-  print(`traceroute to ${esc(host)}, 30 hops max`);
-  const hops = ['your-router.lan', 'curiosity.gw', 'tudelft.ide.edu', 'avans.breda.edu', 'notive.zwijndrecht', 'netw.stellendam', esc(host)];
-  for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${hops[i]}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
-});
-def('cal', null, '', () => {
-  const d = new Date(), y = d.getFullYear(), m = d.getMonth();
+}, { usage: '[+short] <host>', flags: [['+short', 'only the answer']] });
+def(['traceroute', 'tracert', 'mtr'], null, 'the route to a host', async args => {
+  const [o, [target]] = getopt(args, ['m', 'q', 'w']);
+  const host = target || 'iantiemann.nl';
+  const max = Math.max(1, parseInt(o.m ?? 30, 10) || 30);
+  print(`traceroute to ${esc(host)}, ${max} hops max`);
+  const hops = [['your-router.lan', '192.168.1.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [esc(host), '192.0.2.42']].slice(0, max);
+  for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${o.n ? hops[i][1] : `${hops[i][0]} (${hops[i][1]})`}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
+}, { usage: '[-n] [-m hops] <host>', flags: [['-m hops', 'give up after this many hops'], ['-n', 'numbers only, no names']] });
+
+// one month as 8 lines of 20 characters, today in bold
+function monthLines(y, m) {
+  const now = new Date();
   const first = (new Date(y, m, 1).getDay() + 6) % 7, days = new Date(y, m + 1, 0).getDate();
-  const title = d.toLocaleString('en', { month: 'long' }) + ' ' + y;
+  const title = new Date(y, m, 1).toLocaleString('en', { month: 'long' }) + ' ' + y;
   const cells = [...Array(first).fill('  '), ...Array.from({ length: days }, (_, i) => {
     const n = String(i + 1).padStart(2);
-    return i + 1 === d.getDate() ? span('a b', n) : n;
+    return y === now.getFullYear() && m === now.getMonth() && i + 1 === now.getDate() ? span('a b', n) : n;
   })];
   const weeks = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7).join(' '));
-  printLines([' '.repeat(Math.max(0, Math.floor((20 - title.length) / 2))) + title, span('m', 'Mo Tu We Th Fr Sa Su'), ...weeks]);
-});
+  for (let i = 0; i < cells.length; i += 7) {
+    const week = cells.slice(i, i + 7);
+    weeks.push(week.join(' ') + ' '.repeat((7 - week.length) * 3));
+  }
+  while (weeks.length < 6) weeks.push(' '.repeat(20));
+  const t = ' '.repeat(Math.max(0, Math.floor((20 - title.length) / 2))) + title;
+  return [t.padEnd(20), span('m', 'Mo Tu We Th Fr Sa Su'), ...weeks];
+}
+const sideBySide = months => months[0].map((_, i) => months.map(m => m[i]).join('   '));
+def('cal', null, 'a calendar', args => {
+  const [o, nums] = getopt(args);
+  const now = new Date();
+  let y = now.getFullYear(), m = now.getMonth();
+  if (nums.length === 1) { y = parseInt(nums[0], 10); o.y = true; }
+  if (nums.length >= 2) { m = parseInt(nums[0], 10) - 1; y = parseInt(nums[1], 10); }
+  if (!(y > 0) || !(m >= 0 && m < 12)) return print(span('e', 'cal: invalid date') + span('m', '  usage: cal [[month] year]'));
+  if (o.y || o.year) {
+    print(' '.repeat(29) + y);
+    for (let q = 0; q < 12; q += 3) { printLines(sideBySide([0, 1, 2].map(i => monthLines(y, q + i)))); print(''); }
+    return;
+  }
+  if (o.num === 3 || o['3']) return printLines(sideBySide([-1, 0, 1].map(d => { const t = new Date(y, m + d, 1); return monthLines(t.getFullYear(), t.getMonth()); })));
+  printLines(monthLines(y, m).map(l => l.trimEnd()).filter((l, i) => i < 2 || l.trim()));
+}, { usage: '[-3y] [[month] year]', flags: [['-3', 'last month, this month and next month'], ['-y, --year', 'the whole year'], ['month year', 'a specific month, like cal 12 2026']] });
 
-Object.keys(FILTERS).forEach(f => def(f, null, '', () => print(span('m', `${f} reads from a pipe here. Try `) + cmd(f === 'grep' ? 'skills -a | grep linux' : `articles | ${f}${f === 'head' || f === 'tail' ? ' -n 3' : ''}`))));
-def('lolcat', null, '', args => args.length ? print(rainbow(args.join(' '), 0)) : print(span('m', 'lolcat reads from a pipe here. Try ') + cmd('fortune | lolcat')));
+const FILTER_INFO = {
+  grep: ['search the input for a pattern', '[-icvnowxF] <pattern>', [['-i, --ignore-case', 'ignore case (lowercase patterns already do)'], ['-v, --invert-match', 'lines that do not match'], ['-c, --count', 'only the number of matching lines'], ['-n, --line-number', 'show line numbers'], ['-o, --only-matching', 'only the matching part'], ['-w, --word-regexp', 'whole words only'], ['-x, --line-regexp', 'whole lines only'], ['-F, --fixed-strings', 'the pattern is text, not a regex'], ['-e pattern', 'the pattern, even if it starts with -']]],
+  head: ['the first lines of the input', '[-n lines] [-c bytes]', [['-n lines, -lines', 'how many lines (default 10)'], ['-c bytes', 'the first bytes instead']]],
+  tail: ['the last lines of the input', '[-n lines] [-c bytes]', [['-n lines, -lines', 'how many lines (default 10)'], ['-n +N', 'everything from line N'], ['-c bytes', 'the last bytes instead']]],
+  wc: ['count lines, words and bytes', '[-lwmc]', [['-l, --lines', 'lines'], ['-w, --words', 'words'], ['-m, --chars', 'characters'], ['-c, --bytes', 'bytes']]],
+  sort: ['sort the input', '[-rnuf]', [['-r, --reverse', 'reverse the order'], ['-n, --numeric-sort', 'compare as numbers'], ['-u, --unique', 'drop duplicate lines'], ['-f, --ignore-case', 'ignore case']]],
+  uniq: ['drop repeated lines', '[-cdui]', [['-c, --count', 'prefix lines with how often they occur'], ['-d, --repeated', 'only lines that repeat'], ['-u, --unique', 'only lines that do not repeat'], ['-i, --ignore-case', 'ignore case']]],
+  lolcat: ['rainbows', '[text]', []],
+};
+Object.keys(FILTERS).forEach(f => def(f, null, FILTER_INFO[f][0], () => print(span('m', `${f} reads from a pipe here. Try `) + cmd(f === 'grep' ? 'skills -a | grep linux' : `articles | ${f}${f === 'head' || f === 'tail' ? ' -n 3' : ''}`)),
+  { usage: FILTER_INFO[f][1], flags: FILTER_INFO[f][2] }));
+def('lolcat', null, 'rainbows', args => args.length ? print(rainbow(args.join(' '), 0)) : print(span('m', 'lolcat reads from a pipe here. Try ') + cmd('fortune | lolcat')), { usage: '[text]' });

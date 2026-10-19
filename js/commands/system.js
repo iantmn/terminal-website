@@ -1,7 +1,7 @@
 // help, settings and the shell built-ins
 import { unlock, unlocked, ACH_IDS, ACH, noSolution } from '../achievements.js';
 import { SITE, PROFILE } from '../content.js';
-import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow } from '../core.js';
+import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt } from '../core.js';
 import { resetDiary } from '../filesystem.js';
 import { hist } from '../input.js';
 import { C, def } from '../registry.js';
@@ -26,10 +26,49 @@ def(['help', 'h', '?'], 'system', 'show this help', () => {
 });
 
 // system
-def(['clear', 'cls'], 'system', 'clear the screen', () => { out.innerHTML = ''; });
-def('history', 'system', 'command history', () => hist.forEach((h, i) => print(`${span('m', String(i + 1).padStart(4, ' '))}  ${esc(h)}`)));
-def('echo', 'system', 'print text', (args, raw) => print(esc(raw.replace(/^\s*echo\s?/, '').replace(/^(["'])(.*)\1$/, '$2'))));
-def('date', 'system', 'current date & time', () => print(new Date().toString()));
+// there is no scrollback buffer to keep, so -x clears the same way
+def(['clear', 'cls'], 'system', 'clear the screen', () => { out.innerHTML = ''; }, { flags: [['-x', 'keep the scrollback (same thing here)']] });
+def('history', 'system', 'command history', args => {
+  const [o, [n]] = getopt(args);
+  if (o.c) { hist.splice(0); store.set('hist', hist); return print(span('m', 'history cleared')); }
+  const from = n ? Math.max(0, hist.length - parseInt(n, 10)) : 0;
+  hist.slice(from).forEach((h, i) => print(`${span('m', String(from + i + 1).padStart(4, ' '))}  ${esc(h)}`));
+}, { usage: '[n] [-c]', flags: [['n', 'only the last n commands'], ['-c', 'clear the history']] });
+// like bash: options only count at the start, -e turns \n and \t into a new line and a tab
+def('echo', 'system', 'print text', (args, raw) => {
+  let text = raw.replace(/^\s*echo\s?/, ''), escapes = false;
+  for (let m; (m = text.match(/^-([neE]+)(\s+|$)/));) { if (m[1].includes('e')) escapes = true; if (m[1].includes('E')) escapes = false; text = text.slice(m[0].length); }
+  text = text.replace(/^(["'])(.*)\1$/, '$2');
+  if (escapes) text = text.replace(/\\([ntb\\])/g, (_, c) => ({ n: '\n', t: '\t', b: '', '\\': '\\' }[c]));
+  print(esc(text));
+}, { usage: '[-e] <text>', flags: [['-n', 'no trailing newline'], ['-e', 'interpret \\n, \\t and \\\\'], ['-E', 'do not interpret them (default)']] });
+
+// strftime, the parts people actually use
+function strftime(fmt, d, utc) {
+  const g = k => d[`get${utc ? 'UTC' : ''}${k}`]();
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  const yday = Math.floor((Date.UTC(g('FullYear'), g('Month'), g('Date')) - Date.UTC(g('FullYear'), 0, 1)) / 864e5) + 1;
+  const name = opt => d.toLocaleString('en', { ...opt, timeZone: utc ? 'UTC' : undefined });
+  const off = utc ? 0 : -d.getTimezoneOffset();
+  const map = {
+    Y: g('FullYear'), y: p(g('FullYear') % 100), m: p(g('Month') + 1), d: p(g('Date')), e: String(g('Date')).padStart(2),
+    H: p(g('Hours')), I: p(g('Hours') % 12 || 12), M: p(g('Minutes')), S: p(g('Seconds')), p: g('Hours') < 12 ? 'AM' : 'PM',
+    A: name({ weekday: 'long' }), a: name({ weekday: 'short' }), B: name({ month: 'long' }), b: name({ month: 'short' }),
+    j: p(yday, 3), u: g('Day') || 7, w: g('Day'), s: Math.floor(d / 1000),
+    z: (off < 0 ? '-' : '+') + p(Math.floor(Math.abs(off) / 60)) + p(Math.abs(off) % 60),
+    Z: utc ? 'UTC' : name({ timeZoneName: 'short' }).split(' ').pop(), n: '\n', t: '\t', '%': '%',
+  };
+  map.F = `${map.Y}-${map.m}-${map.d}`; map.T = `${map.H}:${map.M}:${map.S}`; map.D = `${map.m}/${map.d}/${map.y}`; map.R = `${map.H}:${map.M}`;
+  return fmt.replace(/%(.)/g, (m, k) => k in map ? map[k] : m);
+}
+def('date', 'system', 'current date & time', args => {
+  const [o, [fmt]] = getopt(args);
+  const d = new Date(), utc = o.u || o.utc;
+  if (fmt && fmt.startsWith('+')) return print(esc(strftime(fmt.slice(1), d, utc)));
+  if (o.I || o['iso-8601']) return print(strftime('%F', d, utc));
+  if (o.R || o.rfc) return print(strftime('%a, %d %b %Y %T %z', d, utc));
+  print(strftime('%a %b %e %T %Z %Y', d, utc));
+}, { usage: '[+format]', flags: [['+format', 'like +%Y-%m-%d or +%H:%M (strftime)'], ['-u, --utc', 'in UTC'], ['-I, --iso-8601', 'only the date, as 2026-10-19'], ['-R, --rfc', 'RFC 2822, as in email headers']] });
 def('banner', 'system', 'show the banner', () => banner());
 def(['neofetch', 'fastfetch', 'screenfetch'], 'system', 'system information', () => { unlock('neofetch'); neofetch(); });
 def('theme', 'system', 'change colour theme', args => {
@@ -50,7 +89,7 @@ def('theme', 'system', 'change colour theme', args => {
     return print(span('m', 'Want your sanity back? ') + cmd('theme default'));
   }
   print(span('a', `theme set to ${args[0]}`)); unlock('theme');
-}, { usage: '<name|random>' });
+}, { usage: '<name|random>', flags: [['random', 'surprise me']] });
 
 def('sound', 'system', 'turn sound on or off', args => {
   if (args[0] === 'on' || args[0] === 'off') setSound(args[0] === 'on');
@@ -59,7 +98,7 @@ def('sound', 'system', 'turn sound on or off', args => {
   if (soundOn && args[0] === 'on') try { chime(0); } catch {}
 }, { usage: '[on|off]' });
 
-def('beep', null, '', args => {
+def('beep', null, 'make a sound', args => {
   if (!soundOn) return print(span('m', 'Sound is off. ') + cmd('sound on'));
   try {
     if (args[0] === 'tune' || args[0] === '-m') [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.11));
@@ -126,7 +165,7 @@ def('hint', 'system', 'a nudge towards an achievement', async args => {
   const answer = await ask(span('w', `Show the solution for #${n}? That spoils the fun. [y/N] `));
   if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Good call. Keep trying.'));
   print(`${span('w', 'solution #' + n)} ${span('a2', esc(ACH[id][2]))}`);
-}, { usage: '[-r | n [--solution]]' });
+}, { usage: '[-r | n [-s]]', flags: [['-r, --random', 'a tip for something you have not found yet'], ['n', 'a tip for achievement n'], ['-s, --solution', 'with n: the answer (spoiler!)']] });
 def(['gui', 'home', 'website'], 'system', 'go to the regular website', () => {
   print(span('m', 'switching to graphical mode... ') + link(SITE));
   setTimeout(() => { location.href = SITE; }, 700);
@@ -138,15 +177,24 @@ def(['exit', 'logout', 'quit', ':q'], 'system', 'leave the terminal', async () =
   print(span('w', 'just kidding, there is no escape.'));
   print(span('m', 'Want the normal site? ') + cmd('gui'));
 });
-def('github', null, '', () => C.open.run(['github']));
-def('linkedin', null, '', () => C.open.run(['linkedin']));
+def('github', null, 'open my GitHub', () => C.open.run(['github']));
+def('linkedin', null, 'open my LinkedIn', () => C.open.run(['linkedin']));
 def(['repo', 'source', 'src'], 'system', 'source code of this site', () => {
   print(span('m', 'This terminal is open source: ') + link(PROFILE.repo));
   print(span('m', 'Stars, issues and pull requests are welcome.'));
 });
-def('mail', null, '', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
-def('man', 'system', 'manual for a command', args => {
-  const t = (args[0] || '').toLowerCase();
+def('mail', null, 'send me an email', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
+def(['man', 'apropos'], 'system', 'manual for a command', (args, raw) => {
+  const [o, rest] = getopt(args);
+  // man -k (or apropos) searches names and descriptions
+  if (o.k || /^\s*apropos\b/.test(raw)) {
+    const q = (rest[0] || '').toLowerCase();
+    if (!q) return print(span('e', 'apropos what?'));
+    const hits = Object.values(C).filter(c => !c.alias && c.desc && (c.name.includes(q) || c.desc.toLowerCase().includes(q)));
+    if (!hits.length) return print(`${esc(q)}: nothing appropriate.`);
+    return hits.forEach(c => print(`${cmd('man ' + c.name, pad(c.name, 14))} - ${esc(c.desc)}`));
+  }
+  const t = (rest[0] || '').toLowerCase();
   if (!t) return print('What manual page do you want?' + span('m', ' (e.g. ') + cmd('man ls') + span('m', ')'));
   if (t === 'ian') {
     unlock('rtfm');
@@ -169,13 +217,16 @@ def('man', 'system', 'manual for a command', args => {
     ]);
   }
   const c = C[t];
-  if (!c || !c.group) return print(`No manual entry for ${esc(t)}`);
+  if (!c || !c.desc) return print(`No manual entry for ${esc(t)}`);
+  const flags = c.flags || [];
   printLines([h2('NAME'), `       ${esc(c.name)} - ${esc(c.desc)}`, h2('SYNOPSIS'), `       ${esc(c.name)}${c.usage ? ' ' + esc(c.usage) : ''}`,
+    ...(flags.length ? [h2('OPTIONS'), ...flags.map(([f, d]) => `       ${span('a2', esc(pad(f, 22)))} ${esc(d)}`)] : []),
     ...(c.aliases.length ? [h2('ALIASES'), '       ' + esc(c.aliases.join(', '))] : [])]);
-}, { usage: '<command>' });
+}, { usage: '[-k] <cmd>', flags: [['-k word', 'search the manuals, like apropos']] });
 def('rot13', 'system', 'encode or decode text with rot13', (a, raw) => print(esc(rot13(raw.replace(/^\s*rot13\s?/, '')))), { usage: '<text>' });
 
 def('alias', 'system', 'make your own shortcuts', args => {
+  if (args[0] === '-p') args = [];
   if (!args.length) {
     const names = Object.keys(aliases);
     if (!names.length) return print(span('m', "No aliases yet. Try ") + span('a2', "alias ll='ls -a'"));
@@ -190,11 +241,11 @@ def('alias', 'system', 'make your own shortcuts', args => {
     unlock('alias');
   }
   store.set('aliases', aliases);
-}, { usage: "[name='cmd']" });
-def('unalias', null, '', args => {
+}, { usage: "[name='cmd']", flags: [['-p', 'print every alias']] });
+def('unalias', null, 'remove a shortcut', args => {
   if (!args[0]) return print(span('e', 'usage: unalias &lt;name&gt; | -a'));
   if (args[0] === '-a') Object.keys(aliases).forEach(k => delete aliases[k]);
   else if (aliases[args[0]]) delete aliases[args[0]];
   else return print(span('e', `unalias: ${esc(args[0])}: not found`));
   store.set('aliases', aliases);
-});
+}, { usage: '<name> | -a', flags: [['-a', 'remove every alias']] });

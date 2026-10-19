@@ -167,17 +167,22 @@ export function lsEntry(name, node, segs) {
 // navigation
 // ls -l: posts get their real date, everything else a size and date derived from the name so they stay the same
 const hashOf = str => [...str].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
-export function lsLong(name, node) {
-  const h = hashOf(name), dir = node.type === 'dir', hidden = name.startsWith('.') && name.length > 2;
+export function fileMeta(name, node) {
+  const h = hashOf(name), dir = node.type === 'dir';
   const post = POSTS.find(p => p.file === name);
-  const d = post ? new Date(post.date) : new Date(Date.now() - (h % 300 + 1) * 864e5);
+  return { date: post ? new Date(post.date) : new Date(Date.now() - (h % 300 + 1) * 864e5), size: dir ? 4096 : 200 + (h % 3800) };
+}
+// 4096 -> 4.0K, like ls -h
+export const human = n => n < 1024 ? String(n) : (n / 1024).toFixed(1) + 'K';
+export function lsLong(name, node, { humanSizes = false } = {}) {
+  const dir = node.type === 'dir', hidden = name.startsWith('.') && name.length > 2;
+  const { date: d, size } = fileMeta(name, node);
   const perm = node.mode ? node.mode() : dir ? (hidden ? 'drwx------' : 'drwxr-xr-x') : (hidden ? '-rw-------' : '-rw-r--r--');
   const links = dir ? 2 + Object.values(node.children).filter(c => c.type === 'dir').length : 1;
-  const size = dir ? 4096 : 200 + (h % 3800);
   const date = `${d.toLocaleString('en', { month: 'short' })} ${String(d.getDate()).padStart(2)}  ${d.getFullYear()}`;
   const owner = node.owner ? node.owner() : node.own || 'ian';
   const group = node.own === 'root' ? 'root' : 'guest';
-  return span('m', `${perm} ${String(links).padStart(2)} ${pad(owner, 5)} ${pad(group, 5)} ${String(size).padStart(5)} ${date}`) + ' ';
+  return span('m', `${perm} ${String(links).padStart(2)} ${pad(owner, 5)} ${pad(group, 5)} ${(humanSizes ? human(size) : String(size)).padStart(5)} ${date}`) + ' ';
 }
 
 // ---- the root filesystem ----

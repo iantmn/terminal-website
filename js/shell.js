@@ -1,6 +1,6 @@
 // parsing and running command lines: aliases, pipes, && and ;
 import { unlock } from './achievements.js';
-import { esc, span, cmd, print, printLines, state, store } from './core.js';
+import { esc, span, cmd, pad, print, printLines, state, store, getopt } from './core.js';
 import { resolve } from './filesystem.js';
 import { C } from './registry.js';
 
@@ -23,11 +23,32 @@ function lev(a, b) {
   return d[a.length][b.length];
 }
 
+// -h / --help and --version work for every command, built from what def() knows about it.
+// a command with its own -h (ls -h, df -h) lists it in its flags; then only --help asks for help
+const ownsH = c => (c.flags || []).some(([f]) => /(^|[\s,])-h\b/.test(f));
+export function helpLines(c, name = c.name) {
+  const l = [`Usage: ${esc(name)}${c.usage ? ' ' + esc(c.usage) : c.flags ? ' [options]' : ''}`];
+  l.push(c.desc ? esc(c.desc[0].toUpperCase() + c.desc.slice(1)) + '.' : span('m', 'No help for this one. Some things you have to try.'));
+  const flags = [...(c.flags || []), [ownsH(c) ? '    --help' : '-h, --help', 'show this help'], ['    --version', 'show the version']];
+  const w = Math.max(...flags.map(([f]) => f.length)) + 2;
+  l.push('', 'Options:', ...flags.map(([f, d]) => `  ${span('a2', esc(pad(f, w)))}${esc(d)}`));
+  if (c.aliases.length) l.push('', span('m', 'Also known as: ' + esc(c.aliases.join(', '))));
+  return l;
+}
+const wantsHelp = (c, args) => args.includes('--help') || (args.includes('-h') && !ownsH(c));
+// a wrapper (sudo, please, watch) hands the rest of the line to another command, so only its first arg counts
+function invoke(c, name, args, line) {
+  const own = c.wrap ? args.slice(0, 1) : args;
+  if (wantsHelp(c, own)) return printLines(helpLines(c, name));
+  if (own.includes('--version') && !c.version) return printLines([`${esc(name)} (IanOS) 2.6 (Stroopwafel)`, span('m', 'Written by Ian Tiemann. Runs on coffee.')]);
+  return c.run(args, line);
+}
+
 export async function execLine(line) {
   const [name, ...args] = tokenize(line);
   const c = name && C[name.toLowerCase()];
   if (!c) return print(span('e', `command not found: ${esc(name || '')}`));
-  return c.run(args, line);
+  return invoke(c, name, args, line);
 }
 
 // split on a separator outside quotes; seps are tried in order, so '&&' wins over '&'
@@ -61,7 +82,7 @@ async function execOne(line) {
     const best = visible.map(n => [n, lev(name.toLowerCase(), n)]).sort((a, b) => a[1] - b[1])[0];
     return print(span('e', `command not found: ${esc(name)}`) + (best && best[1] <= 2 ? span('m', ' - did you mean ') + cmd(best[0]) + span('m', '?') : span('m', ' - type ') + cmd('help')));
   }
-  return c.run(args, line);
+  return invoke(c, name, args, line);
 }
 
 // html lines -> plain text lines, tables become "key  value"
@@ -80,31 +101,71 @@ function htmlToText(lines) {
   });
 }
 
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const count = (o, fallback = 10) => parseInt(o.n ?? o.lines ?? o.num ?? fallback, 10);
+
 // commands that read from a pipe
 export const FILTERS = {
   grep(args, lines) {
-    const flags = args.filter(a => a.startsWith('-')).join('');
-    const pat = args.find(a => !a.startsWith('-'));
-    if (!pat) return [span('e', 'usage: ... | grep [-i] [-v] &lt;pattern&gt;')];
-    let re;
+    const [o, [arg]] = getopt(args, ['e']);
+    const pat = o.e ?? arg;
+    if (pat === undefined) return [span('e', 'usage: ... | grep [-icvnowxF] &lt;pattern&gt;')];
+    const invert = o.v || o['invert-match'];
     // smart case: lowercase patterns ignore case, any capital makes it exact (like ripgrep --smart-case)
-    const ci = flags.includes('i') || pat === pat.toLowerCase();
-    try { re = new RegExp(pat, ci ? 'gi' : 'g'); } catch { re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'); }
+    const ci = o.i || o['ignore-case'] || pat === pat.toLowerCase();
+    let src = o.F || o['fixed-strings'] ? escRe(pat) : pat;
+    if (o.w || o['word-regexp']) src = `\\b(?:${src})\\b`;
+    if (o.x || o['line-regexp']) src = `^(?:${src})$`;
+    let re;
+    try { re = new RegExp(src, ci ? 'gi' : 'g'); } catch { re = new RegExp(escRe(pat), 'gi'); }
     const hit = l => { re.lastIndex = 0; return re.test(l); };
-    const keep = lines.filter(l => hit(l) !== flags.includes('v'));
-    if (!keep.length) { state.failed = true; return []; }
-    return keep.map(l => flags.includes('v') ? esc(l) : l.split(re).map(esc).reduce((acc, part, i, arr) => acc + part + (i < arr.length - 1 ? span('w b', esc(l.match(re)[i])) : ''), ''));
+    const keep = lines.map((l, i) => [l, i + 1]).filter(([l]) => hit(l) !== !!invert);
+    if (!keep.length) state.failed = true;
+    if (o.c || o.count) return [String(keep.length)];
+    const num = n => o.n || o['line-number'] ? span('a2', n) + span('m', ':') : '';
+    if ((o.o || o['only-matching']) && !invert) return keep.flatMap(([l, n]) => (l.match(re) || []).map(m => num(n) + span('w b', esc(m))));
+    return keep.map(([l, n]) => num(n) + (invert ? esc(l) : l.split(re).map(esc).reduce((acc, part, i, arr) => acc + part + (i < arr.length - 1 ? span('w b', esc(l.match(re)[i])) : ''), '')));
   },
-  head(args, lines) { const n = parseInt((args.join(' ').match(/\d+/) || [10])[0], 10); return lines.slice(0, n).map(esc); },
-  tail(args, lines) { const n = parseInt((args.join(' ').match(/\d+/) || [10])[0], 10); return lines.slice(-n).map(esc); },
+  head(args, lines) {
+    const [o] = getopt(args, ['n', 'c', 'lines', 'bytes']);
+    const bytes = o.c ?? o.bytes;
+    if (bytes) return lines.join('\n').slice(0, parseInt(bytes, 10)).split('\n').map(esc);
+    return lines.slice(0, count(o)).map(esc);
+  },
+  tail(args, lines) {
+    const [o] = getopt(args, ['n', 'c', 'lines', 'bytes']);
+    const bytes = o.c ?? o.bytes;
+    if (bytes) return lines.join('\n').slice(-parseInt(bytes, 10)).split('\n').map(esc);
+    // tail -n +3 starts at line 3
+    const from = String(o.n ?? o.lines ?? '');
+    return (from.startsWith('+') ? lines.slice(parseInt(from, 10) - 1) : lines.slice(-count(o))).map(esc);
+  },
   wc(args, lines) {
-    const words = lines.join(' ').split(/\s+/).filter(Boolean).length, chars = lines.join('\n').length;
-    if (args.includes('-l')) return [String(lines.length)];
-    if (args.includes('-w')) return [String(words)];
-    return [`${String(lines.length).padStart(7)} ${String(words).padStart(7)} ${String(chars).padStart(7)}`];
+    const [o] = getopt(args);
+    const text = lines.join('\n');
+    const n = { l: lines.length, w: text.split(/\s+/).filter(Boolean).length, m: [...text].length, c: new TextEncoder().encode(text).length };
+    const long = { l: 'lines', w: 'words', m: 'chars', c: 'bytes' };
+    let pick = Object.keys(n).filter(k => o[k] || o[long[k]]);
+    if (!pick.length) pick = ['l', 'w', 'c'];
+    return [pick.length === 1 ? String(n[pick[0]]) : pick.map(k => String(n[k]).padStart(7)).join(' ')];
   },
-  sort(args, lines) { const out = [...lines].sort((a, b) => a.localeCompare(b)); return (args.includes('-r') ? out.reverse() : out).map(esc); },
-  uniq(args, lines) { return lines.filter((l, i) => l !== lines[i - 1]).map(esc); },
+  sort(args, lines) {
+    const [o] = getopt(args);
+    const key = l => o.f || o['ignore-case'] ? l.toLowerCase() : l;
+    const numeric = o.n || o['numeric-sort'];
+    let out = [...lines].sort((a, b) => numeric ? (parseFloat(a) || 0) - (parseFloat(b) || 0) || a.localeCompare(b) : key(a).localeCompare(key(b)));
+    if (o.u || o.unique) out = out.filter((l, i) => i === 0 || key(l) !== key(out[i - 1]));
+    return (o.r || o.reverse ? out.reverse() : out).map(esc);
+  },
+  uniq(args, lines) {
+    const [o] = getopt(args);
+    const key = l => o.i || o['ignore-case'] ? l.toLowerCase() : l;
+    const groups = [];
+    for (const l of lines) { const g = groups.at(-1); if (g && key(g.line) === key(l)) g.n++; else groups.push({ line: l, n: 1 }); }
+    return groups
+      .filter(g => o.d || o.repeated ? g.n > 1 : o.u || o.unique ? g.n === 1 : true)
+      .map(g => (o.c || o.count ? span('a2', String(g.n).padStart(7)) + ' ' : '') + esc(g.line));
+  },
   lolcat(args, lines) { return lines.map(rainbow); },
 };
 export const rainbow = (l, row) => [...l].map((ch, i) => ch === ' ' ? ' ' : `<span style="color:hsl(${(i * 9 + row * 14) % 360},95%,65%)">${esc(ch)}</span>`).join('');
@@ -122,7 +183,8 @@ async function execPipeline(line) {
     const f = FILTERS[(name || '').toLowerCase()];
     const last = i === stages.length - 1;
     if (f) {
-      const outLines = f(args, lines);
+      const c = C[name.toLowerCase()];
+      const outLines = wantsHelp(c, args) ? helpLines(c, name) : f(args, lines);
       if (last) return printLines(outLines);
       lines = htmlToText(outLines);
     } else {

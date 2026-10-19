@@ -1,13 +1,13 @@
 // easter eggs and games
 import { unlock } from '../achievements.js';
 import { POSTS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, sleep, ask, store, state, inrow, scrollDown } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, sleep, ask, store, state, inrow, scrollDown, getopt } from '../core.js';
 import { def } from '../registry.js';
 import { SINTERKLAAS, season } from '../season.js';
 import { matrix, train } from '../visuals.js';
 
-def('matrix', null, '', () => { unlock('matrix'); return matrix(); });
-def('sl', null, '', () => { unlock('sl'); return train(); });
+def('matrix', null, 'digital rain (any key stops it)', () => { unlock('matrix'); return matrix(); });
+def('sl', null, 'steam locomotive, for when you mistype ls', () => { unlock('sl'); return train(); });
 def(['coffee', 'koffie', 'brew'], null, '', () => {
   unlock('coffee');
   printLines([
@@ -32,16 +32,18 @@ const COWS = {
   kitty: ['   \\', '    \\   /\\_/\\', '       ( o.o )', '        > ^ <', '       /     \\', '      (_|   |_)'],
   stroopwafel: ['   \\', '    \\    _.-~~~-._', "       .' #  #  # '.", '      / #  #  #  # #\\', '      |#  #  #  #  #|', '      \\ #  #  #  # #/', "       '._#__#__#_.'"],
 };
-def('cowsay', null, '', args => {
+def('cowsay', null, 'a cow says something', args => {
   unlock('cow');
-  const fi = args.indexOf('-f');
-  if (args.includes('-l')) return print('Cow files: ' + Object.keys(COWS).map(c => cmd(`cowsay -f ${c} hoi`, c)).join('  '));
-  const animal = fi >= 0 ? args[fi + 1] : 'cow';
-  if (!COWS[animal]) return print(span('e', `cowsay: Could not find ${esc(animal || '')} cowfile!`) + span('m', ' try ') + cmd('cowsay -l'));
-  const msg = args.filter((_, i) => fi < 0 || (i !== fi && i !== fi + 1)).join(' ') || 'moo';
+  const [o, words] = getopt(args, ['f', 'e']);
+  if (o.l) return print('Cow files: ' + Object.keys(COWS).map(c => cmd(`cowsay -f ${c} hoi`, c)).join('  '));
+  const animal = o.f || 'cow';
+  if (!COWS[animal]) return print(span('e', `cowsay: Could not find ${esc(animal)} cowfile!`) + span('m', ' try ') + cmd('cowsay -l'));
+  // the moods of the real cowsay, they only change the cow's eyes
+  const eyes = o.e ? (o.e + '  ').slice(0, 2) : o.b ? '==' : o.d ? 'xx' : o.g ? '$$' : o.p ? '@@' : o.s ? '**' : o.t ? '--' : o.w ? 'OO' : o.y ? '..' : 'oo';
+  const msg = words.join(' ') || 'moo';
   const line = '-'.repeat(msg.length + 2);
-  printLines([` ${line}`, `< ${msg} >`, ` ${line}`, ...COWS[animal]].map(esc));
-}, {});
+  printLines([` ${line}`, `< ${msg} >`, ` ${line}`, ...COWS[animal].map(l => l.replace('(oo)', `(${eyes})`))].map(esc));
+}, { usage: '[-f animal] [-e eyes] <text>', flags: [['-l', 'list the animals'], ['-f animal', 'another animal, like -f tux'], ['-e eyes', 'two characters for the eyes'], ['-b -d -g -p -s -t -w -y', 'borg, dead, greedy, paranoid, stoned, tired, wired, young']] });
 const FORTUNES = [
   "It's always DNS. Except when it's the firewall. Then it's DNS.",
   "There is no cloud. It's just someone else's Proxmox cluster.",
@@ -54,7 +56,7 @@ const FORTUNES = [
   "Design thinking: understanding the problem before solving the wrong one beautifully.",
   "Works on my machine. Shipping my machine.",
 ];
-def('fortune', null, '', () => {
+def('fortune', null, 'a random bit of wisdom', () => {
   unlock('fortune');
   const d = new Date();
   const list = d.getMonth() === 11 && d.getDate() === 5 ? SINTERKLAAS.map(l => l.replace(/ \/ /g, '\n')) : FORTUNES;
@@ -82,7 +84,7 @@ def(['stroopwafel', 'fiets', 'bike', 'kaas', 'gezellig'], null, '', () => {
 });
 def('42', null, '', () => { unlock('answer'); print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
 def(['hello', 'hi', 'hey', 'hallo', 'hoi'], null, '', () => print(`Hoi! Type ${cmd('help')} to look around.`));
-def('make', null, '', args => {
+def('make', null, 'build a target', args => {
   if (!args.join(' ').includes('sandwich')) return print(span('e', 'make: *** No targets specified and no makefile found. Stop.'));
   if (!state.asRoot) return print(span('e', 'What? Make it yourself.'));
   unlock('sandwich');
@@ -227,7 +229,7 @@ def('deploy', null, '', async args => {
   print(span('a b', `Deployed to ${esc(target)}.`) + span('m', ' Monitoring is green. Nobody touch anything.'));
 });
 
-def('diff', null, '', args => {
+def('diff', null, 'compare two files', args => {
   const files = args.filter(a => !a.startsWith('-'));
   if (files.join(' ') !== 'ian-2016 ian-2026') return print(span('e', `diff: ${esc(files.join(' ') || 'missing operand')}`) + span('m', '  try ') + cmd('diff ian-2016 ian-2026'));
   const guides = POSTS.filter(p => p.type === 'guide').length;

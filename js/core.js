@@ -42,6 +42,27 @@ export const pad = (s, n) => s + ' '.repeat(Math.max(0, n - s.length));
 export function rot13(s) { return s.replace(/[a-z]/gi, c => String.fromCharCode((c <= 'Z' ? 65 : 97) + (c.toLowerCase().charCodeAt(0) - 97 + 13) % 26)); }
 export const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48).replace(/^-+|-+$/g, '');
 
+// splits args into options and operands, getopt style: -la gives { l, a }, --all gives { all }.
+// options named in `takes` read a value: -n 5, -n5, --lines=5, --lines 5. A bare -5 gives { num: 5 }.
+export function getopt(args, takes = []) {
+  const o = {}, rest = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { rest.push(...args.slice(i + 1)); break; }
+    if (a.startsWith('--') && a.length > 2) {
+      const [k, v] = a.slice(2).split(/=(.*)/s);
+      o[k] = v !== undefined ? v : takes.includes(k) && i + 1 < args.length ? args[++i] : true;
+    } else if (/^-\d+$/.test(a)) o.num = parseInt(a.slice(1), 10);
+    else if (a.startsWith('-') && a.length > 1) {
+      for (let j = 1; j < a.length; j++) {
+        if (takes.includes(a[j])) { o[a[j]] = a.slice(j + 1) || (i + 1 < args.length ? args[++i] : ''); break; }
+        o[a[j]] = true;
+      }
+    } else rest.push(a);
+  }
+  return [o, rest];
+}
+
 export function print(html = '', cls = '') {
   if (/^<span class="e">/.test(html)) state.failed = true;
   if (state.capture) { state.capture.push(html); return document.createElement('div'); }

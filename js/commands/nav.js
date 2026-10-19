@@ -1,74 +1,126 @@
 // moving around the filesystem
 import { unlock, track } from '../achievements.js';
 import { PROFILE, SITE, POSTS } from '../content.js';
-import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath } from '../core.js';
-import { resolve, lsLong, lsEntry, DIARY, diary, diaryReadable } from '../filesystem.js';
+import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
+import { resolve, lsLong, lsEntry, fileMeta, DIARY, diary, diaryReadable } from '../filesystem.js';
 import { def } from '../registry.js';
 
 def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
+  const [o, targets] = getopt(args);
   // ll is ls -al, like on most Linux boxes
-  const flags = args.filter(a => /^-\w/.test(a)).join('') + (/^\s*ll\b/.test(raw) ? 'al' : '');
-  const all = flags.includes('a'), long = flags.includes('l');
-  const target = args.find(a => !a.startsWith('-'));
-  const r = resolve(target);
-  if (r.error === 'denied') return print(span('e', `ls: cannot open directory '${esc(target)}': Permission denied`));
-  if (r.error) return print(span('e', `ls: cannot access '${esc(target)}': No such file or directory`));
-  if (r.node.type === 'file') return print((long ? lsLong(r.segs.at(-1), r.node) : '') + lsEntry(r.segs.at(-1), r.node, r.segs.slice(0, -1)));
-  const entries = Object.entries(r.node.children).filter(([n]) => all || !n.startsWith('.'))
-    .sort(([a, x], [b, y]) => (x.type === y.type ? a.localeCompare(b) : x.type === 'dir' ? -1 : 1));
-  if (long) {
-    print(span('m', `total ${(entries.length + (all ? 2 : 0)) * 4}`));
-    if (all) {
-      print(lsLong('.', r.node) + `<a class="dir" data-cmd="cd .">./</a>`);
-      print(lsLong('..', r.node) + `<a class="dir" data-cmd="cd ..">../</a>`);
+  if (/^\s*ll\b/.test(raw)) o.a = o.l = true;
+  const all = o.a || o.all, almost = o.A || o['almost-all'], long = o.l, hs = o.h || o['human-readable'];
+  const one = o['1'] || o.num === 1, rev = o.r || o.reverse, recursive = o.R || o.recursive;
+  const by = o.t ? 'time' : o.S ? 'size' : null;
+  const opts = { humanSizes: hs };
+  const list = (node, segs, label, name = displayPath) => {
+    let entries = Object.entries(node.children).filter(([n]) => all || almost || !n.startsWith('.'));
+    entries.sort(([a, x], [b, y]) => {
+      if (by) { const ma = fileMeta(a, x), mb = fileMeta(b, y); return by === 'time' ? mb.date - ma.date : mb.size - ma.size; }
+      return x.type === y.type ? a.localeCompare(b) : x.type === 'dir' ? -1 : 1;
+    });
+    if (rev) entries.reverse();
+    if (label) print(span('h b', esc(label) + ':'));
+    const dots = all && !almost;
+    if (long) {
+      print(span('m', `total ${(entries.length + (dots ? 2 : 0)) * 4}`));
+      if (dots) {
+        print(lsLong('.', node, opts) + `<a class="dir" data-cmd="cd .">./</a>`);
+        print(lsLong('..', node, opts) + `<a class="dir" data-cmd="cd ..">../</a>`);
+      }
+      entries.forEach(([n, child]) => print(lsLong(n, child, opts) + lsEntry(n, child, segs)));
+    } else {
+      const items = [...(dots ? [`<a class="dir" data-cmd="cd .">./</a>`, `<a class="dir" data-cmd="cd ..">../</a>`] : []), ...entries.map(([n, child]) => lsEntry(n, child, segs))];
+      if (one) printLines(items.length ? items : [span('m', '(empty)')]);
+      else print(items.join('  ') || span('m', '(empty)'));
     }
-    return entries.forEach(([n, node]) => print(lsLong(n, node) + lsEntry(n, node, r.segs)));
+    if (recursive) for (const [n, child] of entries) {
+      if (child.type !== 'dir' || (child.locked && !state.asRoot)) continue;
+      print('');
+      list(child, [...segs, n], name([...segs, n]), name);
+    }
+  };
+  for (const target of targets.length ? targets : [undefined]) {
+    const r = resolve(target);
+    if (r.error === 'denied') { print(span('e', `ls: cannot open directory '${esc(target)}': Permission denied`)); continue; }
+    if (r.error) { print(span('e', `ls: cannot access '${esc(target)}': No such file or directory`)); continue; }
+    if (r.node.type === 'file' || o.d || o.directory) { print((long ? lsLong(r.segs.at(-1) || '/', r.node, opts) : '') + (r.segs.length ? lsEntry(r.segs.at(-1), r.node, r.segs.slice(0, -1)) : '/')); continue; }
+    // an absolute target keeps absolute headers, like ls -R /home
+    const abs = (target || '').startsWith('/'), label = segs => abs ? '/' + segs.join('/') : displayPath(segs);
+    list(r.node, r.segs, targets.length > 1 || recursive ? label(r.segs) : '', label);
+    if (targets.length > 1) print('');
   }
-  if (all) print(`<a class="dir" data-cmd="cd .">./</a>  <a class="dir" data-cmd="cd ..">../</a>`);
-  print(entries.map(([n, node]) => lsEntry(n, node, r.segs)).join('  ') || span('m', '(empty)'));
-}, { usage: '[-la] [dir]' });
+}, { usage: '[-la] [dir]', flags: [
+  ['-a, --all', 'show hidden files, including . and ..'],
+  ['-A, --almost-all', 'show hidden files, without . and ..'],
+  ['-l', 'long listing: permissions, owner, size, date'],
+  ['-h, --human-readable', 'with -l, sizes like 4.0K'],
+  ['-1', 'one entry per line'],
+  ['-t', 'sort by date, newest first'],
+  ['-S', 'sort by size, largest first'],
+  ['-r, --reverse', 'reverse the order'],
+  ['-R, --recursive', 'list subdirectories too'],
+  ['-d, --directory', 'list the directory itself, not its contents'],
+] });
 
+// cd - goes back to where you were
+let oldpwd = null;
 def('cd', 'nav', 'change directory', args => {
-  const r = resolve(args[0] || '~');
-  if (r.error === 'denied') return print(span('e', `cd: ${esc(args[0])}: Permission denied`));
-  if (r.error) return print(span('e', `cd: no such file or directory: ${esc(args[0])}`));
-  if (r.node.type !== 'dir') return print(span('e', `cd: not a directory: ${esc(args[0])}`));
+  const [, [target]] = getopt(args);
+  const back = target === '-';
+  if (back && !oldpwd) return print(span('e', 'cd: OLDPWD not set'));
+  const r = back ? { node: resolve(displayPath(oldpwd)).node, segs: oldpwd } : resolve(target || '~');
+  if (r.error === 'denied') return print(span('e', `cd: ${esc(target)}: Permission denied`));
+  if (r.error || !r.node) return print(span('e', `cd: no such file or directory: ${esc(target)}`));
+  if (r.node.type !== 'dir') return print(span('e', `cd: not a directory: ${esc(target)}`));
+  if (back) print(esc(displayPath(r.segs)));
   if (!r.segs.length) { print(span('m', "You're at the root of everything. Can't go any higher. Here be dragons.")); unlock('edge'); }
+  oldpwd = state.cwd;
   state.cwd = r.segs; renderPrompt();
   if (underHome(state.cwd) && ['experience', 'education', 'projects', 'articles'].includes(state.cwd[2])) track('rooms', state.cwd[2], 4, 'explorer');
-}, { usage: '<dir>' });
+}, { usage: '[dir|-]', flags: [['-', 'go back to the previous directory'], ['~', 'go home (also: cd without arguments)']] });
 
 def(['cat', 'less', 'more', 'bat'], 'nav', 'print a file', args => {
-  if (!args.length) return print(span('e', 'usage: cat &lt;file&gt;'));
-  for (const a of args) {
+  const [o, files] = getopt(args);
+  if (!files.length) return print(span('e', 'usage: cat [-nbs] &lt;file&gt;'));
+  const numberAll = o.n || o.number, numberFull = o.b || o['number-nonblank'], squeeze = o.s || o['squeeze-blank'];
+  let n = 0;
+  for (const a of files) {
     const r = resolve(a);
     if (r.error === 'denied') { print(span('e', `cat: ${esc(a)}: Permission denied`)); continue; }
     if (r.error) { print(span('e', `cat: ${esc(a)}: No such file or directory`)); continue; }
     if (r.node.type === 'dir') { print(span('e', `cat: ${esc(a)}: Is a directory`)); continue; }
-    printLines(r.node.read());
+    let lines = r.node.read();
+    if (squeeze) lines = lines.filter((l, i) => l !== '' || lines[i - 1] !== '');
+    if (numberAll || numberFull) lines = lines.map(l => numberFull && l === '' ? l : span('m', String(++n).padStart(6) + '  ') + l);
+    printLines(lines);
   }
-}, { usage: '<file>' });
+}, { usage: '[-n] <file>', flags: [['-n, --number', 'number every line'], ['-b, --number-nonblank', 'number lines that are not empty'], ['-s, --squeeze-blank', 'squeeze repeated empty lines into one']] });
 
-def('pwd', 'nav', 'print working directory', () => print('/' + state.cwd.join('/')));
+// there are no symlinks to resolve, so -P and -L agree
+def('pwd', 'nav', 'print working directory', () => print('/' + state.cwd.join('/')),
+  { flags: [['-L', 'logical path (default)'], ['-P', 'physical path, without symlinks']] });
 
 def('tree', 'nav', 'show directory tree', args => {
-  const r = resolve(args.find(a => !a.startsWith('-')));
-  const all = args.includes('-a');
+  const [o, [target]] = getopt(args, ['L']);
+  const r = resolve(target);
+  const all = o.a, dirsOnly = o.d, max = o.L ? parseInt(o.L, 10) : Infinity;
   if (r.error === 'denied') return print(span('e', 'tree: Permission denied'));
   if (r.error || r.node.type !== 'dir') return print(span('e', 'tree: invalid directory'));
+  if (o.L !== undefined && !(max > 0)) return print(span('e', 'tree: Invalid level, must be greater than 0.'));
   print(span('h b', displayPath(r.segs)));
   let dirs = 0, files = 0;
-  const walk = (node, prefix, segs) => {
-    const ents = Object.entries(node.children).filter(([n]) => all || !n.startsWith('.'));
+  const walk = (node, prefix, segs, depth) => {
+    const ents = Object.entries(node.children).filter(([n, c]) => (all || !n.startsWith('.')) && (!dirsOnly || c.type === 'dir'));
     ents.forEach(([n, child], i) => {
       const last = i === ents.length - 1;
       print(span('m', prefix + (last ? '└── ' : '├── ')) + lsEntry(n, child, segs));
-      if (child.type === 'dir') { dirs++; walk(child, prefix + (last ? '    ' : '│   '), [...segs, n]); } else files++;
+      if (child.type === 'dir') { dirs++; if (depth < max && (!child.locked || state.asRoot)) walk(child, prefix + (last ? '    ' : '│   '), [...segs, n], depth + 1); } else files++;
     });
   };
-  walk(r.node, '', r.segs);
-  print('', ''); print(span('m', `${dirs} directories, ${files} files`));
-}, { usage: '[-a] [dir]' });
+  walk(r.node, '', r.segs, 1);
+  print('', ''); print(span('m', dirsOnly ? `${dirs} directories` : `${dirs} directories, ${files} files`));
+}, { usage: '[-adL] [dir]', flags: [['-a', 'show hidden files'], ['-d', 'directories only'], ['-L level', 'descend at most this many levels']] });
 
 def(['open', 'xdg-open'], 'nav', 'open a post or link', args => {
   const a = (args[0] || '').toLowerCase();
@@ -93,7 +145,7 @@ def(['open', 'xdg-open'], 'nav', 'open a post or link', args => {
   window.open(url, '_blank', 'noopener');
 }, { usage: '<n|name>' });
 
-def(['chmod', 'chown'], null, '', (args, raw) => {
+def(['chmod', 'chown'], null, 'change who may read a file (chmod) or who owns it (chown)', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0].toLowerCase();
   const target = args.filter(a => !a.startsWith('-')).pop();
   const r = target ? resolve(target) : { error: true };
@@ -124,7 +176,7 @@ def(['chmod', 'chown'], null, '', (args, raw) => {
   if (diaryReadable()) { unlock('chmod'); return print(span('a', 'Done.') + span('m', ' Go ahead: ') + cmd('cat diary.txt')); }
   print(span('m', `Done. Now ${diary.owner} can read it. You are not ${diary.owner}, though.`));
 });
-def(['touch', 'mkdir', 'mv', 'cp', 'ln', 'rmdir'], null, '', (args, raw) => {
+def(['touch', 'mkdir', 'mv', 'cp', 'ln', 'rmdir'], null, 'change files (this filesystem is read-only)', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0];
   print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`));
 });

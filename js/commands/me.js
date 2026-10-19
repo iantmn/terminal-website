@@ -62,7 +62,7 @@ def(['experience', 'exp', 'work', 'jobs'], 'me', 'work experience', args => {
     print(`${span('m', pad(e.period, 12))} ${span('a b', esc(e.role))} ${span('m','@')} ${span('h', esc(e.org))} ${span('m', '· ' + esc(e.place))}`);
     print(`${' '.repeat(13)}${span('m', esc(e.text.length > 110 ? e.text.slice(0, 107) + '...' : e.text))} ${cmd('exp ' + (i + 1), '[more]')}`);
   });
-});
+}, { usage: '[n]', flags: [['n', 'the full story of job n']] });
 
 def(['education', 'edu', 'school'], 'me', 'education', args => {
   const n = parseInt(args[0], 10);
@@ -73,13 +73,13 @@ def(['education', 'edu', 'school'], 'me', 'education', args => {
   });
   print('');
   print(span('m', 'Also see ') + cmd('certs') + span('m', ' for courses and certificates.'));
-}, { usage: '[n]' });
+}, { usage: '[n]', flags: [['n', 'the details of study n']] });
 
 def(['certs', 'courses'], 'me', 'courses & certificates', () =>
   CERTS.forEach(([y, t]) => print(`${span('m', y)}  ${esc(t)}`)));
 
 def('skills', 'me', 'skills & tools', args =>
-  printLines(skillLines(/^(-a|--all)$/.test(args[0] || '') ? 'all' : parseInt(args[0], 10))), { usage: '[n|-a]' });
+  printLines(skillLines(/^(-a|--all)$/.test(args[0] || '') ? 'all' : parseInt(args[0], 10))), { usage: '[n|-a]', flags: [['n', 'one category in detail'], ['-a, --all', 'every category']] });
 
 const listPosts = type => {
   const list = POSTS.filter(p => p.type === type);
@@ -95,14 +95,14 @@ def(['articles', 'blog', 'guides', 'posts'], 'me', 'technical guides I wrote', a
   }
   await feedReady;
   listPosts('guide');
-});
+}, { flags: [['--refresh', 'fetch new posts from the RSS feed first']] });
 def(['projects', 'portfolio'], 'me', 'projects I worked on', async () => { await feedReady; listPosts('project'); });
 
 def(['read', 'summary'], 'me', 'summary of a post', args => {
   const p = POSTS.find(p => p.n === parseInt(args[0], 10));
   if (!p) return print(span('e', 'usage: read &lt;n&gt;') + span('m', '  (numbers from ') + cmd('articles') + span('m', ' or ') + cmd('projects') + span('m', ')'));
   printLines(fmtPost(p));
-}, { usage: '<n>' });
+}, { usage: '<n>', flags: [['n', 'the number from articles or projects']] });
 
 def(['cv', 'resume'], 'me', 'my CV', () => printLines(cvLines()));
 def(['contact', 'socials', 'social'], 'me', 'how to reach me', () => printLines(contactLines()));
