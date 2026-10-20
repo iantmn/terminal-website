@@ -130,7 +130,7 @@ const SYSFILES = {
   '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.', ...(dayMessage() ? [dayMessage().msg] : []), span('m', 'P.S. treasure hunters start at ~/.secrets/map.txt')],
   '/etc/hosts': () => [
     '127.0.0.1    localhost', '127.0.4.2    iantiemann', '10.42.0.1    homelab', '192.0.2.42   iantiemann.nl',
-    span('m', '# fragment 3/3 = "fel"'),
+    span('m', '# fragment 3/3 = "ult"'),
   ],
 };
 
@@ -194,7 +194,7 @@ export function initRoot() {
   const locked = (children, extra = {}) => dir(children, { locked: true, mode: () => 'drwx------', ...extra });
 
   // programs: the real-Linux commands, not the easter-egg words
-  const SECRET_WORDS = new Set(['42', 'xyzzy', 'hello', 'stroopwafel', 'hack', 'please', 'talk', 'weather', 'koffie', 'coffee', 'make', 'mail', 'github', 'linkedin', 'deploy']);
+  const SECRET_WORDS = new Set(['42', 'xyzzy', 'hello', 'rubberduck', 'hack', 'please', 'talk', 'weather', 'coffee', 'make', 'mail', 'github', 'linkedin', 'deploy']);
   const bin = {};
   for (const c of new Set(Object.values(C).filter(c => !c.alias).map(c => c.name))) {
     if (SECRET_WORDS.has(c) || /[^a-z0-9-]/.test(c)) continue;
@@ -216,7 +216,7 @@ export function initRoot() {
     bin: dir(bin, { mode: () => 'lrwxrwxrwx' }),
     boot: dir({
       'vmlinuz-6.1.0-coffee': file(() => [span('m', 'binary kernel image. It boots on coffee.')]),
-      grub: dir({ 'grub.cfg': file(['menuentry "IanOS 2.6 (Stroopwafel)" {', '    linux /boot/vmlinuz-6.1.0-coffee root=/dev/brain quiet curiosity=high', '}', 'menuentry "Windows" {', '    # nope', '}']) }),
+      grub: dir({ 'grub.cfg': file(['menuentry "IanOS 2.6 (Rubber Duck)" {', '    linux /boot/vmlinuz-6.1.0-coffee root=/dev/brain quiet curiosity=high', '}', 'menuentry "Windows" {', '    # nope', '}']) }),
     }),
     dev: dir({
       // empty, except on Halloween: the day message says something lurks in here
@@ -241,8 +241,8 @@ export function initRoot() {
       hostname: file(SYSFILES['/etc/hostname']),
       hosts: file(SYSFILES['/etc/hosts']),
       motd: file(SYSFILES['/etc/motd']),
-      'os-release': file(['NAME="IanOS"', 'VERSION="2.6 (Stroopwafel)"', 'ID=ianos', 'ID_LIKE=debian', 'PRETTY_NAME="IanOS 2.6 (Stroopwafel)"', `HOME_URL="${SITE}"`, 'SUPPORT_URL="type contact"']),
-      issue: file(['IanOS 2.6 (Stroopwafel) \\n \\l', '', 'Unauthorised curiosity is strongly encouraged.']),
+      'os-release': file(['NAME="IanOS"', 'VERSION="2.6 (Rubber Duck)"', 'ID=ianos', 'ID_LIKE=debian', 'PRETTY_NAME="IanOS 2.6 (Rubber Duck)"', `HOME_URL="${SITE}"`, 'SUPPORT_URL="type contact"']),
+      issue: file(['IanOS 2.6 (Rubber Duck) \\n \\l', '', 'Unauthorised curiosity is strongly encouraged.']),
       crontab: file([
         '# m  h  dom mon dow  user  command',
         '45 6   *   *   1-5  ian   /usr/bin/coffee --brew --strong',
@@ -264,18 +264,18 @@ export function initRoot() {
       }, { own: 'ian' }),
     }),
     'lost+found': dir({
-      'stroopwafel.half-eaten': file(['Found by fsck in pass 3.', 'Still edible. Probably.']),
+      'coffee.cold': file(['Found by fsck in pass 3.', 'Forgotten during a meeting. Still drinkable. Probably not.']),
     }),
     mnt: dir({ mug: dir({ 'coffee.txt': file(['level: 95%', 'temperature: hot', 'status: being consumed']) }) }),
     opt: dir({ cloudmodule: dir({ README: file(() => ['CloudModule: a networking appliance for secure connectivity and cloud services.', 'Status page: ' + cmd('cloudmodule')]) }) }),
     proc: dir({
       cpuinfo: file(() => ['processor   : 0', 'model name  : Ian Tiemann brain v1.0 @ caffeine-boosted GHz', `cpu cores   : ${navigator.hardwareConcurrency || 4} (yours, actually)`, 'flags       : curious coffee dns-blame design-thinking'].map(esc)),
-      meminfo: file(() => [`MemTotal:   ${navigator.deviceMemory ? navigator.deviceMemory + ' GB' : '16 GB'}`, 'MemFree:    not much, too many browser tabs', 'Cached:     stroopwafel recipes'].map(esc)),
+      meminfo: file(() => [`MemTotal:   ${navigator.deviceMemory ? navigator.deviceMemory + ' GB' : '16 GB'}`, 'MemFree:    not much, too many browser tabs', 'Cached:     ideas for later'].map(esc)),
       uptime: file(() => [esc(`up ${uptime()}`)]),
       version: file(['Linux version 6.1.0-coffee (ian@iantiemann) (gcc, but mostly coffee) #1 SMP PREEMPT_DYNAMIC']),
     }),
     root: locked({
-      'secret-recipe.txt': file(['THE PERFECT STROOPWAFEL', '1. Get a stroopwafel.', '2. Put it on top of a hot cup of coffee.', '3. Wait 2 minutes.', '4. That is the whole secret. Do not tell anyone.']),
+      'how-to-fix-anything.txt': file(['HOW TO FIX ANYTHING', '1. Turn it off.', '2. Turn it on again.', '3. Still broken? Read the logs.', '4. That is the whole secret. Do not tell anyone.']),
     }),
     tmp: dir({ 'ian-was-here.tmp': file(['temporary file, permanent since 2016']) }, { mode: () => 'drwxrwxrwt' }),
     usr: dir({

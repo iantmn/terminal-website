@@ -3,12 +3,11 @@ import { unlock } from '../achievements.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, store, state, inrow, scrollDown, getopt } from '../core.js';
 import { def, completes } from '../registry.js';
-import { SINTERKLAAS } from '../days.js';
 import { matrix, train } from '../visuals.js';
 
 def('matrix', null, 'digital rain (any key stops it)', () => { unlock('matrix'); return matrix(); });
 def('sl', null, 'steam locomotive, for when you mistype ls', () => { unlock('sl'); return train(); });
-def(['coffee', 'koffie', 'brew'], null, '', () => {
+def(['coffee', 'brew'], null, '', () => {
   unlock('coffee');
   printLines([
     span('w', '      (  )   (   )  )'),
@@ -35,7 +34,7 @@ const COWS = {
 def('cowsay', null, 'a cow says something', args => {
   unlock('cow');
   const [o, words] = getopt(args, ['f', 'e']);
-  if (o.l) return print('Cow files: ' + Object.keys(COWS).map(c => cmd(`cowsay -f ${c} hoi`, c)).join('  '));
+  if (o.l) return print('Cow files: ' + Object.keys(COWS).map(c => cmd(`cowsay -f ${c} hi`, c)).join('  '));
   const animal = o.f || 'cow';
   if (!COWS[animal]) return print(span('e', `cowsay: Could not find ${esc(animal)} cowfile!`) + span('m', ' try ') + cmd('cowsay -l'));
   // the moods of the real cowsay, they only change the cow's eyes
@@ -58,9 +57,7 @@ const FORTUNES = [
 ];
 def('fortune', null, 'a random bit of wisdom', () => {
   unlock('fortune');
-  const d = new Date();
-  const list = d.getMonth() === 11 && d.getDate() === 5 ? SINTERKLAAS.map(l => l.replace(/ \/ /g, '\n')) : FORTUNES;
-  print(span('w', esc(list[Math.floor(Math.random() * list.length)])));
+  print(span('w', esc(FORTUNES[Math.floor(Math.random() * FORTUNES.length)])));
 });
 def('hack', null, '', async () => {
   const steps = ['Bypassing firewall', 'Decrypting mainframe', 'Downloading CV.exe', 'Injecting caffeine', 'Escalating privileges'];
@@ -74,16 +71,19 @@ def('hack', null, '', async () => {
 });
 def('weather', null, '', () => {
   unlock('weather');
-  print(span('a2', "It's the Netherlands. It's raining. Probably also windy. Bring a coat for the bike ride."));
+  print(span('a2', 'Forecast for the server room: 21 °C, dry, with a strong breeze from the fans.'));
   print(span('m', 'Want the real forecast? ') + cmd('curl wttr.in'));
 });
-def(['stroopwafel', 'fiets', 'bike', 'kaas', 'gezellig'], null, '', () => {
+def(['rubberduck', 'duck'], null, '', () => {
   unlock('stroop');
-  print(span('w', 'Place the stroopwafel on top of your coffee for 2 minutes. That\'s the only correct way.'));
-  print(span('m', 'Bonus Dutch skill: cycling through a headwind while holding an umbrella.'));
+  printLines([
+    span('w', '    __'), span('w', '___( o)>'), span('w', '\\ <_. )'), span('w', " `---'"), '',
+    "Quack. Explain your bug to me, line by line. I won't say a word.",
+    span('m', 'Nine times out of ten you find it halfway through the sentence.'),
+  ]);
 });
 def('42', null, '', () => { unlock('answer'); print('The Answer to the Ultimate Question of Life, the Universe, and Everything.'); print(span('m', 'The question is still being computed. ETA: 7.5 million years.')); });
-def(['hello', 'hi', 'hey', 'hallo', 'hoi'], 'more', 'say hi', () => print(`Hoi! Type ${cmd('help')} to look around.`));
+def(['hello', 'hi', 'hey'], 'more', 'say hi', () => print(`Hi! Type ${cmd('help')} to look around.`));
 def('make', null, 'build a target', args => {
   if (!args.join(' ').includes('sandwich')) return print(span('e', 'make: *** No targets specified and no makefile found. Stop.'));
   if (!state.asRoot) return print(span('e', 'What? Make it yourself.'));
@@ -94,7 +94,7 @@ def('make', null, 'build a target', args => {
     span('w', '    .\'  ~ ~ ~ ~  \'.'),
     span('a', '   (~~~~~~~~~~~~~~~)') + span('m', '  lettuce'),
     span('e', '    \\_____________/ ') + span('m', '  tomato'),
-    span('w', '    (_______________)') + span('m', ' cheese (Gouda, obviously)'),
+    span('w', '    (_______________)') + span('m', ' cheese (extra mature, like this codebase)'),
     span('w', '     \'-------------\''), '',
     span('m', 'compiled with 0 warnings, 0 errors.'),
   ]);

@@ -22,7 +22,7 @@ if (document.body.dataset.theme === 'corrupt') startGlitch();
 if (store.get('crt', false)) document.body.classList.add('crt');
 startFeed();
 
-// #ls+-la runs ls -la. Older links used - and _ for spaces (#cowsay-hoi); those still work when the first word is no command
+// #ls+-la runs ls -la. Older links used - and _ for spaces (#cowsay-hi); those still work when the first word is no command
 function linkedCommand() {
   let c = fromHash(location.hash);
   const first = s => s.split(' ')[0].toLowerCase();

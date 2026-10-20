@@ -40,7 +40,7 @@ const wantsHelp = (c, args) => args.includes('--help') || (args.includes('-h') &
 export const found = new Set(store.get('found', []));
 // achievements earned before this list existed count as found too
 const FOUND_BY = { sudo: 'sudo', rm: 'rm', vim: 'vim', matrix: 'matrix', sl: 'sl', coffee: 'coffee', cow: 'cowsay', fortune: 'fortune', hacker: 'hack',
-  weather: 'weather', stroop: 'stroopwafel', answer: '42', xyzzy: 'xyzzy', sandwich: 'make', docker: 'docker', dns: 'git', apt: 'apt',
+  weather: 'weather', stroop: 'rubberduck', answer: '42', xyzzy: 'xyzzy', sandwich: 'make', docker: 'docker', dns: 'git', apt: 'apt',
   reboot: 'reboot', top: 'top', kill: 'kill', manners: 'please', home: 'ping', chmod: 'chmod', talk: 'talk' };
 for (const [ach, name] of Object.entries(FOUND_BY)) if (unlocked.has(ach)) found.add(name);
 // what Tab offers as a command: everything in help, hidden ones only once found
@@ -62,7 +62,7 @@ function invoke(c, name, args, line) {
   noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
   if (wantsHelp(c, own)) return printLines(helpLines(c, name));
-  if (own.includes('--version') && !c.version) return printLines([`${esc(name)} (IanOS) 2.6 (Stroopwafel)`, span('m', 'Written by Ian Tiemann. Runs on coffee.')]);
+  if (own.includes('--version') && !c.version) return printLines([`${esc(name)} (IanOS) 2.6 (Rubber Duck)`, span('m', 'Written by Ian Tiemann. Runs on coffee.')]);
   return c.run(args, line);
 }
 

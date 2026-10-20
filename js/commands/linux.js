@@ -118,7 +118,7 @@ def('git', null, "version control, Ian's career edition", args => {
     ['2026a', 'Project engineer @ NetW, working on the CloudModule', '(HEAD -> main)'],
     ['2024b', 'Software engineer @ Notive'],
     ['2016c', 'Joined NetW as IT specialist'],
-    ['7r345ur', 'fragment 2/3 = "wa"'],
+    ['7r345ur', 'fragment 2/3 = "fa"'],
     ['0000init', 'Initial commit: curious kid takes apart the family PC'],
   ];
   if (sub === 'log' && o.oneline) return printLines(commits.map(([h, msg, ref]) => `${span('w', h)}${ref ? ' ' + span('a2', ref) : ''} ${esc(msg)}`));
@@ -218,7 +218,7 @@ def(['curl', 'wget'], null, 'fetch a URL', async args => {
       if (!res.ok) throw 0;
       unlock('weather');
       return print(esc((await res.text()).trimEnd()));
-    } catch { return print(span('e', 'curl: (28) wttr.in did not answer') + span('m', '. Safe bet: it is raining in the Netherlands.')); }
+    } catch { return print(span('e', 'curl: (28) wttr.in did not answer') + span('m', '. Safe bet: cloudy. In the cloud, too.')); }
   }
   if ((o.I || o.head) && /iantiemann/.test(url)) return printLines([
     'HTTP/2 200', 'server: traefik (powered by coffee)', 'content-type: text/html; charset=utf-8',
@@ -273,7 +273,7 @@ const PROCS = [
   { pid: 256,  user: 'ian',  cpu: 9.3,  mem: 22.4, cmd: 'homelab --proxmox --docker' },
   { pid: 404,  user: 'ian',  cpu: 6.7,  mem: 4.8,  cmd: 'write-guide --next-article' },
   { pid: 512,  user: 'ian',  cpu: 4.2,  mem: 3.3,  cmd: 'learn kubernetes' },
-  { pid: 1337, user: 'ian',  cpu: 2.0,  mem: 1.0,  cmd: 'stroopwafel-daemon' },
+  { pid: 1337, user: 'ian',  cpu: 2.0,  mem: 1.0,  cmd: 'rubberduck --listening' },
   { pid: 2016, user: 'ian',  cpu: 0.6,  mem: 0.9,  cmd: 'fix-the-printer --again' },
   { pid: 9000, user: 'guest', cpu: 0.3, mem: 0.2,  cmd: 'terminal.iantiemann.nl' },
 ];
@@ -356,7 +356,7 @@ def('df', 'more', 'free disk space', args => {
   printLines([
     span('w b', line(['Filesystem', 'Type', 'Size', 'Used', 'Avail', 'Use%', 'Mounted on'])),
     ...rows.map(r => esc(line(r))),
-    span('m', '/dev/brain is nearly full. Mostly config syntax and Dutch weather forecasts.'),
+    span('m', '/dev/brain is nearly full. Mostly config syntax and half-finished side projects.'),
   ]);
 }, { flags: [['-h, --human-readable', 'sizes like 1.0T (the default here)'], ['-T, --print-type', 'show the filesystem type']] });
 def('free', 'more', 'memory usage', args => {
@@ -371,7 +371,7 @@ def('free', 'more', 'memory usage', args => {
     'Mem:  ' + mem.map(fmt).join(''),
     'Swap: ' + swap.map(fmt).join(''),
     ...(o.t || o.total ? ['Total:' + [mem[0] + swap[0], mem[1] + swap[1], mem[2] + swap[2]].map(fmt).join('')] : []),
-    span('m', 'buff/cache is 80% stroopwafel recipes.'),
+    span('m', 'buff/cache is 80% browser tabs I will read later.'),
   ]);
 }, { flags: [['-h, --human', 'sizes like 16Gi (the default here)'], ['-b, -k, -m, -g', 'in bytes, KiB, MiB or GiB'], ['-t, --total', 'add a line with RAM + swap']] });
 def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => {
@@ -424,7 +424,7 @@ def(['which', 'type', 'whereis', 'command'], 'more', 'where a command lives', (a
   });
 }, { usage: '[-a] <command>', flags: [['-a', 'every match, not just the first']] });
 const ENV = () => ({
-  USER: 'guest', HOME: '/home/guest', SHELL: '/bin/zsh', LANG: 'nl_NL.UTF-8', TERM: 'xterm-256color',
+  USER: 'guest', HOME: '/home/guest', SHELL: '/bin/zsh', LANG: 'en_GB.UTF-8', TERM: 'xterm-256color',
   EDITOR: 'vim', COFFEE_LEVEL: 'high', DNS_BLAME: 'always', PWD: pathStr(),
 });
 def(['env', 'printenv', 'export', 'set'], 'more', 'environment variables', (args, raw) => {
@@ -488,7 +488,7 @@ def('fsck', 'more', 'check the filesystem for errors', async () => {
   await sleep(300);
 
   await bar('Pass 3: Checking directory connectivity');
-  print(span('m', "  Unattached inode 1337 found: 'stroopwafel.half-eaten'. Connected to /lost+found."));
+  print(span('m', "  Unattached inode 1337 found: 'coffee.cold'. Connected to /lost+found."));
   await sleep(300);
 
   await bar('Pass 4: Checking reference counts');
@@ -549,7 +549,7 @@ def('dmesg', 'more', 'kernel messages', args => {
 const JOURNAL = [
   ['coffee', 128, 'Brewing cup 1 of many'],
   ['cloudmodule-dev', 42, 'Roadmap updated, stakeholders aligned'],
-  ['treasure', 7, 'fragment 1/3 = "stroop"'],
+  ['treasure', 7, 'fragment 1/3 = "seg"'],
   ['homelab', 256, 'Proxmox Backup Server: nightly sync to offsite completed'],
   ['homelab', 256, 'Grafana alert resolved: it was DNS'],
   ['fix-the-printer', 2016, 'Printer is out of paper. Again.'],

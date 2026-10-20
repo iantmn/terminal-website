@@ -128,11 +128,11 @@ def(['open', 'xdg-open'], 'nav', 'open a post or link', args => {
   if (a === 'chest') {
     const pw = (args[1] || '').toLowerCase();
     if (!pw) return print(span('e', 'The chest needs a password.') + span('m', ' usage: open chest &lt;password&gt;'));
-    if (pw !== 'stroopwafel') return print(span('e', "The chest doesn't budge.") + span('m', ' Check the order of the fragments.'));
+    if (pw !== 'segfault') return print(span('e', "The chest doesn't budge.") + span('m', ' Check the order of the fragments.'));
     unlock('treasure');
     return printLines([
       span('w b', '✨ The chest creaks open...'), '',
-      'Inside: a golden stroopwafel and a note.',
+      'Inside: a golden rubber duck and a note.',
       '"Anyone who follows a trail this far is someone I would enjoy working with."', '',
       span('a', 'Reward: a new theme. ') + cmd('theme gold'),
       span('m', 'And the offer stands: ') + cmd('contact'),

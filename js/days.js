@@ -65,7 +65,7 @@ export function dayMessage(d = new Date()) {
     if (m === 4 && day === 4) return { msg: '🔍 4/04, Error 404 Day: the message for today could not be found.' };
     if (m === 4 && day === 27) return { theme: 'oranje', msg: "🧡 Happy King's Day! Everything is orange today." };
     // World Password Day: the first Thursday of May
-    if (m === 5 && nth(1, 4)) return { msg: "🔑 World Password Day. 'Welkom01' is not a password, it is an invitation. Use a password manager and turn on 2FA." };
+    if (m === 5 && nth(1, 4)) return { msg: "🔑 World Password Day. 'Summer2026!' is not a password, it is a guess. Use a password manager and turn on 2FA." };
     if (m === 5 && day === 17) return { msg: '🌍 World Internet Day. Thank your router today, it works harder than you think.' };
     // SysAdmin Day: the last Friday of July
     if (m === 7 && wd === 5 && day > 24) return { msg: '🖥️ Happy SysAdmin Day! Thank whoever keeps your Wi-Fi alive. Today, that is me.' };
@@ -74,25 +74,18 @@ export function dayMessage(d = new Date()) {
     if (dayOfYear(d) === 256) return { msg: "👨‍💻 Day 256 of the year, Programmers' Day. 0x100 reasons to celebrate." };
     if (m === 9 && day === 19) return { msg: "🏴‍☠️ Talk Like a Pirate Day. Arr, " + cmd('ls') + " be listin' yer booty, matey." };
     if (m === 10 && day === 1) return { msg: '☕ International Coffee Day. coffee.service now runs at maximum priority: ' + cmd('coffee') };
-    if (m === 10 && day === 4) return { msg: '🐾 Dierendag! The animals take over the terminal today: ' + cmd('cowsay -f kitty miauw') };
+    if (m === 10 && day === 4) return { msg: '🐾 World Animal Day. The animals take over the terminal today: ' + cmd('cowsay -f kitty miauw') };
     if (m === 10 && day === 31) return { msg: '🎃 Happy Halloween. Something is lurking in /dev/null.' };
     // the clocks go back on the last Sunday of October
     if (m === 10 && lastSunday()) return { msg: '🕰️ The clocks went back tonight: one extra hour. Perfect for one more homelab project.' };
-    if (m === 11 && day === 11) return { msg: '🏮 Sint-Maarten! Kids go door to door with lanterns tonight. In here, a lantern is ' + cmd('theme light') + '.' };
     // World Usability Day: the second Thursday of November
     if (m === 11 && nth(2, 4)) return { msg: '🧭 World Usability Day. Good design means nobody needs a manual. This terminal is the exception: ' + cmd('help') };
     if (m === 11 && day === 23) return { msg: "🎂 Today is Ian's birthday! uptime += 1 year. Feel free to say hi: " + cmd('contact') };
     if (m === 11 && day === 30) return { msg: '🔐 Computer Security Day. Your password is safe with me: I never asked for it. Now go turn on 2FA for that one account you keep putting off.' };
-    if (m === 12 && day === 5) return { msg: '🎁 Happy Sinterklaas! Put your shoe by the terminal and try ' + cmd('fortune') + '.' };
     if (m === 12 && day >= 24 && day <= 26) return { msg: '🎄 Merry Christmas! The homelab is in a change freeze. The coffee is not.' };
-    if (m === 12 && day === 31) return { msg: '🎇 Oudejaarsavond: oliebollen in one hand, a change freeze in the other.' };
+    if (m === 12 && day === 31) return { msg: "🎇 New Year's Eve. One last deploy before midnight? Better not." };
     return null;
   })();
   if (special) return special;
   return { msg: pickFor(d, WEEKDAYS[wd]) };
 }
-
-export const SINTERKLAAS = [
-  'Sinterklaas came by tonight, / he found the homelab running bright. / He left a gift beside the rack: / a label maker. No way back.',
-  'The Sint looked at your terminal screen / and saw the cleanest config seen. / He only had one small remark: / "Why is DNS always dark?"',
-];
