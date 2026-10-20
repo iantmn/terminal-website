@@ -3,7 +3,7 @@ import { unlock, unlocked, ACH_IDS, saw } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
-import { FS, resolve } from '../filesystem.js';
+import { FS, resolve, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
@@ -37,7 +37,16 @@ def('sudo', null, 'run a command as root', (args, raw) => {
   print(span('m', '(to nobody, relax. Maybe if you ask nicely and say please, I might let you run a command as root.)'));
 }, { usage: '[-l] <command>', wrap: true, flags: [['-l', 'list what you are allowed to run'], ['-i', 'open a root shell']] });
 def('rm', null, 'remove files', async args => {
-  if (!args.some(a => /^-\w*r/.test(a)) || !args.some(a => /^(\/|\*|~|\.)/.test(a))) return print(span('e', 'rm: refusing to remove that - this filesystem is read-only'));
+  // what you made in /tmp really goes
+  const [o, paths] = getopt(args);
+  if (paths.length && paths.every(isMine)) {
+    for (const p of paths) {
+      const err = removeNode(p, { recursive: o.r || o.R || o.recursive });
+      if (err) { state.failed = true; print(span('e', `rm: cannot remove '${esc(p)}': ${err}`)); }
+    }
+    return;
+  }
+  if (!args.some(a => /^-\w*r/.test(a)) || !args.some(a => /^(\/|\*|~|\.)/.test(a))) return print(span('e', 'rm: refusing to remove that - this filesystem is read-only') + TMP_NOTE);
   unlock('rm');
   const victims = ['/bin', '/etc', '/home/guest/experience', '/home/guest/articles', '/var/www/iantiemann.nl', '/boot', '/usr/lib/coffee'];
   for (const v of victims) { print(span('e', `removed '${v}'`)); await sleep(180); }

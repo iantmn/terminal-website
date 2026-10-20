@@ -2,7 +2,7 @@
 import { unlock, track } from '../achievements.js';
 import { PROFILE, SITE, POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
-import { resolve, lsLong, lsEntry, fileMeta, DIARY, diary, diaryReadable } from '../filesystem.js';
+import { resolve, lsLong, lsEntry, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode } from '../filesystem.js';
 import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
 
@@ -154,7 +154,7 @@ def(['chmod', 'chown'], null, 'change who may read a file (chmod) or who owns it
   const tool = raw.trim().split(/\s+/)[0].toLowerCase();
   const target = args.filter(a => !a.startsWith('-')).pop();
   const r = target ? resolve(target) : { error: true };
-  if (r.error || r.node !== DIARY) return print(span('e', `${esc(tool)}: cannot modify '${esc(target || '.')}': Read-only file system`));
+  if (r.error || r.node !== DIARY) return print(span('e', `${esc(tool)}: cannot modify '${esc(target || '.')}': Read-only file system`) + TMP_NOTE);
   if (args.length < 2) return print(span('e', `${tool}: missing operand`));
   if (tool === 'chown') {
     if (!state.asRoot) return print(span('e', "chown: changing ownership of 'diary.txt': Operation not permitted"));
@@ -181,9 +181,27 @@ def(['chmod', 'chown'], null, 'change who may read a file (chmod) or who owns it
   if (diaryReadable()) { unlock('chmod'); return print(span('a', 'Done.') + span('m', ' Go ahead: ') + cmd('cat diary.txt')); }
   print(span('m', `Done. Now ${diary.owner} can read it. You are not ${diary.owner}, though.`));
 });
-def(['touch', 'mkdir', 'mv', 'cp', 'ln', 'rmdir'], 'more', 'change files (this filesystem is read-only)', (args, raw) => {
+// touch, mkdir and rmdir: in /tmp they do what they say, everywhere else the filesystem is read-only
+const MAKE = {
+  touch: { what: 'cannot touch', run: p => touchFile(p) },
+  mkdir: { what: 'cannot create directory', run: (p, o) => makeDir(p, o.p || o.parents) },
+  rmdir: { what: 'failed to remove', run: p => removeNode(p, { onlyEmpty: true }) },
+};
+for (const [tool, { what, run }] of Object.entries(MAKE)) {
+  def(tool, 'more', { touch: 'make an empty file (in /tmp)', mkdir: 'make a directory (in /tmp)', rmdir: 'remove an empty directory' }[tool], args => {
+    const [o, paths] = getopt(args);
+    if (!paths.length) return print(span('e', `${tool}: missing operand`));
+    for (const p of paths) {
+      const err = run(p, o);
+      if (!err) continue;
+      state.failed = true;
+      print(span('e', `${tool}: ${what} '${esc(p)}': ${err}`) + (err === 'Read-only file system' ? TMP_NOTE : ''));
+    }
+  }, { usage: '<path>...', flags: tool === 'mkdir' ? [['-p, --parents', 'make the folders above it too']] : [] });
+}
+def(['mv', 'cp', 'ln'], 'more', 'move, copy or link files (read-only here)', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0];
-  print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`));
+  print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`) + TMP_NOTE);
 });
 
 // Tab completion: my pages and the words of post titles; anything that looks like a path completes as a path

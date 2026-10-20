@@ -1,7 +1,7 @@
 // parsing and running command lines: aliases, pipes, && and ;
 import { unlock, unlocked } from './achievements.js';
 import { esc, span, cmd, pad, print, printLines, state, store, getopt } from './core.js';
-import { resolve } from './filesystem.js';
+import { resolve, cannotWrite, writeFile, TMP_NOTE } from './filesystem.js';
 import { C } from './registry.js';
 
 export function tokenize(s) {
@@ -199,6 +199,26 @@ export const FILTERS = {
 };
 export const rainbow = (l, row) => [...l].map((ch, i) => ch === ' ' ? ' ' : `<span style="color:hsl(${(i * 9 + row * 14) % 360},95%,65%)">${esc(ch)}</span>`).join('');
 
+// a > outside quotes
+const hasRedirect = line => { let q = null; for (const ch of line) { if (q) { if (ch === q) q = null; } else if (ch === '"' || ch === "'") q = ch; else if (ch === '>') return true; } return false; };
+// cmd > file and cmd >> file: the output as plain text, into /tmp (the only place that takes it)
+async function execRedirect(line) {
+  const parts = splitOutside(line, ['>>', '>']);
+  // > file with nothing before it still makes the file, like in bash
+  const to = parts.find(p => p.op), command = parts[0]?.op ? '' : parts[0]?.text || '';
+  const op = to?.op, [target] = tokenize(to?.text || '');
+  if (!target) return print(span('e', "bash: syntax error near unexpected token `newline'"));
+  const err = cannotWrite(target);
+  if (err) { state.failed = true; return print(span('e', `bash: ${esc(target)}: ${err}`) + (err === 'Read-only file system' ? TMP_NOTE : '')); }
+  let html = [];
+  if (command) {
+    const prev = state.capture; state.capture = [];
+    try { await execPipeline(command); } finally { html = state.capture; state.capture = prev; }
+  }
+  const lines = htmlToText(html).filter((l, i, a) => l.trim() || (i > 0 && i < a.length - 1));
+  writeFile(target, lines.length ? lines.join('\n') + '\n' : '', op === '>>');
+}
+
 async function execPipeline(line) {
   const stages = splitOutside(line, ['|']).map(p => p.text);
   if (stages.length === 1) return execOne(stages[0]);
@@ -233,6 +253,7 @@ export async function execChain(raw, depth = 0) {
     state.failed = false;
     const text = expandAlias(part.text);
     if (text !== part.text && depth < 3 && /;|&&/.test(text)) await execChain(text, depth + 1);
+    else if (hasRedirect(text)) await execRedirect(text);
     else await execPipeline(text);
   }
 }

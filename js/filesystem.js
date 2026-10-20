@@ -171,6 +171,7 @@ export function lsEntry(name, node, segs) {
 // ls -l: posts get their real date, everything else a size and date derived from the name so they stay the same
 const hashOf = str => [...str].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 export function fileMeta(name, node) {
+  if (node.mine) return { date: node.mtime, size: node.type === 'dir' ? 4096 : new TextEncoder().encode(node.text).length };
   const h = hashOf(name), dir = node.type === 'dir';
   const post = POSTS.find(p => p.file === name);
   return { date: post ? new Date(post.date) : new Date(Date.now() - (h % 300 + 1) * 864e5), size: dir ? 4096 : 200 + (h % 3800) };
@@ -187,6 +188,81 @@ export function lsLong(name, node, { humanSizes = false } = {}) {
   const group = node.own === 'root' ? 'root' : 'guest';
   return span('m', `${perm} ${String(links).padStart(2)} ${pad(owner, 5)} ${pad(group, 5)} ${(humanSizes ? human(size) : String(size)).padStart(5)} ${date}`) + ' ';
 }
+
+// ---- /tmp: the one writable place. A tmpfs, so it is empty again after a reload ----
+export const TMP_NOTE = span('m', '  (everything is read-only, except ') + cmd('cd /tmp', '/tmp') + span('m', ')');
+// where a new file or folder would go: its folder, its name and what is there already
+function place(p) {
+  const clean = p.replace(/\/+$/, ''), i = clean.lastIndexOf('/');
+  const name = clean.slice(i + 1), r = resolve(i < 0 ? '.' : clean.slice(0, i) || '/');
+  if (r.error === 'denied') return { error: 'Permission denied' };
+  if (r.error || r.node.type !== 'dir') return { error: 'No such file or directory' };
+  if (!name || name === '.' || name === '..') return { error: 'Is a directory' };
+  const existing = r.node.children[name];
+  if (!r.node.writable) return { error: existing?.type === 'dir' ? 'Is a directory' : 'Read-only file system' };
+  return { dir: r.node, name, existing };
+}
+// a file or folder someone made: owned by guest, with a real size and date
+function tmpFile(text) {
+  const f = { type: 'file', mine: true, own: 'guest', text, mtime: new Date() };
+  f.read = () => f.text ? f.text.replace(/\n$/, '').split('\n').map(esc) : [];
+  return f;
+}
+const tmpDir = () => ({ type: 'dir', mine: true, writable: true, own: 'guest', children: {}, mtime: new Date() });
+// null when it can be written, else the reason, like 'Read-only file system'
+export function cannotWrite(p) {
+  const w = place(p);
+  if (w.error) return w.error;
+  if (w.existing?.type === 'dir') return 'Is a directory';
+  if (w.existing && !w.existing.mine) return 'Permission denied';
+  return null;
+}
+export function writeFile(p, text, append = false) {
+  const err = cannotWrite(p);
+  if (err) return err;
+  const w = place(p);
+  if (!w.existing) w.dir.children[w.name] = tmpFile(text);
+  else { w.existing.text = append ? w.existing.text + text : text; w.existing.mtime = new Date(); }
+  return null;
+}
+// touch: a new empty file, or a newer date on one you made
+export function touchFile(p) {
+  const w = place(p);
+  if (w.existing) { if (w.existing.mine) w.existing.mtime = new Date(); return null; }
+  return w.error || writeFile(p, '');
+}
+export function makeDir(p, parents = false) {
+  if (parents) {
+    const segs = p.split('/').filter(Boolean);
+    for (let i = 0; i < segs.length; i++) {
+      const sub = (p.startsWith('/') ? '/' : '') + segs.slice(0, i + 1).join('/');
+      const r = resolve(sub);
+      if (!r.error && r.node.type === 'dir') continue;
+      const err = makeDir(sub);
+      if (err) return err;
+    }
+    return null;
+  }
+  const w = place(p);
+  if (w.error) return w.error;
+  if (w.existing) return 'File exists';
+  w.dir.children[w.name] = tmpDir();
+  return null;
+}
+// rm and rmdir: only what someone made, the sticky bit on /tmp keeps the rest
+export function removeNode(p, { recursive = false, onlyEmpty = false } = {}) {
+  const w = place(p);
+  if (w.error) return w.error;
+  if (!w.existing) return 'No such file or directory';
+  if (!w.existing.mine) return 'Operation not permitted';
+  if (w.existing.type === 'dir') {
+    if (onlyEmpty && Object.keys(w.existing.children).length) return 'Directory not empty';
+    if (!recursive && !onlyEmpty) return 'Is a directory';
+  } else if (onlyEmpty) return 'Not a directory';
+  delete w.dir.children[w.name];
+  return null;
+}
+export const isMine = p => { const r = resolve(p); return !r.error && !!r.node.mine; };
 
 // ---- the root filesystem ----
 // main.js builds it once every command is defined, so /usr/bin can list them. ~ (FS) hangs in at /home/guest.
@@ -287,7 +363,7 @@ export function initRoot() {
     root: locked({
       'how-to-fix-anything.txt': file(['HOW TO FIX ANYTHING', '1. Turn it off.', '2. Turn it on again.', '3. Still broken? Read the logs.', '4. That is the whole secret. Do not tell anyone.']),
     }),
-    tmp: dir({ 'ian-was-here.tmp': file(['temporary file, permanent since 2016']) }, { mode: () => 'drwxrwxrwt' }),
+    tmp: dir({ 'ian-was-here.tmp': file(['temporary file, permanent since 2016']) }, { mode: () => 'drwxrwxrwt', writable: true }),
     usr: dir({
       bin: dir(bin),
       share: dir({ themes: dir(themeFiles) }),
