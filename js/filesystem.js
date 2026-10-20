@@ -50,6 +50,7 @@ function buildFS() {
       span('m','# what has ian been up to here...'),
       'docker compose up -d', 'systemctl status coffee', 'journalctl | tail', 'git log --graph',
       'ssh homelab', span('m','# right, the homelab only takes keys'),
+      span('m', '# and the key has a passphrase. Saved it somewhere safe, where nobody looks: dear diary...'),
       'ls -a', span('m','# note to self: dotfiles are not as hidden as you think'),
       'diff ian-2016 ian-2026', 'watch -n 1 date',
       'vim notes.txt', span('m','# how do I exit this thing'), span('m','# ...'), span('m','# google: "how to exit vim"'),
@@ -265,7 +266,7 @@ export function initRoot() {
         'todo.txt': file(['[x] build a terminal website', '[x] add way too many easter eggs', '[ ] finish the terminal website', '[ ] (this list never gets shorter)']),
         '.vimrc': file(['" I still do not know how to exit', 'set number', 'syntax on']),
         '.ssh': dir({
-          'id_homelab': file(['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBob21l', 'bGFiaXNub3R0aGF0b3Blbmlubm9jZW50bG9va2luZ2tleWZpbGVub3RoaW5ndG9zZWVo', 'ZXJlYnV0eW91Zm91bmRpdGFueXdheXdlbGxkb25lc2VyaW91c2x5', '-----END OPENSSH PRIVATE KEY-----', '# protected with a passphrase. I wrote it down somewhere safe. Somewhere private.'], { mode: () => '-rw-------', own: 'ian' }),
+          'id_homelab': file(['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBob21l', 'bGFiaXNub3R0aGF0b3Blbmlubm9jZW50bG9va2luZ2tleWZpbGVub3RoaW5ndG9zZWVo', 'ZXJlYnV0eW91Zm91bmRpdGFueXdheXdlbGxkb25lc2VyaW91c2x5', '-----END OPENSSH PRIVATE KEY-----', '# protected with a passphrase. I wrote it down somewhere safe, in the one file that starts with "Dear diary".'], { mode: () => '-rw-------', own: 'ian' }),
           'id_homelab.pub': file(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGhvbWVsYWJrZXlmb3JpYW4 ian@iantiemann'], { own: 'ian' }),
           'config': file(['Host homelab', '    HostName 10.42.0.1', '    User ian', '    IdentityFile ~/.ssh/id_homelab'], { own: 'ian' }),
         }, { own: 'ian', mode: () => 'drwx------' }),
