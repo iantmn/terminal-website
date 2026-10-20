@@ -6,10 +6,22 @@ import { C } from './registry.js';
 import { execChain, commandNames } from './shell.js';
 
 export const hist = store.get('hist', []);
+// the homelab has a history of its own; everything below works on the one of the machine you are on
+const labHist = store.get('labHist', []);
+export const activeHist = () => state.host === 'homelab' ? labHist : hist;
 let hIdx = hist.length;
+// a line into the history of this machine, without repeating the last one
+export function remember(line) {
+  const h = activeHist();
+  if (h[h.length - 1] !== line) { h.push(line); h.splice(0, h.length - 200); store.set(h === labHist ? 'labHist' : 'hist', h); }
+  hIdx = h.length;
+}
+// arrow-up starts from the newest line again, also right after switching machines
+export const resetHistoryCursor = () => { hIdx = activeHist().length; };
 
 // bash history expansion: !! the last command, !42 number 42 in history, !-2 the one before last, !git the last one starting with git
-function expandHistory(raw) {
+export function expandHistory(raw) {
+  const hist = activeHist();
   let used = false, missing = null;
   const line = raw.replace(/(^|\s)!(!|-?\d+|[A-Za-z][\w.-]*)(?=\s|$)/g, (m, pre, ev) => {
     const h = ev === '!' ? hist.at(-1)
@@ -49,8 +61,7 @@ export async function run(raw, { echo = true } = {}) {
     // like bash, show the line that really runs
     if (x.used) { raw = x.line; state.bang = true; print(span('m', esc(raw))); }
   }
-  if (hist[hist.length - 1] !== raw) { hist.push(raw); hist.splice(0, hist.length - 200); store.set('hist', hist); }
-  hIdx = hist.length;
+  remember(raw);
 
   state.busy = true; state.cancelled = false; inrow.style.visibility = 'hidden';
   try { await execChain(raw); suggestShare(raw); }
@@ -113,11 +124,11 @@ const onlyCtrl = e => e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey;
 // Ctrl+R: search back through history while typing. Ctrl+R again goes further back, Enter runs the match,
 // Esc or an arrow keeps it for editing, Ctrl+G gives back the line from before, Ctrl+C clears
 let search = null;
-const searchFrom = (q, start) => { for (let i = Math.min(start, hist.length - 1); i >= 0; i--) if (hist[i].includes(q)) return i; return -1; };
+const searchFrom = (q, start) => { const hist = activeHist(); for (let i = Math.min(start, hist.length - 1); i >= 0; i--) if (hist[i].includes(q)) return i; return -1; };
 function showSearch() {
   const failed = search.q && search.idx < 0;
   ps.innerHTML = span('m', `(${failed ? 'failed ' : ''}reverse-i-search)\`${esc(search.q)}': `);
-  kb.value = search.idx >= 0 ? hist[search.idx] : search.q ? '' : search.saved;
+  kb.value = search.idx >= 0 ? activeHist()[search.idx] : search.q ? '' : search.saved;
   moveEnd();
 }
 const endSearch = () => { search = null; renderPrompt(); };
@@ -142,14 +153,14 @@ function searchKey(e) {
   if (e.key === 'Backspace') {
     e.preventDefault();
     search.q = search.q.slice(0, -1);
-    search.idx = search.q ? searchFrom(search.q, hist.length - 1) : -1;
+    search.idx = search.q ? searchFrom(search.q, activeHist().length - 1) : -1;
     showSearch();
     return true;
   }
   if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
     search.q += e.key;
-    search.idx = searchFrom(search.q, search.idx >= 0 ? search.idx : hist.length - 1);
+    search.idx = searchFrom(search.q, search.idx >= 0 ? search.idx : activeHist().length - 1);
     showSearch();
     return true;
   }
@@ -162,8 +173,8 @@ function searchKey(e) {
 kb.addEventListener('keydown', e => {
   if (searchKey(e)) return;
   if (e.key === 'Enter') { e.preventDefault(); if (state.busy && !state.asking) return; const v = kb.value; kb.value = ''; run(v); }
-  else if (e.key === 'ArrowUp') { if (hIdx > 0) { kb.value = hist[--hIdx]; } e.preventDefault(); moveEnd(); }
-  else if (e.key === 'ArrowDown') { if (hIdx < hist.length - 1) kb.value = hist[++hIdx]; else { hIdx = hist.length; kb.value = ''; } e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { const h = activeHist(); if (hIdx > 0) { kb.value = h[--hIdx]; } e.preventDefault(); moveEnd(); }
+  else if (e.key === 'ArrowDown') { const h = activeHist(); if (hIdx < h.length - 1) kb.value = h[++hIdx]; else { hIdx = h.length; kb.value = ''; } e.preventDefault(); }
   else if (e.key === 'Tab') { e.preventDefault(); if (kb.value.trim()) unlock('tab'); complete(e.shiftKey); }
   else if (cycle && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) cycle = null;
   else if (onlyCtrl(e) && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }

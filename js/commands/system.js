@@ -3,7 +3,7 @@ import { unlock, unlocked, ACH_IDS, ACH, noSolution } from '../achievements.js';
 import { SITE, PROFILE } from '../content.js';
 import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt, toHash } from '../core.js';
 import { resetDiary } from '../filesystem.js';
-import { hist } from '../input.js';
+import { hist, activeHist } from '../input.js';
 import { C, def, completes } from '../registry.js';
 import { aliases, found, commandNames } from '../shell.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
@@ -38,7 +38,8 @@ def(['help', 'h', '?'], 'system', 'show this help', () => {
 def(['clear', 'cls'], 'system', 'clear the screen', () => { out.innerHTML = ''; }, { flags: [['-x', 'keep the scrollback (same thing here)']] });
 def('history', 'system', 'command history', args => {
   const [o, [n]] = getopt(args);
-  if (o.c) { hist.splice(0); store.set('hist', hist); return print(span('m', 'history cleared')); }
+  const hist = activeHist();
+  if (o.c) { hist.splice(0); store.set(state.host === 'homelab' ? 'labHist' : 'hist', hist); return print(span('m', 'history cleared')); }
   const from = n ? Math.max(0, hist.length - parseInt(n, 10)) : 0;
   hist.slice(from).forEach((h, i) => print(`${span('m', String(from + i + 1).padStart(4, ' '))}  ${esc(h)}`));
 }, { usage: '[n] [-c]', flags: [['n', 'only the last n commands'], ['-c', 'clear the history']] });
