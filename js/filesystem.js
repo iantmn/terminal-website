@@ -160,6 +160,12 @@ export function resolve(p) {
   return { node, segs: stack };
 }
 
+// a path as typed, as a link: folders cd, programs run, files cat
+export function pathLink(path, node, label = path) {
+  if (node.type === 'dir') return `<a class="dir" data-cmd="cd ${esc(path)}">${esc(label)}</a>`;
+  if (node.exec) return `<a class="file exec" data-cmd="${esc(node.exec)}">${esc(label)}</a>`;
+  return `<a class="file" data-cmd="cat ${esc(path)}">${esc(label)}</a>`;
+}
 export function lsEntry(name, node, segs) {
   const path = displayPath([...segs, name]);
   if (node.type === 'dir') return `<a class="dir" data-cmd="cd ${esc(path)}">${esc(name)}/</a>`;

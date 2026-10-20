@@ -2,7 +2,7 @@
 import { unlock, track } from '../achievements.js';
 import { PROFILE, SITE, POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
-import { resolve, lsLong, lsEntry, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode } from '../filesystem.js';
+import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode } from '../filesystem.js';
 import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
 
@@ -21,7 +21,7 @@ def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
       return x.type === y.type ? a.localeCompare(b) : x.type === 'dir' ? -1 : 1;
     });
     if (rev) entries.reverse();
-    if (label) print(span('h b', esc(label) + ':'));
+    if (label) print(span('h b', pathLink(label, node) + ':'));
     const dots = all && !almost;
     if (long) {
       print(span('m', `total ${(entries.length + (dots ? 2 : 0)) * 4}`));
@@ -181,6 +181,40 @@ def(['chmod', 'chown'], null, 'change who may read a file (chmod) or who owns it
   if (diaryReadable()) { unlock('chmod'); return print(span('a', 'Done.') + span('m', ' Go ahead: ') + cmd('cat diary.txt')); }
   print(span('m', `Done. Now ${diary.owner} can read it. You are not ${diary.owner}, though.`));
 });
+// find: the real walk, with -name, -iname, -type and -maxdepth. Every path it prints is a link
+const glob = (p, ci) => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', ci ? 'i' : '');
+def('find', 'nav', 'find files by name', args => {
+  const starts = [], t = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (['-name', '-iname', '-type', '-maxdepth', '-mindepth'].includes(a)) {
+      if (args[i + 1] === undefined) { state.failed = true; return print(span('e', `find: missing argument to '${esc(a)}'`)); }
+      t[a.slice(1)] = args[++i];
+    } else if (a.startsWith('-')) { state.failed = true; return print(span('e', `find: unknown predicate '${esc(a)}'`) + span('m', ' (this one knows -name, -iname, -type, -maxdepth and -mindepth)')); }
+    else starts.push(a);
+  }
+  if (t.type && !['f', 'd'].includes(t.type)) { state.failed = true; return print(span('e', `find: Unknown argument to -type: ${esc(t.type)}`)); }
+  const name = t.name !== undefined ? glob(t.name) : t.iname !== undefined ? glob(t.iname, true) : null;
+  const max = t.maxdepth !== undefined ? parseInt(t.maxdepth, 10) : Infinity, min = parseInt(t.mindepth ?? 0, 10);
+  const out = [];
+  const visit = (node, path, base, depth) => {
+    const kind = node.type === 'dir' ? 'd' : 'f';
+    if (depth >= min && (!name || name.test(base)) && (!t.type || t.type === kind)) out.push(pathLink(path, node));
+    if (node.type !== 'dir' || depth >= max) return;
+    for (const [n, child] of Object.entries(node.children).sort(([a], [b]) => a.localeCompare(b))) {
+      const p = path.endsWith('/') ? path + n : path + '/' + n;
+      if (child.type === 'dir' && child.locked && !state.asRoot) { out.push(span('e', `find: '${esc(p)}': Permission denied`)); continue; }
+      visit(child, p, n, depth + 1);
+    }
+  };
+  for (const s of starts.length ? starts : ['.']) {
+    const r = resolve(s);
+    if (r.error) { state.failed = true; out.push(span('e', `find: '${esc(s)}': ${r.error === 'denied' ? 'Permission denied' : 'No such file or directory'}`)); continue; }
+    visit(r.node, s, r.segs.at(-1) || s, 0);
+  }
+  printLines(out);
+}, { usage: '[path...] [-name pattern] [-type f|d] [-maxdepth n]', flags: [['path', 'where to start (default: .)'], ['-name pattern', 'names like *.md, with * and ?'], ['-iname pattern', 'the same, ignoring case'], ['-type f|d', 'only files (f) or folders (d)'], ['-maxdepth n', 'go at most n folders deep'], ['-mindepth n', 'skip the first n levels']] });
+
 // touch, mkdir and rmdir: in /tmp they do what they say, everywhere else the filesystem is read-only
 const MAKE = {
   touch: { what: 'cannot touch', run: p => touchFile(p) },

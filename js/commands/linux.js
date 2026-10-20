@@ -3,7 +3,7 @@ import { unlock, unlocked, ACH_IDS, saw } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
-import { FS, resolve, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
+import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
@@ -837,7 +837,7 @@ def('grep', 'more', FILTER_INFO.grep[0], args => {
     const res = FILTERS.grep(args, lines);
     const count = o.c || o.count ? parseInt(res[0], 10) : res.length;
     if (count) hits++;
-    const name = span('h', esc(path));
+    const name = span('h', pathLink(path, node));
     if (names) { if (count) print(name); }
     else if (o.c || o.count) print(many ? name + span('m', ':') + count : String(count));
     else res.forEach(l => print(many ? name + span('m', ':') + l : l));
