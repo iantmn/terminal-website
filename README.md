@@ -20,7 +20,7 @@ That serves it on http://localhost:8080. Without Docker, `python3 -m http.server
 - `css/style.css`: the themes and the terminal look
 - `js/main.js`: the entry point, it loads the commands and boots
 - `js/content.js`: everything the terminal tells about me
-- `js/commands/`: the commands, by topic (`me`, `nav`, `system`, `fun`, `linux`), plus `python.js` (a tiny Python), `qr.js` (a QR encoder) and `guestbook.js`
+- `js/commands/`: the commands, by topic (`me`, `nav`, `system`, `fun`, `linux`), plus `homelab.js` (the machine behind ssh), `python.js` (a tiny Python), `qr.js` (a QR encoder) and `guestbook.js`
 - `js/core.js`, `shell.js`, `input.js`: printing, parsing and running command lines, the keyboard
 - `js/days.js`: the message of the day, for special days and every day of the week
 - `js/visits.js`: your visits, for `last` and `finger`

@@ -98,6 +98,13 @@ body.crt #term { text-shadow:0 0 5px var(--accent), 0 0 1px var(--fg); }
 /* light themes have a dark --fg, so the roles swap */
 body[data-theme="light"] .qr .qr-light, body[data-theme="github"] .qr .qr-light { fill:var(--bg); }
 body[data-theme="light"] .qr .qr-dark, body[data-theme="github"] .qr .qr-dark { fill:var(--fg); }
+/* the site is down: a full-screen error until the watchdog brings it back */
+#outage { position:fixed; inset:0; z-index:30; background:var(--bg); color:var(--fg); display:flex; align-items:center; justify-content:center; padding:20px; }
+#outage .box { width:100%; max-width:600px; }
+#outage .big { font-size:2.2em; font-weight:700; margin-bottom:.3em; }
+#outage .log { font:inherit; white-space:pre-wrap; margin:1.4em 0 0; min-height:9em; }
+.watchdog-note { white-space:normal; border:1px solid var(--warn); border-radius:4px; padding:.8em 1em; margin:.6em 0; }
+.watchdog-note .big { font-size:1.6em; font-weight:700; color:var(--warn); margin-bottom:.3em; }
 #keys { display:none; gap:4px; margin-top:6px; }
 #keys button { flex:1; min-width:0; font:inherit; color:var(--fg); background:var(--sel); border:1px solid var(--muted); border-radius:4px; padding:2px 0; min-height:30px; font-size:.9em; }
 #keys button:active { background:var(--accent); color:var(--bg); }

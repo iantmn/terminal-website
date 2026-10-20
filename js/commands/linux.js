@@ -2,12 +2,13 @@
 import { unlock, unlocked, ACH_IDS } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, promptHTML, uptime, BOOT_TIME, HOME, getopt } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
 import { FS, resolve } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
+import { labSession, labDocker } from './homelab.js';
 
 def('sudo', null, 'run a command as root', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
@@ -76,6 +77,8 @@ def('ping', null, 'check if a host answers', async args => {
   if (local) { print(span('w', "There's no place like 127.0.0.1")); unlock('home'); }
 }, { usage: '[-c count] [-i s] [-q] <host>', flags: [['-c count', 'stop after this many replies (max 20)'], ['-i seconds', 'wait between pings'], ['-s size', 'packet size in bytes'], ['-q', 'quiet: only the summary']] });
 def('docker', null, 'list the containers on the server', args => {
+  // the homelab has real stacks you can stop and start
+  if (state.host === 'homelab') { unlock('docker'); return labDocker(args); }
   if (args[0] !== 'ps') return print(span('m', 'usage: docker ps [-aq]   (the only command that matters)'));
   const [o] = getopt(args.slice(1));
   unlock('docker');
@@ -178,33 +181,6 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install pa
   }
   print(span('e', `E: Invalid operation ${esc(sub)}`));
 }, { usage: 'update | upgrade | install <pkg>', flags: [['-y, --yes', 'assume yes (it never asks anyway)']] });
-// a shell on the homelab until exit, logout or Ctrl+D
-async function labSession() {
-  const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot };
-  state.host = 'homelab'; state.user = 'ian'; state.asRoot = false;
-  HOME.splice(0, 2, 'home', 'ian'); state.cwd = [...HOME];
-  unlock('homelab');
-  printLines(['Linux homelab 6.8.12-pve #1 SMP PREEMPT_DYNAMIC x86_64', '', span('m', 'The programs included with Proxmox VE are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), '']);
-  try {
-    for (;;) {
-      state.busy = false; inrow.style.visibility = '';
-      const line = await ask(promptHTML());
-      // Ctrl+D logs out, Ctrl+C just gives a new prompt
-      if (line === undefined) break;
-      if (line === null || !line.trim()) continue;
-      if (/^\s*(exit|logout)\s*$/.test(line)) break;
-      state.busy = true; state.cancelled = false; inrow.style.visibility = 'hidden';
-      try { await execChain(line); }
-      catch (e) { if (e.message === 'SIGINT') print(span('e', '^C')); else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
-    }
-  } finally {
-    HOME.splice(0, 2, 'home', 'guest');
-    Object.assign(state, saved);
-  }
-  print('logout');
-  print(span('m', 'Connection to homelab closed.'));
-}
-
 // ssh homelab: only with Ian's key and its passphrase, and the key needs root to read
 def('ssh', 'more', 'log in to another machine', async args => {
   const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
@@ -696,6 +672,7 @@ const CRONTABS = {
     ['45 16 * * 5', '/usr/bin/deploy --never', 'read-only Friday'],
     ['0 20 * * 0', '/usr/bin/write-guide --next-article', ''],
     ['0 22 * * *', '/usr/bin/homelab --tinker "just five minutes"', 'it is never five minutes'],
+    ['* * * * *', '/home/ian/stacks/terminal/watchdog.sh', 'brings this site back when it stops answering'],
     ['0 8 1 * *', '/usr/bin/label-cables --this-month-for-real', ''],
     ['0 0 23 11 *', '/usr/bin/cake --birthday', ''],
     ['@reboot', '/usr/bin/coffee --emergency', ''],

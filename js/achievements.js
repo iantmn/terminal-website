@@ -58,6 +58,7 @@ export const ACH = {
   chmod:    ['Permission granted',         'One file in the home folder is locked. Ask nicely for the keys.', 'please sudo chmod +r diary.txt (or please sudo chown guest diary.txt)'],
   corrupt:  ['Bit rot',                    'Not every theme is on the list. One of them is broken on purpose.', 'theme corrupt'],
   homelab:  ['Into the lab',               'The homelab only takes keys. The logs know whose.',       'please sudo ssh -i /home/ian/.ssh/id_homelab homelab, with the passphrase from the diary.'],
+  outage:   ['Pulled the plug',            'This site runs somewhere. What happens if you stop it?',   'docker compose down in ~/stacks/terminal on the homelab.'],
   typist:   ['Home row hero',              'Real sysadmins type fast. Prove it.',                     'Score 60 WPM or more with 95% accuracy in typing.'],
   zen:      ['Zen master',                 'The snake language hides a poem. Import it.',             'import this, in python'],
   sudobang: ['Déjà vu',                    '',                                                        'sudo !!'],
@@ -85,5 +86,5 @@ export function track(key, value, goal, ach) {
   if (set.size >= goal) unlock(ach);
 }
 // classics have no hint, secrets have a hint but never a solution: those you find yourself
-export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab'];
+export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage'];
 export const noSolution = id => !ACH[id][1] || SECRET_ACH.includes(id);
