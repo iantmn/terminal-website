@@ -28,6 +28,8 @@ export const state = {
   cwd: [...HOME],
   // the line came from history expansion (!!, !42), so sudo can tell sudo !! apart
   bang: false,
+  // reading files for grep: no achievements, nothing counts as read
+  silent: false,
   // root for one command (please sudo ...)
   asRoot: false,
 };

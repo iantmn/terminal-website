@@ -1,7 +1,7 @@
 // turns the content into terminal lines
 import { track } from './achievements.js';
 import { SITE, PROFILE, ABOUT, SKILLS, POSTS, EXPERIENCE, EDUCATION } from './content.js';
-import { esc, span, cmd, link, absUrl, h2, bullet, tags, kv, slugify } from './core.js';
+import { esc, span, cmd, link, absUrl, h2, bullet, tags, kv, slugify, state } from './core.js';
 
 POSTS.forEach((p, i) => { p.n = i + 1; p.file = slugify(p.title) + '.md'; });
 
@@ -68,7 +68,9 @@ export function fmtPost(p) {
   if (p.points && p.points.length) l.push(h2('Highlights'), ...p.points.map(bullet), '');
   if (p.stack && p.stack.length) l.push(h2('Stack'), tags(p.stack), '');
   l.push(`→ ${link(absUrl(p.url), 'read the full ' + (guide ? 'article' : 'write-up'))}  ${span('m','or type')} ${cmd('open ' + p.n)}`);
-  queueMicrotask(() => track('read', p.url, 5, 'reader'));
+  // grep reads posts too; that should not count as reading them
+  const quiet = state.silent;
+  queueMicrotask(() => quiet || track('read', p.url, 5, 'reader'));
   return l;
 }
 

@@ -99,10 +99,12 @@ async function execOne(line) {
 }
 
 // html lines -> plain text lines, tables become "key  value"
-function htmlToText(lines) {
+export function htmlToText(lines) {
   const d = document.createElement('div');
   return lines.flatMap(html => {
     d.innerHTML = html;
+    // tags sit next to each other without spaces in the html
+    d.querySelectorAll('.tag').forEach(t => t.append('  '));
     d.querySelectorAll('.tbl').forEach(t => {
       const cells = [...t.children], keys = cells.filter((_, i) => i % 2 === 0);
       const w = Math.max(0, ...keys.map(k => k.textContent.length));

@@ -67,6 +67,7 @@ export const ACH_IDS = Object.keys(ACH);
 export const SEASONAL_ACH = ['ghost'];
 export const unlocked = new Set(store.get('ach', []).filter(id => ACH[id]));
 export function unlock(id) {
+  if (state.silent) return;
   if (!ACH[id] || unlocked.has(id)) return;
   unlocked.add(id); store.set('ach', [...unlocked]);
   // always on screen, never into a pipe
@@ -76,6 +77,7 @@ export function unlock(id) {
   if (id !== 'completionist' && ACH_IDS.every(a => a === 'completionist' || SEASONAL_ACH.includes(a) || unlocked.has(a))) unlock('completionist');
 }
 export function track(key, value, goal, ach) {
+  if (state.silent) return;
   const set = new Set(store.get(key, [])); set.add(value); store.set(key, [...set]);
   if (set.size >= goal) unlock(ach);
 }

@@ -3,9 +3,9 @@ import { unlock } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, state, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
-import { FS } from '../filesystem.js';
+import { FS, resolve } from '../filesystem.js';
 import { C, def } from '../registry.js';
-import { runAsRoot, execLine, execChain, FILTERS, rainbow } from '../shell.js';
+import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText } from '../shell.js';
 import { bootSound } from '../sound.js';
 
 def('sudo', null, 'run a command as root', (args, raw) => {
@@ -634,7 +634,7 @@ def('cal', 'more', 'a calendar', args => {
 }, { usage: '[-3y] [[month] year]', flags: [['-3', 'last month, this month and next month'], ['-y, --year', 'the whole year'], ['month year', 'a specific month, like cal 12 2026']] });
 
 const FILTER_INFO = {
-  grep: ['search the input for a pattern', '[-icvnowxF] <pattern>', [['-i, --ignore-case', 'ignore case (lowercase patterns already do)'], ['-v, --invert-match', 'lines that do not match'], ['-c, --count', 'only the number of matching lines'], ['-n, --line-number', 'show line numbers'], ['-o, --only-matching', 'only the matching part'], ['-w, --word-regexp', 'whole words only'], ['-x, --line-regexp', 'whole lines only'], ['-F, --fixed-strings', 'the pattern is text, not a regex'], ['-e pattern', 'the pattern, even if it starts with -']]],
+  grep: ['search files or the input for a pattern', '[-rlicvnowxF] <pattern> [file...]', [['-r, --recursive', 'search every file in the folders too'], ['-l, --files-with-matches', 'only the names of files that match'], ['-i, --ignore-case', 'ignore case (lowercase patterns already do)'], ['-v, --invert-match', 'lines that do not match'], ['-c, --count', 'only the number of matching lines'], ['-n, --line-number', 'show line numbers'], ['-o, --only-matching', 'only the matching part'], ['-w, --word-regexp', 'whole words only'], ['-x, --line-regexp', 'whole lines only'], ['-F, --fixed-strings', 'the pattern is text, not a regex'], ['-e pattern', 'the pattern, even if it starts with -']]],
   head: ['the first lines of the input', '[-n lines] [-c bytes]', [['-n lines, -lines', 'how many lines (default 10)'], ['-c bytes', 'the first bytes instead']]],
   tail: ['the last lines of the input', '[-n lines] [-c bytes]', [['-n lines, -lines', 'how many lines (default 10)'], ['-n +N', 'everything from line N'], ['-c bytes', 'the last bytes instead']]],
   wc: ['count lines, words and bytes', '[-lwmc]', [['-l, --lines', 'lines'], ['-w, --words', 'words'], ['-m, --chars', 'characters'], ['-c, --bytes', 'bytes']]],
@@ -644,4 +644,44 @@ const FILTER_INFO = {
 };
 Object.keys(FILTERS).forEach(f => def(f, 'more', FILTER_INFO[f][0], () => print(span('m', `${f} reads from a pipe here. Try `) + cmd(f === 'grep' ? 'skills -a | grep linux' : `articles | ${f}${f === 'head' || f === 'tail' ? ' -n 3' : ''}`)),
   { usage: FILTER_INFO[f][1], flags: FILTER_INFO[f][2] }));
+// grep with files, or -r for folders: grep -rn proxmox ~. Without either it reads from a pipe (shell.js)
+def('grep', 'more', FILTER_INFO.grep[0], args => {
+  const [o, rest] = getopt(args, ['e']);
+  const pat = o.e ?? rest[0], paths = o.e !== undefined ? rest : rest.slice(1);
+  const recursive = o.r || o.R || o.recursive, names = o.l || o['files-with-matches'];
+  if (pat === undefined || (!paths.length && !recursive)) return print(span('m', 'grep reads from a pipe or from files here. Try ') + cmd('skills -a | grep linux') + span('m', ' or ') + cmd('grep -rn proxmox ~'));
+  const files = [];
+  // prefix is what goes in front of a name: '' for grep -r x, '~/' for grep -r x ~, '/' for grep -r x /
+  const walk = (node, prefix) => {
+    for (const [n, child] of Object.entries(node.children).sort(([a], [b]) => a.localeCompare(b))) {
+      const path = prefix + n;
+      if (child.type === 'dir') { if (!child.locked || state.asRoot) walk(child, path + '/'); }
+      else files.push([path, child]);
+    }
+  };
+  for (const p of paths.length ? paths : [null]) {
+    const r = resolve(p || '.');
+    if (r.error) { print(span('e', `grep: ${esc(p)}: ${r.error === 'denied' ? 'Permission denied' : 'No such file or directory'}`)); continue; }
+    if (r.node.type === 'file') files.push([p, r.node]);
+    else if (!recursive) print(span('e', `grep: ${esc(p)}: Is a directory`));
+    else walk(r.node, p ? p.replace(/\/*$/, '/') : '');
+  }
+  // the file name in front only when there can be more than one file, like the real grep
+  const many = recursive || files.length > 1;
+  let hits = 0;
+  for (const [path, node] of files) {
+    if (node.exec) continue;
+    let lines;
+    state.silent = true;
+    try { lines = htmlToText(node.read()); } finally { state.silent = false; }
+    const res = FILTERS.grep(args, lines);
+    const count = o.c || o.count ? parseInt(res[0], 10) : res.length;
+    if (count) hits++;
+    const name = span('h', esc(path));
+    if (names) { if (count) print(name); }
+    else if (o.c || o.count) print(many ? name + span('m', ':') + count : String(count));
+    else res.forEach(l => print(many ? name + span('m', ':') + l : l));
+  }
+  state.failed = !hits;
+}, { usage: FILTER_INFO.grep[1], flags: FILTER_INFO.grep[2] });
 def('lolcat', 'more', 'rainbows', args => args.length ? print(rainbow(args.join(' '), 0)) : print(span('m', 'lolcat reads from a pipe here. Try ') + cmd('fortune | lolcat')), { usage: '[text]' });
