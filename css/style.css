@@ -65,6 +65,7 @@ body {
 .a { color:var(--accent); } .a2 { color:var(--accent2); }
 a { color:var(--link); text-decoration:none; border-bottom:1px dashed currentColor; cursor:pointer; }
 a:hover { background:var(--sel); }
+a:focus-visible { outline:1px solid var(--accent); outline-offset:1px; background:var(--sel); }
 a.cmd { color:var(--accent2); }
 a.dir { color:var(--accent2); font-weight:700; border:0; }
 a.file { color:var(--fg); border:0; }

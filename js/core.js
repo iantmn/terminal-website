@@ -31,7 +31,11 @@ export const state = {
 
 export const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const span = (cls, s) => `<span class="${cls}">${s}</span>`;
-export const cmd = (c, label) => `<a class="cmd" data-cmd="${esc(c)}">${esc(label || c)}</a>`;
+// a command as a URL hash: spaces become +, the rest is percent-encoded, like #skills+-a+%7C+grep+linux
+export const toHash = c => '#' + encodeURIComponent(c).replace(/%20/g, '+');
+export const fromHash = h => { try { return decodeURIComponent(h.replace(/^#/, '').replace(/\+/g, ' ')).trim(); } catch { return ''; } };
+// the href makes it a real link: keyboard focus, Enter, middle-click opens the command in a new tab
+export const cmd = (c, label) => `<a class="cmd" href="${esc(toHash(c))}" data-cmd="${esc(c)}">${esc(label || c)}</a>`;
 export const link = (url, label) => `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(label || url)}</a>`;
 export const absUrl = u => /^https?:/.test(u) ? u : SITE + u;
 export const h2 = t => span('w b', '## ' + esc(t));
@@ -69,6 +73,8 @@ export function print(html = '', cls = '') {
   const d = document.createElement('div');
   d.className = 'ln' + (cls ? ' ' + cls : '');
   d.innerHTML = html;
+  // links built by hand (ls entries, post lists) get their href here
+  d.querySelectorAll('a[data-cmd]:not([href])').forEach(a => { a.href = toHash(a.dataset.cmd); });
   out.appendChild(d);
   scrollDown();
   return d;

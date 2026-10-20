@@ -1,5 +1,6 @@
 // the entry point: load every command, build the filesystem, then boot
-import { store } from './core.js';
+import { store, state, fromHash } from './core.js';
+import { C } from './registry.js';
 import { unlock } from './achievements.js';
 import { initRoot } from './filesystem.js';
 import { startFeed } from './feed.js';
@@ -21,7 +22,17 @@ if (document.body.dataset.theme === 'corrupt') startGlitch();
 if (store.get('crt', false)) document.body.classList.add('crt');
 startFeed();
 
+// #ls+-la runs ls -la. Older links used - and _ for spaces (#cowsay-hoi); those still work when the first word is no command
+function linkedCommand() {
+  let c = fromHash(location.hash);
+  const first = s => s.split(' ')[0].toLowerCase();
+  if (c && !C[first(c)] && C[c.split(/[-_]/)[0].toLowerCase()]) c = c.replace(/[-_]/g, ' ');
+  return c;
+}
+const runLinked = () => { const c = linkedCommand(); if (c && !state.busy) { unlock('deeplink'); run(c); } };
+
 powerScreen().then(boot).then(() => {
-  const h = decodeURIComponent(location.hash.slice(1));
-  if (h) { unlock('deeplink'); run(h.replace(/[-_+]/g, ' ')); }
+  runLinked();
+  // a new hash typed in the address bar runs too
+  addEventListener('hashchange', runLinked);
 });
