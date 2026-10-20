@@ -31,7 +31,7 @@ A new command is a `def(names, group, description, run, { usage, flags })` call 
 
 ## Tests
 
-Every command and flag, and the interactive parts (keys, pager, the homelab), are checked in a headless browser. GitHub Actions runs them on every push (`.github/workflows/tests.yml`), and deploys `main` to GitHub Pages only when they pass (Settings > Pages > Source: GitHub Actions). Locally:
+Every command and flag, and the interactive parts (keys, pager, the homelab), are checked in a headless browser. GitHub Actions runs them on every push (`.github/workflows/test-and-deploy.yml`), and deploys `main` to GitHub Pages only when they pass (Settings > Pages > Source: GitHub Actions). Locally:
 
 ```bash
 npm install --no-save playwright@1.48.2
