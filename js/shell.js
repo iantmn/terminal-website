@@ -58,7 +58,12 @@ function noteFound(c) {
 }
 
 // a wrapper (sudo, please, watch) hands the rest of the line to another command, so only its first arg counts
+const LAB_COMMANDS = new Set(['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'docker', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history']);
 function invoke(c, name, args, line) {
+  if (state.host === 'homelab') {
+    if (c.name === 'help') return printLines([span('w b', 'homelab'), '  ' + [...LAB_COMMANDS].sort().map(n => cmd(n)).join('  '), '', span('m', 'A lean install. ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')]);
+    if (!LAB_COMMANDS.has(c.name)) return print(span('e', `${esc(name)}: command not found`) + span('m', ' (the homelab is a lean install, try help. exit goes back)'));
+  }
   noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
   if (wantsHelp(c, own)) return printLines(helpLines(c, name));

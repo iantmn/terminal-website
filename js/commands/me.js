@@ -22,6 +22,7 @@ function parseUA() {
 
 def('whoami', 'me', 'what I can see about you', () => {
   if (state.asRoot) return print('root' + span('m', ' (just for this command)'));
+  if (state.host === 'homelab') return print(state.user);
   unlock('whoami');
   const ua = parseUA(), conn = navigator.connection;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;

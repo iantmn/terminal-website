@@ -22,7 +22,8 @@ export const DIARY = {
     'Day 2:  added achievements. It is no longer a small project.',
     'Day 5:  someone asked for snake. There is snake now.',
     'Day 9:  spent an evening building a fake fsck. No regrets.',
-    'Day 12: locked this diary, just to see if anyone would get in.', '',
+    'Day 12: locked this diary, just to see if anyone would get in.',
+    "Day 14: note to self, the homelab key passphrase is 'works-on-my-machine'. Nobody reads a diary anyway.", '',
     span('a', 'Day 13: you got in. You found a locked file and talked your way into it.'),
     span('a', '        That is basically my job description. ') + cmd('contact'),
   ] : [span('e', 'cat: diary.txt: Permission denied') + span('m', '  (who owns it? ') + cmd('ls -l') + span('m', ')')],
@@ -48,7 +49,7 @@ function buildFS() {
     '.bash_history': file(() => { unlock('history'); return [
       span('m','# what has ian been up to here...'),
       'docker compose up -d', 'systemctl status coffee', 'journalctl | tail', 'git log --graph',
-      'ssh homelab', span('m','# right, the homelab is not that open'),
+      'ssh homelab', span('m','# right, the homelab only takes keys'),
       'ls -a', span('m','# note to self: dotfiles are not as hidden as you think'),
       'diff ian-2016 ian-2026', 'watch -n 1 date',
       'vim notes.txt', span('m','# how do I exit this thing'), span('m','# ...'), span('m','# google: "how to exit vim"'),
@@ -147,7 +148,7 @@ export function resolve(p) {
     if (s === '..') { stack.pop(); continue; } // .. at / stays at /, like a real shell
     stack.push(s);
   }
-  let node = ROOT;
+  let node = state.host === 'homelab' ? LAB : ROOT;
   for (let i = 0; i < stack.length; i++) {
     if (node.type !== 'dir' || !node.children[stack[i]]) return { error: 'missing', segs: stack };
     node = node.children[stack[i]];
@@ -188,6 +189,8 @@ export function lsLong(name, node, { humanSizes = false } = {}) {
 // ---- the root filesystem ----
 // main.js builds it once every command is defined, so /usr/bin can list them. ~ (FS) hangs in at /home/guest.
 export let ROOT;
+// the homelab, a second machine behind ssh
+let LAB;
 export function initRoot() {
   const dir = (children, extra = {}) => ({ type: 'dir', children, own: 'root', ...extra });
   const file = (lines, extra = {}) => ({ type: 'file', own: 'root', read: typeof lines === 'function' ? lines : () => lines.map(l => l.startsWith('<span') ? l : esc(l)), ...extra });
@@ -261,6 +264,11 @@ export function initRoot() {
       ian: locked({
         'todo.txt': file(['[x] build a terminal website', '[x] add way too many easter eggs', '[ ] finish the terminal website', '[ ] (this list never gets shorter)']),
         '.vimrc': file(['" I still do not know how to exit', 'set number', 'syntax on']),
+        '.ssh': dir({
+          'id_homelab': file(['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBob21l', 'bGFiaXNub3R0aGF0b3Blbmlubm9jZW50bG9va2luZ2tleWZpbGVub3RoaW5ndG9zZWVo', 'ZXJlYnV0eW91Zm91bmRpdGFueXdheXdlbGxkb25lc2VyaW91c2x5', '-----END OPENSSH PRIVATE KEY-----', '# protected with a passphrase. I wrote it down somewhere safe. Somewhere private.'], { mode: () => '-rw-------', own: 'ian' }),
+          'id_homelab.pub': file(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGhvbWVsYWJrZXlmb3JpYW4 ian@iantiemann'], { own: 'ian' }),
+          'config': file(['Host homelab', '    HostName 10.42.0.1', '    User ian', '    IdentityFile ~/.ssh/id_homelab'], { own: 'ian' }),
+        }, { own: 'ian', mode: () => 'drwx------' }),
       }, { own: 'ian' }),
     }),
     'lost+found': dir({
@@ -289,10 +297,56 @@ export function initRoot() {
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/cat /etc/shadow',
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/chmod +r diary.txt',
           'please: guest : asked nicely ; TTY=pts/0 ; granted for ONE command',
-          'sshd: Connection closed by 192.0.2.66 port 22 [preauth]   # the homelab is not that open',
+          'sshd: Connection closed by 192.0.2.66 port 22 [preauth]',
+          'sshd: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key /home/ian/.ssh/id_homelab',
         ]),
       }),
       www: dir({ 'iantiemann.nl': dir({ 'index.html': file(() => [esc('<!-- you are looking at it right now -->'), 'Source: ' + link(PROFILE.repo)]) }) }),
     }),
+  });
+
+  // ---- the homelab: what you find after ssh -i ~ian/.ssh/id_homelab homelab ----
+  const labFile = (lines, extra) => file(lines, { own: 'ian', ...extra });
+  LAB = dir({
+    etc: dir({
+      hostname: file(['homelab']),
+      'os-release': file(['PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"', 'NAME="Debian GNU/Linux"', 'VERSION_ID="12"', 'ID=debian', '# with Proxmox VE on top']),
+      motd: file(['The programs included with Proxmox VE are free software.', 'Back up before you touch anything. Then back up again.']),
+    }),
+    home: dir({
+      ian: dir({
+        'README.md': labFile(() => [
+          span('w b', '# homelab'), '',
+          'You made it in. Hardly anyone gets this far.', '',
+          'This box runs Proxmox with a few VMs and a lot of Docker. It is where the',
+          'guides on my site start: monitoring, logging, backups, reverse proxies.', '',
+          'Look around: ' + cmd('ls') + ', ' + cmd('cat docker-compose.yml') + ', ' + cmd('docker ps') + '.', '',
+          span('a', 'Anyone who digs this deep is someone I would like to meet.') + span('m', ' Type exit, then ') + cmd('contact') + span('m', '.'),
+        ], { own: 'ian' }),
+        'docker-compose.yml': labFile([
+          'services:',
+          '  traefik:     { image: traefik:v3, ports: ["443:443"] }',
+          '  grafana:     { image: grafana/grafana }',
+          '  prometheus:  { image: prom/prometheus }',
+          '  loki:        { image: grafana/loki }',
+          '  alloy:       { image: grafana/alloy }',
+          '  n8n:         { image: n8nio/n8n }',
+          '  authentik:   { image: ghcr.io/goauthentik/server }',
+          '  # and one more every month',
+        ]),
+        'backups.log': labFile([
+          '03:00:01 pbs: backup job started (6 guests)',
+          '03:04:12 pbs: verify ok, 0 errors',
+          '03:20:45 pbs: sync to offsite storage completed, encrypted',
+          '03:20:46 pbs: last restore test: 9 days ago, ok',
+        ]),
+        notes: dir({
+          'todo.md': labFile(['[ ] label every cable', '[ ] upgrade to the next Proxmox release', '[x] offsite backups (there is a guide for that)', '[ ] stop adding services', '[ ] see line 4']),
+          'ideas.md': labFile(['- a terminal version of my website        (done)', '- a typing test for sysadmins            (done)', '- a homelab you can ssh into             (you are in it)', '- a rubber duck that does code review']),
+        }, { own: 'ian' }),
+        '.bash_history': labFile(['docker compose pull && docker compose up -d', 'zfs list', 'pvesh get /nodes', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'exit']),
+      }, { own: 'ian' }),
+    }),
+    var: dir({ log: dir({ syslog: file(['systemd[1]: Started Proxmox VE API daemon.', 'pvestatd: all 3 nodes online', 'smartd: all disks PASSED', 'ian: logged in from 10.42.0.12']) }) }),
   });
 }

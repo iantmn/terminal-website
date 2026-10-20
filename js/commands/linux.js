@@ -2,7 +2,7 @@
 import { unlock } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, sleep, state, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, promptHTML, uptime, BOOT_TIME, HOME, getopt } from '../core.js';
 import { FS, resolve } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
@@ -177,9 +177,55 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install pa
   }
   print(span('e', `E: Invalid operation ${esc(sub)}`));
 }, { usage: 'update | upgrade | install <pkg>', flags: [['-y, --yes', 'assume yes (it never asks anyway)']] });
-def('ssh', 'more', 'log in to another machine', args => {
-  const [o, [host]] = getopt(args, ['p', 'i', 'l', 'o']);
-  print(span('e', `ssh: connect to host ${esc(host || 'homelab')} port ${esc(o.p || 22)}: Connection refused`) + span('m', ' - my homelab is not that open'));
+// a shell on the homelab until exit, logout or Ctrl+D
+async function labSession() {
+  const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot };
+  state.host = 'homelab'; state.user = 'ian'; state.asRoot = false;
+  HOME.splice(0, 2, 'home', 'ian'); state.cwd = [...HOME];
+  unlock('homelab');
+  printLines(['Linux homelab 6.8.12-pve #1 SMP PREEMPT_DYNAMIC x86_64', '', span('m', 'The programs included with Proxmox VE are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), '']);
+  try {
+    for (;;) {
+      state.busy = false; inrow.style.visibility = '';
+      const line = await ask(promptHTML());
+      // Ctrl+D logs out, Ctrl+C just gives a new prompt
+      if (line === undefined) break;
+      if (line === null || !line.trim()) continue;
+      if (/^\s*(exit|logout)\s*$/.test(line)) break;
+      state.busy = true; state.cancelled = false; inrow.style.visibility = 'hidden';
+      try { await execChain(line); }
+      catch (e) { if (e.message === 'SIGINT') print(span('e', '^C')); else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
+    }
+  } finally {
+    HOME.splice(0, 2, 'home', 'guest');
+    Object.assign(state, saved);
+  }
+  print('logout');
+  print(span('m', 'Connection to homelab closed.'));
+}
+
+// ssh homelab: only with Ian's key and its passphrase, and the key needs root to read
+def('ssh', 'more', 'log in to another machine', async args => {
+  const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
+  if (state.host === 'homelab') return print(span('m', 'You are already on the homelab. ') + span('a2', 'exit') + span('m', ' goes back.'));
+  // with a key, the user is the one the key belongs to
+  const [user, host] = target.includes('@') ? target.split('@') : [o.l || (o.i ? 'ian' : state.user), target];
+  if (!host) return print(span('e', 'usage: ssh [-i key] [user@]host'));
+  if (!/^(homelab|10\.42\.0\.1)$/.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port ${esc(o.p || 22)}: Connection refused`));
+  const denied = () => print(span('e', `${esc(user)}@homelab: Permission denied (publickey).`));
+  if (!o.i) return denied();
+  const r = resolve(o.i);
+  if (r.error === 'missing' || (r.node && r.node.type !== 'file')) { print(`Warning: Identity file ${esc(o.i)} not accessible: No such file or directory.`); return denied(); }
+  if (r.error === 'denied') { print(span('e', `Load key "${esc(o.i)}": Permission denied`)); return denied(); }
+  if (!/id_homelab$/.test(o.i)) { print(span('e', `Load key "${esc(o.i)}": invalid format`)); return denied(); }
+  if (user !== 'ian') return denied();
+  // the passphrase is typed hidden, like a real one
+  const kb = document.getElementById('kb');
+  state.busy = false; inrow.style.visibility = ''; kb.type = 'password';
+  let pass;
+  try { pass = await ask(`Enter passphrase for key '${esc(o.i)}': `); } finally { kb.type = 'text'; }
+  if (pass !== 'works-on-my-machine') { if (pass != null) print(span('e', 'Bad passphrase.')); return denied(); }
+  return labSession();
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
 def(['reboot', 'shutdown', 'poweroff'], null, 'restart the system', async () => { unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot(); });
 def('uptime', 'more', 'how long this terminal has been running', args => {
@@ -397,11 +443,11 @@ def('hostname', 'more', 'the name of this machine', args => {
   if (o.i || o['ip-address']) return print('127.0.4.2');
   if (o.f || o.fqdn || o.long) return print('terminal.iantiemann.nl');
   if (o.d || o.domain) return print('iantiemann.nl');
-  print('iantiemann');
+  print(state.host);
 }, { flags: [['-s, --short', 'the short name (default)'], ['-f, --fqdn', 'the full name with domain'], ['-d, --domain', 'only the domain'], ['-i', 'its IP address'], ['-I', 'every IP address']] });
 const USERS = { guest: [1001, [[1001, 'guest'], [27, 'curious'], [42, 'coffee']]], ian: [1000, [[1000, 'ian'], [27, 'sudo'], [42, 'coffee']]], root: [0, [[0, 'root']]] };
 def('id', 'more', 'who you are, as numbers', args => {
-  const [o, [who = state.asRoot ? 'root' : 'guest']] = getopt(args);
+  const [o, [who = state.asRoot ? 'root' : state.user]] = getopt(args);
   const u = USERS[who];
   if (!u) return print(span('e', `id: '${esc(who)}': no such user`));
   const [uid, groups] = u, names = o.n || o.name;

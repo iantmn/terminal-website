@@ -168,7 +168,7 @@ kb.addEventListener('keydown', e => {
   else if (cycle && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) cycle = null;
   else if (onlyCtrl(e) && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
   // Ctrl+D answers a question with end-of-input, like in a shell; python uses it to leave
-  else if (onlyCtrl(e) && e.key.toLowerCase() === 'd' && state.asking) { e.preventDefault(); print(state.asking.q + esc(kb.value)); kb.value = ''; const a = state.asking; state.asking = null; a.resolve(null); }
+  else if (onlyCtrl(e) && e.key.toLowerCase() === 'd' && state.asking) { e.preventDefault(); print(state.asking.q + esc(kb.value)); kb.value = ''; const a = state.asking; state.asking = null; a.resolve(undefined); }
   else if (onlyCtrl(e) && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print((state.asking ? state.asking.q : promptHTML()) + esc(kb.value) + span('e', '^C')); kb.value = ''; if (state.asking) { const a = state.asking; state.asking = null; a.resolve(null); } }
 });
 const moveEnd = () => requestAnimationFrame(() => kb.setSelectionRange(kb.value.length, kb.value.length));

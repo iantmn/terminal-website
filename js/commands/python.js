@@ -266,8 +266,8 @@ def(['python', 'python3', 'py'], 'fun', 'a tiny Python (my first language)', asy
   for (;;) {
     state.busy = false; inrow.style.visibility = '';
     const line = await ask(span('a', '>>> '));
-    // Ctrl+C and Ctrl+D both come back as null
-    if (line === null) return;
+    // Ctrl+C comes back as null and Ctrl+D as undefined: both leave
+    if (line == null) return;
     const r = runLine(line, env, true);
     printLines(r.lines);
     if (r.leave) return;
