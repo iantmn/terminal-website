@@ -37,6 +37,10 @@
 <div id="term" aria-live="polite">
   <div id="out"></div>
   <div class="row" id="inrow"><span class="ps" id="ps"></span><input id="kb" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Terminal input" enterkeyhint="go"></div>
+  <!-- the keys a phone keyboard does not have; only shown on touch screens -->
+  <div id="keys" aria-label="Terminal keys">
+    <button type="button" data-key="Tab">Tab</button><button type="button" data-key="ArrowUp" aria-label="Previous command">↑</button><button type="button" data-key="ArrowDown" aria-label="Next command">↓</button><button type="button" data-key="ctrl+c" aria-label="Control C">^C</button><button type="button" data-key="ctrl+r" aria-label="Control R, search history">^R</button><button type="button" data-key="ctrl+l" aria-label="Control L, clear">^L</button><button type="button" data-text="-">-</button><button type="button" data-text="|">|</button><button type="button" data-text="~">~</button><button type="button" data-text="/">/</button>
+  </div>
 </div>
 <canvas id="matrix"></canvas>
 <noscript><p style="padding:20px">This terminal needs JavaScript. Visit <a href="https://www.iantiemann.nl/">iantiemann.nl</a> for the regular site.</p></noscript>
