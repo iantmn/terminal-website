@@ -1,7 +1,6 @@
 name: tests and deploy
 
 # every push and pull request is tested; a push to main is deployed to GitHub Pages only when the tests pass.
-# Needs Settings > Pages > Source: GitHub Actions (instead of "Deploy from a branch")
 on:
   push:
   pull_request:
