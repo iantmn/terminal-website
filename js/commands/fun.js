@@ -139,7 +139,7 @@ def('snake', 'fun', 'play snake (arrows / WASD / swipe)', () => new Promise(reso
     e.stopPropagation();
     const k = e.key.toLowerCase();
     if (KEYS[k]) { e.preventDefault(); turn(...KEYS[k]); }
-    else if (k === 'q' || k === 'escape' || (e.ctrlKey && k === 'c')) { e.preventDefault(); end(true); }
+    else if (k === 'q' || k === 'escape' || (e.ctrlKey && !e.shiftKey && k === 'c')) { e.preventDefault(); end(true); }
   };
   let t0 = null;
   const onTouchStart = e => { t0 = [e.touches[0].clientX, e.touches[0].clientY]; };

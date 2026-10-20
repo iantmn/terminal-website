@@ -58,7 +58,8 @@ export function powerScreen() {
   </div>`);
   return new Promise(resolve => {
     const go = e => {
-      if (e.type === 'keydown' && ['Shift', 'Control', 'Alt', 'Meta', 'Tab', 'CapsLock'].includes(e.key)) return;
+      // modifier keys, browser shortcuts (Ctrl+Shift+I, Ctrl+R) and F keys do not power on
+      if (e.type === 'keydown' && (['Shift', 'Control', 'Alt', 'Meta', 'Tab', 'CapsLock'].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.key))) return;
       e.preventDefault(); e.stopPropagation();
       if (e.type === 'keydown' && e.key.toLowerCase() === 'm') setSound(false);
       removeEventListener('keydown', go, true); removeEventListener('pointerdown', go, true);

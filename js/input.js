@@ -107,6 +107,9 @@ function applyCompletion(val, word, opts, suffix) {
   cycle = { opts, head, suffix, idx: -1, current: kb.value, items: [...list.querySelectorAll('.opt')] };
 }
 
+// the terminal only takes plain Ctrl+letter; with Shift, Alt or Meta it is a browser shortcut (Ctrl+Shift+R, Ctrl+Shift+I)
+const onlyCtrl = e => e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey;
+
 // Ctrl+R: search back through history while typing. Ctrl+R again goes further back, Enter runs the match,
 // Esc or an arrow keeps it for editing, Ctrl+G gives back the line from before, Ctrl+C clears
 let search = null;
@@ -120,7 +123,7 @@ function showSearch() {
 const endSearch = () => { search = null; renderPrompt(); };
 function searchKey(e) {
   const k = e.key.toLowerCase();
-  if (e.ctrlKey && k === 'r') {
+  if (onlyCtrl(e) && k === 'r') {
     e.preventDefault();
     if (!search) search = { q: '', idx: -1, saved: kb.value };
     else if (search.q) { const i = searchFrom(search.q, search.idx - 1); if (i >= 0) search.idx = i; }
@@ -129,7 +132,7 @@ function searchKey(e) {
   }
   if (!search) return false;
   if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return true;
-  if (e.ctrlKey && (k === 'g' || k === 'c')) {
+  if (onlyCtrl(e) && (k === 'g' || k === 'c')) {
     e.preventDefault();
     if (k === 'c') { print(ps.innerHTML + esc(kb.value) + span('e', '^C')); kb.value = ''; }
     else kb.value = search.saved;
@@ -163,13 +166,15 @@ kb.addEventListener('keydown', e => {
   else if (e.key === 'ArrowDown') { if (hIdx < hist.length - 1) kb.value = hist[++hIdx]; else { hIdx = hist.length; kb.value = ''; } e.preventDefault(); }
   else if (e.key === 'Tab') { e.preventDefault(); if (kb.value.trim()) unlock('tab'); complete(e.shiftKey); }
   else if (cycle && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) cycle = null;
-  else if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
-  else if (e.ctrlKey && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print((state.asking ? state.asking.q : promptHTML()) + esc(kb.value) + span('e', '^C')); kb.value = ''; if (state.asking) { const a = state.asking; state.asking = null; a.resolve(''); } }
+  else if (onlyCtrl(e) && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
+  // Ctrl+D answers a question with end-of-input, like in a shell; python uses it to leave
+  else if (onlyCtrl(e) && e.key.toLowerCase() === 'd' && state.asking) { e.preventDefault(); print(state.asking.q + esc(kb.value)); kb.value = ''; const a = state.asking; state.asking = null; a.resolve(null); }
+  else if (onlyCtrl(e) && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print((state.asking ? state.asking.q : promptHTML()) + esc(kb.value) + span('e', '^C')); kb.value = ''; if (state.asking) { const a = state.asking; state.asking = null; a.resolve(null); } }
 });
 const moveEnd = () => requestAnimationFrame(() => kb.setSelectionRange(kb.value.length, kb.value.length));
 
 addEventListener('keydown', e => {
-  if (state.busy && e.ctrlKey && e.key.toLowerCase() === 'c') { state.cancelled = true; e.preventDefault(); }
+  if (state.busy && onlyCtrl(e) && e.key.toLowerCase() === 'c') { state.cancelled = true; e.preventDefault(); }
 });
 
 // Konami code
