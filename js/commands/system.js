@@ -277,6 +277,42 @@ def(['repo', 'source', 'src'], 'system', 'source code of this site', () => {
   print(span('m', 'This terminal is open source: ') + link(PROFILE.repo));
   print(span('m', 'Stars, issues and pull requests are welcome.'));
 });
+// changelog: the latest commits of this repo, from the GitHub API. Without a token that is 60 requests an hour
+// per address, so the answer is kept for an hour, and an older one (or a link) stands in when GitHub says no
+const CHANGES = 'changelog', HOUR = 36e5;
+async function fetchCommits(repo) {
+  const res = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=30`, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(5000) });
+  if (res.status === 403 || res.status === 429) throw Object.assign(new Error('rate'), { reset: Number(res.headers.get('x-ratelimit-reset')) * 1000 });
+  if (res.status === 404) throw new Error('private');
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (!Array.isArray(data)) throw new Error('unexpected answer');
+  // only what is shown, and only links that really go to GitHub
+  return data.filter(c => c && c.commit && typeof c.sha === 'string').map(c => ({
+    sha: c.sha.slice(0, 7), msg: String(c.commit.message || '').split('\n')[0].slice(0, 120), date: String(c.commit.author?.date || ''),
+    url: /^https:\/\/github\.com\//.test(c.html_url) ? c.html_url : null,
+  }));
+}
+def(['changelog', 'whatsnew'], 'system', 'what changed on this site lately', async args => {
+  const [o] = getopt(args, ['n']);
+  const n = Math.min(30, Math.max(1, parseInt(o.n ?? o.num ?? 10, 10) || 10));
+  const cached = store.get(CHANGES, null), fresh = cached && Array.isArray(cached.commits) && Date.now() - cached.at < HOUR;
+  let commits = fresh ? cached.commits : null, note = '';
+  if (!commits) {
+    print(span('m', 'asking GitHub ...'));
+    try {
+      commits = await fetchCommits(PROFILE.repo.replace(/^https:\/\/github\.com\//, ''));
+      store.set(CHANGES, { at: Date.now(), commits });
+    } catch (e) {
+      commits = Array.isArray(cached?.commits) ? cached.commits : null;
+      note = e.message === 'rate' ? `GitHub's limit for visitors without an account is used up${e.reset ? `, until ${new Date(e.reset).toTimeString().slice(0, 5)}` : ''}.` : e.message === 'private' ? 'GitHub cannot find the repository, it may not be public (yet).' : 'GitHub did not answer.';
+    }
+  }
+  if (!commits) { state.failed = true; return print(span('e', `changelog: ${esc(note)}`) + span('m', ' The commits are on GitHub too: ') + link(PROFILE.repo + '/commits/main')); }
+  if (note) print(span('w', `${esc(note)} This is the list from ${Math.max(1, Math.round((Date.now() - cached.at) / 6e4))} minutes ago.`));
+  printLines(commits.slice(0, n).map(c => `${span('m', esc(c.date.slice(0, 10)))}  ${c.url ? link(c.url, c.sha) : span('w', esc(c.sha))}  ${esc(c.msg)}`));
+  print(span('m', 'Everything: ') + link(PROFILE.repo + '/commits/main'));
+}, { usage: '[-n count]', flags: [['-n count', 'how many commits (default 10, at most 30)']] });
 def('mail', 'more', 'send me an email', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 def(['man', 'apropos'], 'system', 'manual for a command', (args, raw) => {
   const [o, rest] = getopt(args);
