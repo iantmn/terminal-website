@@ -1,11 +1,17 @@
-name: tests
+name: tests and deploy
 
+# every push and pull request is tested; a push to main is deployed to GitHub Pages only when the tests pass.
+# Needs Settings > Pages > Source: GitHub Actions (instead of "Deploy from a branch")
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  browser:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -19,3 +25,29 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Every command, flag and feature, in a headless browser
         run: node tests/run.mjs
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # one deploy at a time, and a running one is never cut off halfway
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Only the files the site needs (no tests, README or workflows)
+        run: |
+          mkdir _site
+          cp -r index.html CNAME sw.js manifest.webmanifest css js icons _site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
