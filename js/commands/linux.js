@@ -8,7 +8,7 @@ import { C, def, completes } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
-import { labSession, labDocker, mainDocker, LAB } from './homelab.js';
+import { labSession, labDocker, mainDocker, LAB, vmDown } from './homelab.js';
 // the homelab or the main machine: commands about the system answer for the one you are on
 const onLab = () => state.host === 'homelab';
 
@@ -196,7 +196,22 @@ def('ssh', 'more', 'log in to another machine', async args => {
   if (pass !== 'works-on-my-machine') { if (pass != null) print(span('e', 'Bad passphrase.')); return denied(); }
   return labSession();
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
-def(['reboot', 'shutdown', 'poweroff'], null, 'restart the system', async () => { unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot(); });
+def('reboot', null, 'restart the system', async args => {
+  if (onLab()) return vmDown('reboot', true);
+  unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot();
+});
+// a container has no system to shut down: PID 1 is nginx. The Docker VM it runs on can
+def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args, raw) => {
+  const name = raw.trim().split(/\s+/)[0];
+  if (onLab()) return vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)));
+  state.failed = true;
+  printLines([
+    span('e', 'System has not been booted with systemd as init system (PID 1). Can\'t operate.'),
+    span('e', 'Failed to connect to bus: Host is down'),
+    span('m', `This is a Docker container (terminal-terminal-1), PID 1 is nginx: there is nothing here to ${{ shutdown: 'shut down', poweroff: 'power off' }[name] || esc(name)}.`),
+    span('m', 'Shutting down is possible from the Docker host it runs on. Maybe you can find out where this is hosted?'),
+  ]);
+}, { usage: '[-h|-r] [now]', flags: [['-h, now', 'power off'], ['-r, --reboot', 'reboot instead']] });
 def('uptime', 'more', 'how long this terminal has been running', args => {
   const [o] = getopt(args);
   if (onLab()) {
@@ -265,7 +280,7 @@ def('watch', 'more', 'run a command again and again', async (args, raw) => {
     rest = rest.slice(m[0].length);
   }
   if (!rest) return print(span('e', 'usage: watch [-n seconds] &lt;command&gt;') + span('m', '   e.g. ') + cmd('watch -n 1 date'));
-  if (/^(watch|top|htop|btop|snake|incident|yes|matrix|sl|hack|reboot|shutdown|poweroff|exit|logout|clear|reset-achievements|reset-settings)\b/.test(rest))
+  if (/^(watch|top|htop|btop|snake|incident|yes|matrix|sl|hack|reboot|shutdown|halt|poweroff|exit|logout|clear|reset-achievements|reset-settings)\b/.test(rest))
     return print(span('e', `watch: ${esc(rest.split(' ')[0])} is not something you want to watch`));
   const box = print('');
   for (let i = 0; i < 60; i++) {

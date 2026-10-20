@@ -26,7 +26,7 @@ const siteDown = () => !running.has('terminal-traefik-1') || !running.has('termi
 
 // ---- the outage: connection lost, the watchdog, a fresh start ----
 let restart = null;
-async function outage(what) {
+async function outage(what, vm = null) {
   const downAt = Date.now();
   bootSound('down');
   // not cancellable on purpose: with the site gone, Ctrl+C has nothing left to stop
@@ -35,14 +35,24 @@ async function outage(what) {
   el.id = 'outage';
   el.setAttribute('role', 'alert');
   el.innerHTML = `<div class="box"><div class="big e">Connection lost</div><div>terminal.iantiemann.nl stopped answering.</div>`
-    + `<div class="m">ERR_CONNECTION_REFUSED · after <b>${esc(what)}</b> on the homelab</div><pre class="log m"></pre></div>`;
+    + `<div class="m">ERR_CONNECTION_REFUSED · after <b>${esc(what)}</b> on the homelab${vm ? ', the whole Docker VM went down' : ''}</div><pre class="log m"></pre></div>`;
   document.body.appendChild(el);
   const log = el.querySelector('.log');
   const line = async (text, ms) => { await pause(ms); log.textContent += text + '\n'; };
   const now = () => new Date().toTimeString().slice(0, 8);
   // down for roughly 5 to 9 seconds in all: long enough to notice, short enough not to wait for
-  await line('Waiting for the watchdog ...', 600);
-  await line(`${now()} watchdog: terminal.iantiemann.nl is down, starting it again`, 1000 + Math.random() * 4000);
+  if (vm) {
+    // the watchdog lives on the VM too, so this time Proxmox has to bring it back
+    await line('Waiting for Proxmox ...', 600);
+    await line(`${now()} pve: VM 102 (homelab) ${vm.reboot ? 'is rebooting' : 'shut down'}`, 500);
+    if (!vm.reboot) await line(`${now()} pve-ha-lrm: VM 102 should be running, starting it again`, 600 + Math.random() * 1500);
+    await line(`${now()} pve: VM 102 started`, 600);
+    await line('homelab: Debian GNU/Linux 12, docker.service started', 700);
+    await line('restart: unless-stopped, the stacks come back on their own', 300);
+  } else {
+    await line('Waiting for the watchdog ...', 600);
+    await line(`${now()} watchdog: terminal.iantiemann.nl is down, starting it again`, 1000 + Math.random() * 4000);
+  }
   await line('[+] Running 3/3', 300);
   await line(' ✔ Network terminal_default      Created', 200);
   await line(' ✔ Container terminal-traefik-1   Started', 250);
@@ -52,7 +62,16 @@ async function outage(what) {
   await pause(400);
   STACKS.terminal.forEach(s => running.add(`terminal-${s}-1`));
   el.remove();
-  restart = { what, seconds: Math.round((Date.now() - downAt) / 1000) };
+  restart = { what, vm, seconds: Math.round((Date.now() - downAt) / 1000) };
+}
+
+// shutdown, halt, poweroff or reboot on the Docker VM: this site runs on it, so it goes down too
+export async function vmDown(what, reboot = false) {
+  printLines(['', span('w', `Broadcast message from ian@homelab on pts/0 (${new Date().toString().slice(0, 24)}):`), '',
+    span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
+  await pause(700);
+  print(span('m', 'Connection to homelab closed by remote host.'));
+  await outage(what, { reboot });
 }
 
 // ---- docker on the homelab ----
@@ -265,11 +284,14 @@ export async function labSession() {
   }
   if (!restart) { print('logout'); return print(span('m', 'Connection to homelab closed.')); }
   // the site came back as a fresh start
-  const { what, seconds } = restart;
+  const { what, vm, seconds } = restart;
   restart = null;
   state.asRoot = false;
   await boot();
   unlock('outage');
+  if (vm) return print(`<div class="watchdog-note"><div class="big">🖥️ Proxmox ${vm.reboot ? 'rebooted' : 'started'} the Docker VM again</div>`
+    + `<div>It was down for ${seconds} seconds after <b>${esc(what)}</b> on the homelab: the VM went down and took this site with it. ${vm.reboot ? 'It came back up' : 'HA started VM 102 again'}, and Docker brought the stacks back.</div>`
+    + `<div class="m">You turned off the machine you were standing on. Bold.</div></div>`);
   print(`<div class="watchdog-note"><div class="big">🐕 The watchdog restarted terminal.iantiemann.nl</div>`
     + `<div>It was down for ${seconds} seconds after <b>${esc(what)}</b> on the homelab. Nothing got lost: the site is static, the stack came back on its own.</div>`
     + `<div class="m">Thanks for the chaos test. That is exactly what the watchdog is for.</div></div>`);
