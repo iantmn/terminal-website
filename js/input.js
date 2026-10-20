@@ -194,12 +194,6 @@ document.getElementById('keys').addEventListener('pointerdown', e => {
   const b = e.target.closest('button');
   if (!b) return;
   e.preventDefault();
-  if (b.dataset.text) {
-    const at = kb.selectionStart ?? kb.value.length;
-    kb.value = kb.value.slice(0, at) + b.dataset.text + kb.value.slice(kb.selectionEnd ?? at);
-    kb.setSelectionRange(at + 1, at + 1);
-    return;
-  }
   const [mod, k] = b.dataset.key.includes('+') ? b.dataset.key.split('+') : [null, b.dataset.key];
   kb.dispatchEvent(new KeyboardEvent('keydown', { key: k, ctrlKey: mod === 'ctrl', bubbles: true, cancelable: true }));
 });
