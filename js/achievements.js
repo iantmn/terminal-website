@@ -65,6 +65,7 @@ export const ACH = {
   pwd:      ['Recalculating route...',     'Lost? Even a terminal gives directions if you ask.',      'pwd'],
   ghost:    ['Ghost in the shell',         'Some things only come out on one night of the year.',      'cat /dev/null on Halloween (31 October).'],
   pve:      ['Hypervisor',                 'Under the homelab is one more machine. It only lets root in.', 'From the homelab: ssh -i ~/.ssh/ansible_pve root@pve, the key that ~/ansible/inventory.ini uses.'],
+  student:  ['Graduate',                   'New to terminals? There is a lesson for that.',           'Finish learn.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);

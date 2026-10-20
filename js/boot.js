@@ -1,6 +1,7 @@
 import { unlocked, unlock, ACH } from './achievements.js';
 import { PROFILE } from './content.js';
-import { out, inrow, state, print, span, cmd, link, sleep, renderPrompt, focusInput, HOME } from './core.js';
+import { out, inrow, state, store, print, span, cmd, link, sleep, renderPrompt, focusInput, HOME } from './core.js';
+import { visits } from './visits.js';
 import { dayMessage } from './days.js';
 import { bootSound, soundOn, setSound, resumeAudio } from './sound.js';
 import { banner } from './visuals.js';
@@ -33,6 +34,8 @@ export async function boot() {
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
   print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('skills')}  ${cmd('contact')}  ${cmd('ls')}`);
   print(span('m', 'Source code: ') + link(PROFILE.repo) + span('m', ' (') + cmd('repo') + span('m', ')'));
+  // the first visit: a hand for people who never used a terminal
+  if (visits.count <= 1 && !store.get('learn', {}).done) print(span('w', 'New to terminals? ') + cmd('learn') + span('w', ' gives you a two-minute tour.'));
   const sn = dayMessage();
   // today's message and the achievement count get their own block
   if (sn || unlocked.size) print('');

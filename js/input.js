@@ -1,5 +1,6 @@
 // the keyboard and mouse: running a typed line, history, tab completion and the listeners
 import { unlock } from './achievements.js';
+import { lesson } from './commands/learn.js';
 import { term, out, kb, ps, inrow, store, state, esc, span, cmd, print, promptHTML, renderPrompt, scrollDown, focusInput } from './core.js';
 import { resolve } from './filesystem.js';
 import { C } from './registry.js';
@@ -65,7 +66,7 @@ export async function run(raw, { echo = true } = {}) {
   remember(raw);
 
   state.busy = true; state.cancelled = false; inrow.style.visibility = 'hidden';
-  try { await execChain(raw); suggestShare(raw); }
+  try { await execChain(raw); suggestShare(raw); lesson(raw); }
   catch (e) { if (e.message === 'SIGINT') { print(span('e', '^C')); unlock('ctrlc'); } else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
   finally { state.busy = false; inrow.style.visibility = ''; renderPrompt(); scrollDown(); focusInput(); }
 }
