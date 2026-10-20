@@ -34,6 +34,7 @@ export async function boot() {
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
   print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('skills')}  ${cmd('contact')}  ${cmd('ls')}`);
   print(span('m', 'Source code: ') + link(PROFILE.repo) + span('m', ' (') + cmd('repo') + span('m', ')'));
+  if (!navigator.onLine) print(span('w', 'You are offline.') + span('m', ' The terminal runs from its cache; the feed, the guestbook and changelog need the internet.'));
   // the first visit: a hand for people who never used a terminal
   if (visits.count <= 1 && !store.get('learn', {}).done) print(span('w', 'New to terminals? ') + cmd('learn') + span('w', ' gives you a two-minute tour.'));
   const sn = dayMessage();

@@ -35,6 +35,9 @@ function linkedCommand() {
 }
 const runLinked = () => { const c = linkedCommand(); if (c && !state.busy) { unlock('deeplink'); run(c); } };
 
+// offline and installable (sw.js). Not from file://, where service workers do not exist
+if ('serviceWorker' in navigator && location.protocol !== 'file:') addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+
 powerScreen().then(boot).then(() => {
   runLinked();
   // a new hash typed in the address bar runs too

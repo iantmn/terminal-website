@@ -313,6 +313,20 @@ def(['changelog', 'whatsnew'], 'system', 'what changed on this site lately', asy
   printLines(commits.slice(0, n).map(c => `${span('m', esc(c.date.slice(0, 10)))}  ${c.url ? link(c.url, c.sha) : span('w', esc(c.sha))}  ${esc(c.msg)}`));
   print(span('m', 'Everything: ') + link(PROFILE.repo + '/commits/main'));
 }, { usage: '[-n count]', flags: [['-n count', 'how many commits (default 10, at most 30)']] });
+// install: the browser's own install prompt, kept for when someone asks for it
+let installPrompt = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; });
+def('install', 'system', 'install this terminal as an app', async () => {
+  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) return print(span('a', 'You are using the app already.') + span('m', ' It works offline too.'));
+  if (installPrompt) {
+    const p = installPrompt; installPrompt = null;
+    p.prompt();
+    const { outcome } = await p.userChoice;
+    return print(outcome === 'accepted' ? span('a', 'Installed.') + span('m', ' It opens without a browser around it, and works offline.') : span('m', 'Maybe later then. It stays here: ') + cmd('install'));
+  }
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) return print(span('m', 'On an iPhone or iPad: tap Share, then Add to Home Screen.'));
+  print(span('m', 'Your browser does not offer it right now. In Chrome or Edge it is the install icon in the address bar; in Firefox, pin the tab. After one visit it works offline either way.'));
+});
 def('mail', 'more', 'send me an email', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
 def(['man', 'apropos'], 'system', 'manual for a command', (args, raw) => {
   const [o, rest] = getopt(args);
