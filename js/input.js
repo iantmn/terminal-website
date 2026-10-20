@@ -1,12 +1,27 @@
 // the keyboard and mouse: running a typed line, history, tab completion and the listeners
 import { unlock } from './achievements.js';
-import { term, out, kb, inrow, store, state, esc, span, print, promptHTML, renderPrompt, scrollDown, focusInput } from './core.js';
+import { term, out, kb, ps, inrow, store, state, esc, span, print, promptHTML, renderPrompt, scrollDown, focusInput } from './core.js';
 import { resolve } from './filesystem.js';
 import { C } from './registry.js';
 import { execChain } from './shell.js';
 
 export const hist = store.get('hist', []);
 let hIdx = hist.length;
+
+// bash history expansion: !! the last command, !42 number 42 in history, !-2 the one before last, !git the last one starting with git
+function expandHistory(raw) {
+  let used = false, missing = null;
+  const line = raw.replace(/(^|\s)!(!|-?\d+|[A-Za-z][\w.-]*)(?=\s|$)/g, (m, pre, ev) => {
+    const h = ev === '!' ? hist.at(-1)
+      : /^-\d+$/.test(ev) ? hist.at(parseInt(ev, 10))
+      : /^\d+$/.test(ev) ? hist[parseInt(ev, 10) - 1]
+      : [...hist].reverse().find(x => x.startsWith(ev));
+    if (h === undefined) { missing ??= ev; return m; }
+    used = true;
+    return pre + h;
+  });
+  return { line, used, missing };
+}
 
 export async function run(raw, { echo = true } = {}) {
   raw = raw.trim();
@@ -17,7 +32,13 @@ export async function run(raw, { echo = true } = {}) {
   }
   if (echo) print(promptHTML() + esc(raw));
   if (!raw) return;
-  if (raw === '!!') { if (!hist.length) return; raw = hist[hist.length - 1]; print(span('m', raw)); }
+  state.bang = false;
+  if (/(^|\s)!/.test(raw)) {
+    const x = expandHistory(raw);
+    if (x.missing) return print(span('e', `bash: !${esc(x.missing)}: event not found`));
+    // like bash, show the line that really runs
+    if (x.used) { raw = x.line; state.bang = true; print(span('m', esc(raw))); }
+  }
   if (hist[hist.length - 1] !== raw) { hist.push(raw); hist.splice(0, hist.length - 200); store.set('hist', hist); }
   hIdx = hist.length;
 
@@ -70,7 +91,57 @@ function applyCompletion(val, word, opts, suffix) {
   cycle = { opts, head, suffix, idx: -1, current: kb.value, items: [...list.querySelectorAll('.opt')] };
 }
 
+// Ctrl+R: search back through history while typing. Ctrl+R again goes further back, Enter runs the match,
+// Esc or an arrow keeps it for editing, Ctrl+G gives back the line from before, Ctrl+C clears
+let search = null;
+const searchFrom = (q, start) => { for (let i = Math.min(start, hist.length - 1); i >= 0; i--) if (hist[i].includes(q)) return i; return -1; };
+function showSearch() {
+  const failed = search.q && search.idx < 0;
+  ps.innerHTML = span('m', `(${failed ? 'failed ' : ''}reverse-i-search)\`${esc(search.q)}': `);
+  kb.value = search.idx >= 0 ? hist[search.idx] : search.q ? '' : search.saved;
+  moveEnd();
+}
+const endSearch = () => { search = null; renderPrompt(); };
+function searchKey(e) {
+  const k = e.key.toLowerCase();
+  if (e.ctrlKey && k === 'r') {
+    e.preventDefault();
+    if (!search) search = { q: '', idx: -1, saved: kb.value };
+    else if (search.q) { const i = searchFrom(search.q, search.idx - 1); if (i >= 0) search.idx = i; }
+    showSearch();
+    return true;
+  }
+  if (!search) return false;
+  if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return true;
+  if (e.ctrlKey && (k === 'g' || k === 'c')) {
+    e.preventDefault();
+    if (k === 'c') { print(ps.innerHTML + esc(kb.value) + span('e', '^C')); kb.value = ''; }
+    else kb.value = search.saved;
+    endSearch();
+    return true;
+  }
+  if (e.key === 'Backspace') {
+    e.preventDefault();
+    search.q = search.q.slice(0, -1);
+    search.idx = search.q ? searchFrom(search.q, hist.length - 1) : -1;
+    showSearch();
+    return true;
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    search.q += e.key;
+    search.idx = searchFrom(search.q, search.idx >= 0 ? search.idx : hist.length - 1);
+    showSearch();
+    return true;
+  }
+  // anything else (Enter, Esc, arrows, Tab) takes the match and carries on as usual
+  endSearch();
+  if (e.key === 'Escape') { e.preventDefault(); return true; }
+  return false;
+}
+
 kb.addEventListener('keydown', e => {
+  if (searchKey(e)) return;
   if (e.key === 'Enter') { e.preventDefault(); if (state.busy && !state.asking) return; const v = kb.value; kb.value = ''; run(v); }
   else if (e.key === 'ArrowUp') { if (hIdx > 0) { kb.value = hist[--hIdx]; } e.preventDefault(); moveEnd(); }
   else if (e.key === 'ArrowDown') { if (hIdx < hist.length - 1) kb.value = hist[++hIdx]; else { hIdx = hist.length; kb.value = ''; } e.preventDefault(); }

@@ -26,6 +26,8 @@ export const state = {
   asking: null,
   // absolute path segments
   cwd: [...HOME],
+  // the line came from history expansion (!!, !42), so sudo can tell sudo !! apart
+  bang: false,
   // root for one command (please sudo ...)
   asRoot: false,
 };
