@@ -110,6 +110,8 @@ body[data-theme="light"] .qr .qr-dark, body[data-theme="github"] .qr .qr-dark { 
 #pager .status { display:flex; align-items:center; gap:1ch; padding:4px 22px calc(4px + env(safe-area-inset-bottom)); }
 #pager .inv { background:var(--fg); color:var(--bg); padding:0 .5ch; }
 #pager .q { margin-left:auto; font:inherit; color:var(--fg); background:var(--sel); border:1px solid var(--muted); border-radius:4px; min-width:36px; min-height:28px; }
+.beat { display:inline-block; width:.6ch; height:1em; margin-right:.3ch; border-radius:2px; vertical-align:-.15em; background:var(--accent); }
+.beat.down { background:var(--err); }
 .watchdog-note { white-space:normal; border:1px solid var(--warn); border-radius:4px; padding:.8em 1em; margin:.6em 0; }
 .watchdog-note .big { font-size:1.6em; font-weight:700; color:var(--warn); margin-bottom:.3em; }
 #keys { display:none; gap:4px; margin-top:6px; }

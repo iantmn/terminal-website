@@ -14,6 +14,9 @@ const all = () => [...Object.entries(STACKS).flatMap(([stack, svcs]) => svcs.map
 // which containers run; what you stop stays stopped until you start it again (for this visit)
 const running = new Set(all().filter(c => c !== PRINTER).map(c => c.name));
 const stoppedAt = {};
+// for status: is it up, since when is it down, and every outage of the site during this visit
+export const downSince = name => running.has(name) ? null : stoppedAt[name] ?? Date.now();
+export const INCIDENTS = [];
 const hex = s => [...s].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381).toString(16).padStart(8, '0');
 const idOf = name => (hex(name) + hex(name + '!')).slice(0, 12);
 const status = c => c === PRINTER ? 'Exited (1) 3 years ago' : running.has(c.name)
@@ -77,6 +80,7 @@ export async function outage(what, down = null) {
   STACKS.terminal.forEach(s => running.add(`terminal-${s}-1`));
   el.remove();
   restart = { what, down, seconds: Math.round((Date.now() - downAt) / 1000) };
+  INCIDENTS.push({ what, kind: down?.kind || 'stack', at: downAt, seconds: restart.seconds });
 }
 
 // shutdown, halt, poweroff or reboot on the Docker VM or the Proxmox host: this site runs on both, so it goes down too

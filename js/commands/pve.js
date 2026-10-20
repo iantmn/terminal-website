@@ -19,6 +19,8 @@ const CTS = [
   { id: 201, name: 'unifi', mem: 2048 },
   { id: 202, name: 'minecraft', mem: 4096, stopped: true },
 ];
+const stoppedSince = {};
+export const guestDownSince = id => up.has(id) ? null : stoppedSince[id] ?? Date.now();
 const up = new Set([...VMS.filter(v => v.pid).map(v => v.id), ...CTS.filter(c => !c.stopped).map(c => c.id)]);
 const GUEST_IPS = { 101: '10.20.0.21', 102: '10.20.0.20', 103: '10.20.0.30', 200: '10.20.0.53', 201: '10.20.0.40' };
 
@@ -157,7 +159,7 @@ def('qm', null, 'manage the virtual machines', async args => {
   if (v.template) { state.failed = true; return print(span('e', `VM ${v.id} is a template, clone it first: qm clone ${v.id} <newid>`)); }
   if (sub === 'start') {
     if (up.has(v.id)) { state.failed = true; return print(span('e', `VM ${v.id} already running`)); }
-    up.add(v.id);
+    up.add(v.id); delete stoppedSince[v.id];
     return print(span('m', v.id === 104 ? `VM 104 started. ${v.note}` : `VM ${v.id} started.`));
   }
   if (!up.has(v.id)) { state.failed = true; return print(span('e', `VM ${v.id} not running`)); }
@@ -167,7 +169,7 @@ def('qm', null, 'manage the virtual machines', async args => {
     return outage(`qm ${sub} 102`, { kind: 'guest', reboot: sub === 'reboot', where: 'pve' });
   }
   if (sub === 'reboot') return print(span('m', `VM ${v.id} rebooted.`));
-  up.delete(v.id);
+  up.delete(v.id); stoppedSince[v.id] = Date.now();
   print(span('m', `VM ${v.id} (${v.name}) stopped. ${v.note || ''}`));
 }, { ...ONLY_PVE, usage: '<list|status|config|start|stop|shutdown|reboot> [vmid]', flags: [['list', 'every VM'], ['status vmid', 'running or stopped'], ['config vmid', 'its settings'], ['start, stop, shutdown, reboot vmid', 'what it says. 102 is the Docker VM this site runs on']] });
 
@@ -182,9 +184,9 @@ def('pct', null, 'manage the containers (LXC)', args => {
   if (!c) { state.failed = true; return print(span('e', `Configuration file 'nodes/pve/lxc/${esc(id || '')}.conf' does not exist`)); }
   if (sub === 'status') return print(`status: ${up.has(c.id) ? 'running' : 'stopped'}`);
   if (sub === 'enter') return print(span('m', 'That would be a fourth shell deep. Three is plenty for one visit.'));
-  if (sub === 'start') { if (up.has(c.id)) return print(span('e', `CT ${c.id} already running`)); up.add(c.id); return print(span('m', c.id === 202 ? 'CT 202 started. Someone is going to ask for an invite.' : `CT ${c.id} started.`)); }
+  if (sub === 'start') { if (up.has(c.id)) return print(span('e', `CT ${c.id} already running`)); up.add(c.id); delete stoppedSince[c.id]; return print(span('m', c.id === 202 ? 'CT 202 started. Someone is going to ask for an invite.' : `CT ${c.id} started.`)); }
   if (!up.has(c.id)) return print(span('e', `CT ${c.id} not running`));
-  up.delete(c.id);
+  up.delete(c.id); stoppedSince[c.id] = Date.now();
   print(span('m', c.id === 200 ? 'CT 200 stopped. The ads are back on every device in the house.' : `CT ${c.id} stopped.`));
 }, { ...ONLY_PVE, usage: '<list|status|start|stop|enter> [vmid]', flags: [['list', 'every container'], ['status, start, stop vmid', 'what it says'], ['enter vmid', 'a shell inside it']] });
 
