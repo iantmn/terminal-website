@@ -4,8 +4,8 @@ import { SITE, PROFILE } from '../content.js';
 import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt } from '../core.js';
 import { resetDiary } from '../filesystem.js';
 import { hist } from '../input.js';
-import { C, def } from '../registry.js';
-import { aliases, found } from '../shell.js';
+import { C, def, completes } from '../registry.js';
+import { aliases, found, commandNames } from '../shell.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
 import { startGlitch, THEMES, defaultTheme } from '../themes.js';
 import { banner, neofetch } from '../visuals.js';
@@ -269,3 +269,11 @@ def('unalias', 'more', 'remove a shortcut', args => {
   else return print(span('e', `unalias: ${esc(args[0])}: not found`));
   store.set('aliases', aliases);
 }, { usage: '<name> | -a', flags: [['-a', 'remove every alias']] });
+
+// Tab completion for the arguments
+completes('theme', () => [...THEMES, 'random', ...(unlocked.has('treasure') ? ['gold'] : []), ...(unlocked.has('corrupt') ? ['corrupt'] : [])]);
+completes('sound', () => ['on', 'off']);
+completes('hint', args => args.length ? ['--solution'] : ['-r', ...ACH_IDS.map((_, i) => i + 1)]);
+completes('man', () => [...commandNames(), 'ian']);
+completes('unalias', () => ['-a', ...Object.keys(aliases)]);
+completes('history', () => ['-c']);

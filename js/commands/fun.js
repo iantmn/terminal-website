@@ -2,7 +2,7 @@
 import { unlock } from '../achievements.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, store, state, inrow, scrollDown, getopt } from '../core.js';
-import { def } from '../registry.js';
+import { def, completes } from '../registry.js';
 import { SINTERKLAAS } from '../days.js';
 import { matrix, train } from '../visuals.js';
 
@@ -247,3 +247,6 @@ def('diff', 'more', 'compare two files', args => {
     same('curiosity: high'),
   ]);
 });
+
+// Tab completion: the animals after -f
+completes('cowsay', args => args.at(-1) === '-f' ? Object.keys(COWS) : null);

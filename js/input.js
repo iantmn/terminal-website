@@ -3,7 +3,7 @@ import { unlock } from './achievements.js';
 import { term, out, kb, ps, inrow, store, state, esc, span, print, promptHTML, renderPrompt, scrollDown, focusInput } from './core.js';
 import { resolve } from './filesystem.js';
 import { C } from './registry.js';
-import { execChain } from './shell.js';
+import { execChain, commandNames } from './shell.js';
 
 export const hist = store.get('hist', []);
 let hIdx = hist.length;
@@ -62,11 +62,17 @@ function complete(back = false) {
   }
   cycle = null;
   const val = kb.value, parts = val.split(/\s+/);
-  if (parts.length === 1) {
-    const opts = Object.values(C).filter(c => c.group && !c.alias).map(c => c.name).filter(n => n.startsWith(parts[0]));
-    return applyCompletion(val, parts[0], opts, ' ');
-  }
+  if (parts.length === 1) return applyCompletion(val, parts[0], commandNames().filter(n => n.startsWith(parts[0])), ' ');
   const word = parts.at(-1);
+  // a command can complete its own arguments (theme names, man pages, post numbers); the rest completes paths
+  const c = C[parts[0].toLowerCase()];
+  // -<Tab> offers the command's flags, the same ones its --help lists
+  if (c && word.startsWith('-')) {
+    const flags = [...(c.flags || []).flatMap(([f]) => f.split(/,\s*/).map(x => x.trim().split(' ')[0])), '--help', '--version'];
+    return applyCompletion(val, word, flags.filter(f => f.startsWith('-') && f.startsWith(word)), ' ');
+  }
+  const own = c && c.complete && !/[/~.]/.test(word[0] || '') ? c.complete(parts.slice(1, -1), word) : null;
+  if (own) return applyCompletion(val, word, own.map(String).filter(o => o.startsWith(word)), ' ');
   const slash = word.lastIndexOf('/');
   const dirPart = slash >= 0 ? word.slice(0, slash + 1) : '';
   const base = word.slice(slash + 1);

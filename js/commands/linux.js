@@ -4,8 +4,8 @@ import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, state, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
 import { FS, resolve } from '../filesystem.js';
-import { C, def } from '../registry.js';
-import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText } from '../shell.js';
+import { C, def, completes } from '../registry.js';
+import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
 
 def('sudo', null, 'run a command as root', (args, raw) => {
@@ -685,3 +685,15 @@ def('grep', 'more', FILTER_INFO.grep[0], args => {
   state.failed = !hits;
 }, { usage: FILTER_INFO.grep[1], flags: FILTER_INFO.grep[2] });
 def('lolcat', 'more', 'rainbows', args => args.length ? print(rainbow(args.join(' '), 0)) : print(span('m', 'lolcat reads from a pipe here. Try ') + cmd('fortune | lolcat')), { usage: '[text]' });
+
+// Tab completion for the arguments
+for (const w of ['sudo', 'please', 'watch']) completes(w, completeWrapped);
+completes('which', () => commandNames());
+completes('kill', () => PROCS.filter(p => p.user !== 'root').map(p => p.cmd.split(' ')[0].replace('.service', '')));
+const UNITS = ['coffee', 'cloudmodule-dev', 'homelab', 'curiosity'];
+completes('systemctl', args => args.length ? UNITS : ['status', 'is-active', 'start', 'stop', 'restart', '--failed']);
+completes('journalctl', args => args.at(-1) === '-u' ? [...new Set(JOURNAL.map(j => j[0]))] : null);
+completes('git', args => args.length ? null : ['log', 'status', 'blame']);
+completes('docker', args => args.length ? null : ['ps']);
+completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);
+completes('dig', () => ['+short', 'iantiemann.nl']);

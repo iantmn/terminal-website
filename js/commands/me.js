@@ -1,9 +1,9 @@
 // about Ian: experience, education, skills, posts
 import { unlock } from '../achievements.js';
-import { EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE } from '../content.js';
+import { EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE, SKILLS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, kv, sleep, state } from '../core.js';
 import { refreshFeed, feedReady } from '../feed.js';
-import { def } from '../registry.js';
+import { def, completes } from '../registry.js';
 import { aboutLines, fmtExp, fmtEdu, skillLines, fmtPost, cvLines, contactLines, findPost, postChoices } from '../render.js';
 
 function parseUA() {
@@ -137,3 +137,10 @@ def('cloudmodule', 'me', 'peek at the product I work on', async () => {
   print('');
   print(span('m', 'More about this role: ') + cmd('exp 1'));
 });
+
+// Tab completion for the arguments: numbers, and for posts the words of their titles
+const titleWords = () => [...new Set(POSTS.flatMap(p => p.title.toLowerCase().match(/[a-z0-9]{4,}/g) || []))];
+completes('experience', () => EXPERIENCE.map((_, i) => i + 1));
+completes('education', () => EDUCATION.map((_, i) => i + 1));
+completes('skills', () => ['-a', ...SKILLS.map((_, i) => i + 1)]);
+completes('read', args => args.length ? titleWords() : [...POSTS.map(p => p.n), ...titleWords()]);

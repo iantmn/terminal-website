@@ -43,6 +43,15 @@ const FOUND_BY = { sudo: 'sudo', rm: 'rm', vim: 'vim', matrix: 'matrix', sl: 'sl
   weather: 'weather', stroop: 'stroopwafel', answer: '42', xyzzy: 'xyzzy', sandwich: 'make', docker: 'docker', dns: 'git', apt: 'apt',
   reboot: 'reboot', top: 'top', kill: 'kill', manners: 'please', home: 'ping', chmod: 'chmod', talk: 'talk' };
 for (const [ach, name] of Object.entries(FOUND_BY)) if (unlocked.has(ach)) found.add(name);
+// what Tab offers as a command: everything in help, hidden ones only once found
+export const commandNames = () => Object.values(C).filter(c => !c.alias && (c.group || found.has(c.name))).map(c => c.name);
+// sudo, please and watch complete the command they run, and then that command's own arguments
+export function completeWrapped(args, word) {
+  const i = args.findIndex(a => !a.startsWith('-') && !/^[\d.]+$/.test(a));
+  if (i < 0) return commandNames();
+  const c = C[args[i].toLowerCase()];
+  return c && c.complete ? c.complete(args.slice(i + 1), word) : null;
+}
 function noteFound(c) {
   if (c.group || found.has(c.name)) return;
   found.add(c.name); store.set('found', [...found]);

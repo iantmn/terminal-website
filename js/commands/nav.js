@@ -1,9 +1,9 @@
 // moving around the filesystem
 import { unlock, track } from '../achievements.js';
-import { PROFILE, SITE } from '../content.js';
+import { PROFILE, SITE, POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
 import { resolve, lsLong, lsEntry, fileMeta, DIARY, diary, diaryReadable } from '../filesystem.js';
-import { def } from '../registry.js';
+import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
 
 def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
@@ -185,3 +185,6 @@ def(['touch', 'mkdir', 'mv', 'cp', 'ln', 'rmdir'], 'more', 'change files (this f
   const tool = raw.trim().split(/\s+/)[0];
   print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`));
 });
+
+// Tab completion: my pages and the words of post titles; anything that looks like a path completes as a path
+completes('open', args => args.length ? null : ['github', 'repo', 'linkedin', 'site', 'cv', 'rss', ...new Set(POSTS.flatMap(p => p.title.toLowerCase().match(/[a-z0-9]{4,}/g) || []))]);
