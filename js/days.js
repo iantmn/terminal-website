@@ -64,11 +64,15 @@ export function dayMessage(d = new Date()) {
     if (m === 4 && day === 1) return { msg: '🃏 April Fools! Today it is DNS. Even when it is not DNS.' };
     if (m === 4 && day === 4) return { msg: '🔍 4/04, Error 404 Day: the message for today could not be found.' };
     if (m === 4 && day === 27) return { theme: 'oranje', msg: "🧡 Happy King's Day! Everything is orange today." };
+    // World Password Day: the first Thursday of May
+    if (m === 5 && nth(1, 4)) return { msg: "🔑 World Password Day. 'Welkom01' is not a password, it is an invitation. Use a password manager and turn on 2FA." };
+    if (m === 5 && day === 17) return { msg: '🌍 World Internet Day. Thank your router today, it works harder than you think.' };
     // SysAdmin Day: the last Friday of July
     if (m === 7 && wd === 5 && day > 24) return { msg: '🖥️ Happy SysAdmin Day! Thank whoever keeps your Wi-Fi alive. Today, that is me.' };
     if (m === 8 && day === 25) return { msg: `🐧 Happy birthday, Linux! ${y - 1991} years ago Linus called it "just a hobby". Today it runs most of the internet, my homelab and probably your router.` };
     // Programmers' Day: day 256 of the year, 0x100
     if (dayOfYear(d) === 256) return { msg: "👨‍💻 Day 256 of the year, Programmers' Day. 0x100 reasons to celebrate." };
+    if (m === 9 && day === 19) return { msg: "🏴‍☠️ Talk Like a Pirate Day. Arr, " + cmd('ls') + " be listin' yer booty, matey." };
     if (m === 10 && day === 1) return { msg: '☕ International Coffee Day. coffee.service now runs at maximum priority: ' + cmd('coffee') };
     if (m === 10 && day === 4) return { msg: '🐾 Dierendag! The animals take over the terminal today: ' + cmd('cowsay -f kitty miauw') };
     if (m === 10 && day === 31) return { msg: '🎃 Happy Halloween. Something is lurking in /dev/null.' };
