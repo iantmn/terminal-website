@@ -147,14 +147,15 @@ export function qrMatrix(text) {
   return m;
 }
 
-// black on white with a quiet zone, whatever the theme, so every phone camera reads it
+// dark modules on a light quiet zone, so every phone camera reads it. The colours come from the theme (css/style.css);
+// the fill attributes are the black and white fallback when the svg is used outside the page
 export function qrSvg(text, px = 200) {
   const m = qrMatrix(text);
   if (!m) return null;
   const n = m.length, q = 4, total = n + q * 2;
   let d = '';
   m.forEach((row, y) => row.forEach((dark, x) => { if (dark) d += `M${x + q} ${y + q}h1v1h-1z`; }));
-  return `<svg class="qr" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${px}" height="${px}" shape-rendering="crispEdges" role="img" aria-label="QR code for ${esc(text)}"><rect width="${total}" height="${total}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  return `<svg class="qr" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${px}" height="${px}" shape-rendering="crispEdges" role="img" aria-label="QR code for ${esc(text)}"><rect class="qr-light" width="${total}" height="${total}" fill="#fff"/><path class="qr-dark" d="${d}" fill="#000"/></svg>`;
 }
 
 const PAGES = () => ({ site: SITE, terminal: location.origin + location.pathname, linkedin: PROFILE.linkedin, github: PROFILE.github, repo: PROFILE.repo, cv: SITE + '/CV/', rss: PROFILE.rss });

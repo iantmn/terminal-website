@@ -91,7 +91,13 @@ body.crt #term::after {
 }
 body.crt #term { text-shadow:0 0 5px var(--accent), 0 0 1px var(--fg); }
 #matrix { position:fixed; inset:0; z-index:10; display:none; background:#000; }
-.qr { display:block; margin:6px 0; max-width:100%; height:auto; image-rendering:pixelated; }
+/* the QR code in theme colours: always dark modules on a light background, the polarity every camera reads */
+.qr { display:block; margin:6px 0; max-width:100%; height:auto; image-rendering:pixelated; border-radius:6px; box-shadow:0 0 0 2px var(--accent); }
+.qr .qr-light { fill:var(--fg); }
+.qr .qr-dark { fill:var(--bg); }
+/* light themes have a dark --fg, so the roles swap */
+body[data-theme="light"] .qr .qr-light, body[data-theme="github"] .qr .qr-light { fill:var(--bg); }
+body[data-theme="light"] .qr .qr-dark, body[data-theme="github"] .qr .qr-dark { fill:var(--fg); }
 #keys { display:none; gap:4px; margin-top:6px; }
 #keys button { flex:1; min-width:0; font:inherit; color:var(--fg); background:var(--sel); border:1px solid var(--muted); border-radius:4px; padding:2px 0; min-height:30px; font-size:.9em; }
 #keys button:active { background:var(--accent); color:var(--bg); }
