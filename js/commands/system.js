@@ -1,7 +1,7 @@
 // help, settings and the shell built-ins
 import { unlock, unlocked, ACH_IDS, ACH, noSolution } from '../achievements.js';
 import { SITE, PROFILE } from '../content.js';
-import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt } from '../core.js';
+import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt, toHash } from '../core.js';
 import { resetDiary } from '../filesystem.js';
 import { hist } from '../input.js';
 import { C, def, completes } from '../registry.js';
@@ -199,6 +199,18 @@ def(['exit', 'logout', 'quit', ':q'], 'system', 'leave the terminal', async () =
 });
 def('github', 'more', 'open my GitHub', () => C.open.run(['github']));
 def('linkedin', 'more', 'open my LinkedIn', () => C.open.run(['linkedin']));
+// a link that runs a command when someone opens it: #cowsay+-f+tux+hoi
+def('share', 'system', 'copy a link that runs a command', async (args, raw) => {
+  // args has the quotes taken off, so share 'a | b' shares the whole pipeline
+  const line = args.length ? args.join(' ') : [...hist].reverse().find(h => !/^\s*share\b/.test(h));
+  if (!line) return print(span('e', 'share: nothing to share yet, run a command first.'));
+  const url = location.origin + location.pathname + toHash(line);
+  let copied = false;
+  try { await navigator.clipboard.writeText(url); copied = true; } catch {}
+  print(span(copied ? 'a' : 'm', copied ? 'Copied to the clipboard: ' : 'Your link: ') + link(url));
+  print(span('m', 'Whoever opens it sees ') + span('a2', esc(line)) + span('m', ' run.'));
+}, { usage: '[command]', flags: [['command', 'the command to share (default: the last one you ran)'], ["'a | b'", 'quote a pipeline to share all of it']] });
+
 def(['repo', 'source', 'src'], 'system', 'source code of this site', () => {
   print(span('m', 'This terminal is open source: ') + link(PROFILE.repo));
   print(span('m', 'Stars, issues and pull requests are welcome.'));

@@ -1,6 +1,6 @@
 // the keyboard and mouse: running a typed line, history, tab completion and the listeners
 import { unlock } from './achievements.js';
-import { term, out, kb, ps, inrow, store, state, esc, span, print, promptHTML, renderPrompt, scrollDown, focusInput } from './core.js';
+import { term, out, kb, ps, inrow, store, state, esc, span, cmd, print, promptHTML, renderPrompt, scrollDown, focusInput } from './core.js';
 import { resolve } from './filesystem.js';
 import { C } from './registry.js';
 import { execChain, commandNames } from './shell.js';
@@ -23,6 +23,16 @@ function expandHistory(raw) {
   return { line, used, missing };
 }
 
+// after the most fun commands, once per visit each, a hint that share exists
+const SHAREABLE = new Set(['neofetch', 'cowsay', 'fortune', 'git', 'crontab', 'cloudmodule', 'diff', 'hack', 'sl', 'timeline', 'typing']);
+const suggested = new Set();
+function suggestShare(raw) {
+  const c = C[raw.split(/\s+/)[0].toLowerCase()];
+  if (!c || state.failed || !SHAREABLE.has(c.name) || suggested.has(c.name) || /[|;&]/.test(raw) || /--help|-h\b|--version/.test(raw)) return;
+  suggested.add(c.name);
+  print(span('m', 'Worth sending to someone? ') + cmd('share') + span('m', ' copies a link that runs this.'));
+}
+
 export async function run(raw, { echo = true } = {}) {
   raw = raw.trim();
   if (state.asking) {
@@ -43,7 +53,7 @@ export async function run(raw, { echo = true } = {}) {
   hIdx = hist.length;
 
   state.busy = true; state.cancelled = false; inrow.style.visibility = 'hidden';
-  try { await execChain(raw); }
+  try { await execChain(raw); suggestShare(raw); }
   catch (e) { if (e.message === 'SIGINT') { print(span('e', '^C')); unlock('ctrlc'); } else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
   finally { state.busy = false; inrow.style.visibility = ''; renderPrompt(); scrollDown(); focusInput(); }
 }
