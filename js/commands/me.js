@@ -47,7 +47,7 @@ def('whoami', 'me', 'what I can see about you', () => {
   ].filter(Boolean)));
 
   print('');
-  print(span('m', 'Nothing gets stored. Your browser sends all of this with every request anyway.'));
+  print(span('m', 'This is what your browser tells every website you visit.'));
   print(span('m', `And me? I'm Ian → `) + cmd('about'));
 });
 
