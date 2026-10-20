@@ -118,7 +118,7 @@ def(['talk', 'hire', 'chat'], null, '', () => {
   ]);
 });
 
-// my years side by side: jobs as bars, studies as ◆ in the year I finished, posts per year below
+// my years side by side: jobs as bars, studies as ◆ in the year I finished
 def(['timeline', 'career'], 'me', 'my career over the years', () => {
   const now = new Date().getFullYear(), first = 2016, years = now - first + 1;
   // a narrower label column on phones, so the years still fit
@@ -142,10 +142,6 @@ def(['timeline', 'career'], 'me', 'my career over the years', () => {
     const y = parseInt(e.year, 10);
     lines.push(label(`${e.org} · ${e.title.replace(/^(BSc|HBO) /, '')}`, 'edu ' + (EDUCATION.indexOf(e) + 1)) + ' '.repeat(col(y)) + span('w', '◆'));
   });
-  // posts per year, as a number in the year column
-  const perYear = Array(years).fill(0);
-  POSTS.forEach(p => { const i = parseInt(p.date, 10) - first; if (i >= 0 && i < years) perYear[i]++; });
-  lines.push('', span('w b', 'Writing'), label('posts per year', 'articles') + perYear.map(n => span(n ? 'a2' : 'm', String(n || '·').padEnd(w))).join(''));
   printLines(lines);
   print(span('m', 'Click a line for the full story.'));
 }, { usage: '', flags: [] });
