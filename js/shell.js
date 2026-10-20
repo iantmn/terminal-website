@@ -61,7 +61,7 @@ function noteFound(c) {
 // a wrapper (sudo, please, watch) hands the rest of the line to another command, so only its first arg counts
 const BASE_COMMANDS = ['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'ssh'];
 const HOST_COMMANDS = {
-  homelab: [new Set([...BASE_COMMANDS, 'docker', 'wg']), 'A lean install.'],
+  homelab: [new Set([...BASE_COMMANDS, 'docker', 'wg', 'ansible', 'ansible-playbook']), 'A lean install.'],
   pve: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool']), 'The hypervisor: everything runs on this, so tread lightly.'],
 };
 function invoke(c, name, args, line) {

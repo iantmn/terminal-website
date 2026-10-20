@@ -1,7 +1,7 @@
 // pve: the Proxmox host under the homelab. Reached with ssh from the Docker VM, with the key Ansible uses.
 // qm, pct, pvesh, pvesm, pveversion and zpool only exist here; qm stop 102 stops the VM this site runs on
 import { unlock, saw } from '../achievements.js';
-import { print, printLines, span, esc, cmd, pad, state, getopt } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, charsPerLine } from '../core.js';
 import { resolve } from '../filesystem.js';
 import { def, completes } from '../registry.js';
 import { remoteShell, outage } from './homelab.js';
@@ -253,6 +253,65 @@ def('zpool', null, 'the ZFS pool under every VM disk', args => {
   ]);
 }, { ...ONLY_PVE, usage: '<status|list>', flags: [['status', 'the health of the pool and its disks'], ['list', 'size and how full']] });
 
+// ---- ansible, on the homelab: what cron runs every Monday at six ----
+const PLAYS = [
+  { name: 'Proxmox host', host: 'pve', roles: ['common', 'proxmox'] },
+  { name: 'Docker VM', host: 'homelab', roles: ['common', 'docker'] },
+];
+// the task names come from the role files in ~/ansible/roles, so cat and the playbook agree
+const tasksOf = role => {
+  const r = resolve(`/home/ian/ansible/roles/${role}/tasks/main.yml`);
+  return r.error ? [] : r.node.read().map(l => l.replace(/&#39;|&quot;/g, '')).filter(l => l.startsWith('- name: ')).map(l => l.slice(8));
+};
+// Monday's updates: the Docker VM had a few packages waiting, the host was already up to date. Once they are in, nothing changes
+let updated = false;
+const changes = (host, task) => !updated && host === 'homelab' && task === 'Packages up to date';
+const stars = title => { const w = Math.min(79, Math.max(40, charsPerLine() - 1)); return title + ' ' + '*'.repeat(Math.max(3, w - title.length - 1)); };
+def('ansible-playbook', null, 'run an Ansible playbook', async args => {
+  const [o, [book]] = getopt(args, ['l', 'limit', 'i']);
+  if (!book) return print(span('e', 'usage: ansible-playbook [--check] [-l host] [--list-hosts] [--list-tasks] playbook.yml'));
+  const r = resolve(book);
+  if (r.error || !/site\.yml$/.test(book)) { state.failed = true; return print(span('e', `ERROR! the playbook: ${esc(book)} could not be found`) + span('m', '  (the one that exists: ~/ansible/site.yml)')); }
+  const limit = o.l || o.limit, check = o.C || o.check;
+  const plays = PLAYS.filter(p => !limit || limit === 'all' || p.host === limit);
+  if (!plays.length) { state.failed = true; return print(span('w', '[WARNING]: Could not match supplied host pattern, ignoring: ' + esc(limit))); }
+  if (o['list-hosts']) return printLines(['', `playbook: ${esc(book)}`, ...plays.flatMap(p => ['', `  play #${PLAYS.indexOf(p) + 1} (${p.host === 'pve' ? 'proxmox' : 'docker'}): ${esc(p.name)}`, '    pattern: [\'' + (p.host === 'pve' ? 'proxmox' : 'docker') + '\']', '    hosts (1):', '      ' + p.host])]);
+  if (o['list-tasks']) return printLines(['', `playbook: ${esc(book)}`, ...plays.flatMap(p => ['', `  play #${PLAYS.indexOf(p) + 1}: ${esc(p.name)}`, '    tasks:', ...p.roles.flatMap(role => tasksOf(role).map(t => `      ${role} : ${esc(t)}`))])]);
+  const recap = {};
+  for (const p of plays) {
+    const n = recap[p.host] = { ok: 0, changed: 0 };
+    print(''); print(span('b', esc(stars(`PLAY [${p.name}]`))));
+    print(''); print(span('b', esc(stars('TASK [Gathering Facts]'))));
+    await sleep(900);
+    print(span('a', `ok: [${p.host}]`)); n.ok++;
+    for (const role of p.roles) for (const t of tasksOf(role)) {
+      print(''); print(span('b', esc(stars(`TASK [${role} : ${t}]`))));
+      await sleep(250 + (t.length * 7) % 400);
+      if (/^The stacks are up/.test(t)) { ['terminal', 'monitoring', 'automation'].forEach(s => print(span('a', `ok: [${p.host}] => (item=${s})`))); n.ok++; continue; }
+      if (/^Nothing else runs on the host/.test(t)) { printLines([span('a', `ok: [${p.host}] => {`), span('a', '    "msg": "services go in a VM. Docker goes in VM 102."'), span('a', '}')]); n.ok++; continue; }
+      if (changes(p.host, t)) { print(span('w', `changed: [${p.host}]`)); n.ok++; n.changed++; continue; }
+      print(span('a', `ok: [${p.host}]`)); n.ok++;
+    }
+  }
+  print(''); print(span('b', esc(stars('PLAY RECAP'))));
+  Object.entries(recap).forEach(([h, n]) => print(`${span(n.changed ? 'w' : 'a', esc(pad(h, 27)))}: ${span('a', pad('ok=' + n.ok, 5))}  ${span(n.changed ? 'w' : 'm', pad('changed=' + n.changed, 9))}  ${span('m', 'unreachable=0')}    ${span('m', 'failed=0')}    ${span('m', 'skipped=0')}    ${span('m', 'rescued=0')}    ${span('m', 'ignored=0')}`));
+  print('');
+  const changed = Object.values(recap).some(n => n.changed);
+  if (check) return print(span('m', 'Check mode: a dry run, nothing was changed.'));
+  if (changed && recap.homelab) updated = true;
+  print(span('m', changed ? 'A few package updates on the Docker VM, the host was up to date already. Run it again and nothing changes.' : 'Nothing changed. Boring on purpose: that is the whole point of Ansible.'));
+}, { hosts: ['homelab'], usage: '[--check] [-l host] playbook.yml', flags: [['playbook.yml', 'the playbook, ~/ansible/site.yml'], ['-C, --check', 'a dry run: what would change'], ['-l, --limit host', 'only pve or homelab'], ['--list-hosts', 'which machines it touches'], ['--list-tasks', 'what it would do']] });
+def('ansible', null, 'run one Ansible module on some hosts', args => {
+  const [o, [pattern]] = getopt(args, ['m', 'a', 'i']);
+  if (!pattern) return print(span('e', 'usage: ansible <host-pattern> -m ping'));
+  const hosts = { all: ['pve', 'homelab'], proxmox: ['pve'], docker: ['homelab'], pve: ['pve'], homelab: ['homelab'] }[pattern];
+  if (!hosts) { state.failed = true; return print(span('w', `[WARNING]: Could not match supplied host pattern, ignoring: ${esc(pattern)}`)); }
+  if ((o.m || 'command') !== 'ping') return print(span('m', `Only -m ping here. The rest of Ansible lives in `) + cmd('ansible-playbook site.yml'));
+  printLines(hosts.flatMap(h => [span('a', `${h} | SUCCESS => {`), span('a', `    "changed": false,`), span('a', `    "ping": "pong"`), span('a', '}')]));
+}, { hosts: ['homelab'], usage: '<pattern> -m ping', flags: [['pattern', 'all, proxmox, docker, pve or homelab'], ['-m ping', 'can Ansible reach them?']] });
+
+completes('ansible-playbook', () => ['site.yml', '--check', '--list-tasks', '--list-hosts']);
+completes('ansible', args => args.length ? ['-m', 'ping'] : ['all', 'proxmox', 'docker']);
 completes('qm', args => args.length ? VMS.map(v => String(v.id)) : ['list', 'status', 'config', 'start', 'stop', 'shutdown', 'reboot']);
 completes('pct', args => args.length ? CTS.map(c => String(c.id)) : ['list', 'status', 'start', 'stop', 'enter']);
 completes('pvesh', args => args.length ? Object.keys(API) : ['get', 'ls']);
