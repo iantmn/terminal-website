@@ -1,5 +1,5 @@
 // the real Linux commands, each with a twist
-import { unlock, unlocked, ACH_IDS } from '../achievements.js';
+import { unlock, unlocked, ACH_IDS, saw } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
@@ -116,6 +116,7 @@ def('git', null, "version control, Ian's career edition", args => {
     ['0000init', 'Initial commit: curious kid takes apart the family PC'],
   ];
   if (sub === 'log' && o.oneline) return printLines(commits.map(([h, msg, ref]) => `${span('w', h)}${ref ? ' ' + span('a2', ref) : ''} ${esc(msg)}`));
+  if (sub === 'log' && !o.graph) saw('frag2');
   if (sub === 'log') return printLines([
     ...commits.flatMap(([h, msg, ref]) => [span('w', 'commit ' + h) + (ref ? span('m', ' ' + ref) : ''), '    ' + esc(msg), '']),
     span('m', 'try ') + cmd('git log --graph') + span('m', ' or ') + cmd('git log --oneline'),
@@ -179,17 +180,18 @@ def('ssh', 'more', 'log in to another machine', async args => {
   const [user, host] = target.includes('@') ? target.split('@') : [o.l || (o.i ? 'ian' : state.user), target];
   if (!host) return print(span('e', 'usage: ssh [-i key] [user@]host'));
   if (!/^(homelab|10\.42\.0\.1)$/.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port ${esc(o.p || 22)}: Connection refused`));
-  const denied = () => print(span('e', `${esc(user)}@homelab: Permission denied (publickey).`));
+  const denied = () => { saw('lab-denied'); print(span('e', `${esc(user)}@homelab: Permission denied (publickey).`)); };
   if (!o.i) return denied();
   const r = resolve(o.i);
   if (r.error === 'missing' || (r.node && r.node.type !== 'file')) { print(`Warning: Identity file ${esc(o.i)} not accessible: No such file or directory.`); return denied(); }
-  if (r.error === 'denied') { print(span('e', `Load key "${esc(o.i)}": Permission denied`)); return denied(); }
+  if (r.error === 'denied') { saw('lab-key-locked'); print(span('e', `Load key "${esc(o.i)}": Permission denied`)); return denied(); }
   if (!/id_homelab$/.test(o.i)) { print(span('e', `Load key "${esc(o.i)}": invalid format`)); return denied(); }
   if (user !== 'ian') return denied();
   // the passphrase is typed hidden, like a real one
   const kb = document.getElementById('kb');
   state.busy = false; inrow.style.visibility = ''; kb.type = 'password';
   let pass;
+  saw('lab-pass');
   try { pass = await ask(`Enter passphrase for key '${esc(o.i)}': `); } finally { kb.type = 'text'; }
   if (pass !== 'works-on-my-machine') { if (pass != null) print(span('e', 'Bad passphrase.')); return denied(); }
   return labSession();
@@ -517,6 +519,7 @@ def('fsck', 'more', 'check the filesystem for errors', async () => {
   await sleep(300);
 
   await bar('Pass 5: Checking group summary information');
+  saw('corrupt-clue');
   print('  /usr/share/themes:');
   for (const t of ['default', 'matrix', 'amber', 'dracula', 'nord', 'tokyonight', 'synthwave', 'light']) { await sleep(120); print(`    ${pad(t, 12)} ${span('a', 'ok')}`); }
   await sleep(500);
@@ -582,6 +585,7 @@ def('journalctl', 'more', 'system logs', async args => {
   let rows = (onLab() ? LAB.journal : JOURNAL).filter(([name]) => !unit || name === unit.replace('.service', ''));
   if (n !== undefined) rows = rows.slice(-parseInt(n, 10) || 0);
   if (o.r || o.reverse) rows = [...rows].reverse();
+  if (rows.some(r => r[0] === 'treasure')) saw('frag1');
   print(span('m', '-- Logs begin at boot --'));
   const start = onLab() ? Date.now() - 6 * 36e5 : BOOT_TIME;
   rows.forEach((r, i) => print(fmt(...r, new Date(start + i * (onLab() ? 36e5 : 1000)))));

@@ -80,6 +80,12 @@ export function unlock(id) {
   state.capture = cap;
   if (id !== 'completionist' && ACH_IDS.every(a => a === 'completionist' || SEASONAL_ACH.includes(a) || unlocked.has(a))) unlock('completionist');
 }
+// puzzle steps someone has seen (the map, a fragment, a locked door), so hint can nudge the next one
+export const seen = new Set(store.get('seen', []));
+export function saw(step) {
+  if (state.silent || seen.has(step)) return;
+  seen.add(step); store.set('seen', [...seen]);
+}
 export function track(key, value, goal, ach) {
   if (state.silent) return;
   const set = new Set(store.get(key, [])); set.add(value); store.set(key, [...set]);

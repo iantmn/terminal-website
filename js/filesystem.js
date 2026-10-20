@@ -1,5 +1,5 @@
 // the virtual filesystem: ~ (FS) with the content, the rest of / (ROOT) built once every command exists
-import { unlock, unlocked } from './achievements.js';
+import { unlock, unlocked, saw } from './achievements.js';
 import { PROFILE, EXPERIENCE, EDUCATION, POSTS, SITE } from './content.js';
 import { esc, span, cmd, link, pad, store, state, displayPath, uptime, rot13, HOME } from './core.js';
 import { C } from './registry.js';
@@ -16,7 +16,7 @@ export const DIARY = {
   type: 'file',
   mode: () => diary.mode,
   owner: () => diary.owner,
-  read: () => diaryReadable() ? [
+  read: () => diaryReadable() ? (saw('diary'), [
     span('w b', 'Dear diary,'), '',
     'Day 1:  started a terminal version of my website. Seemed like a small project.',
     'Day 2:  added achievements. It is no longer a small project.',
@@ -26,7 +26,7 @@ export const DIARY = {
     "Day 14: note to self, the homelab key passphrase is 'works-on-my-machine'. Nobody reads a diary anyway.", '',
     span('a', 'Day 13: you got in. You found a locked file and talked your way into it.'),
     span('a', '        That is basically my job description. ') + cmd('contact'),
-  ] : [span('e', 'cat: diary.txt: Permission denied') + span('m', '  (who owns it? ') + cmd('ls -l') + span('m', ')')],
+  ]) : (saw('diary-locked'), [span('e', 'cat: diary.txt: Permission denied') + span('m', '  (who owns it? ') + cmd('ls -l') + span('m', ')')]),
 };
 
 function buildFS() {
@@ -67,14 +67,14 @@ function buildFS() {
         "You found it. People who poke around like this are usually fun to talk to.",
         `Let's talk: ${cmd('contact')}`,
       ]; }),
-      'map.txt': file(() => [
+      'map.txt': file(() => (saw('map'), [
         span('w b', '🗺  treasure map'), '',
         'Three fragments, one password. Glue them together in order.', '',
         `  1. The system keeps a journal. Read it.`,
         `  2. History is written in commits.`,
         `  3. Every host knows the others by name. Look in /etc.`, '',
         'Then open the chest:  ' + span('a2', 'open chest &lt;password&gt;'),
-      ]),
+      ])),
       'chest.lock': file(() => [span('e', 'The chest is locked.') + span('m', ' Read map.txt first.')]),
       'todo.txt': file(() => [
         '[x] build terminal website',
@@ -124,16 +124,17 @@ const SYSFILES = {
   '/etc/hostname': () => ['iantiemann'],
   // clue for the hidden corrupt theme
   '/dev/urandom': () => {
+    saw('corrupt-clue');
     const junk = '!#$%&*+/<>?@[]^{}|~0123456789abcdefXYZ░▒▓';
     const line = () => Array.from({ length: 30 + Math.floor(Math.random() * 40) }, () => junk[Math.floor(Math.random() * junk.length)]).join('');
     return [...Array.from({ length: 9 }, () => span('m', esc(line()))), span('e', '^C'), '',
       span('m', '...after staring at all that, this terminal looks like it could use a ') + span('e', 'corrupt') + span('m', ' theme.')];
   },
   '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.', ...(dayMessage() ? [dayMessage().msg] : []), span('m', 'P.S. treasure hunters start at ~/.secrets/map.txt')],
-  '/etc/hosts': () => [
+  '/etc/hosts': () => (saw('frag3'), [
     '127.0.0.1    localhost', '172.18.0.3   iantiemann', '10.20.0.20   homelab', '192.0.2.42   iantiemann.nl',
     span('m', '# fragment 3/3 = "ult"'),
-  ],
+  ]),
 };
 
 export function resolve(p) {
@@ -294,13 +295,13 @@ export function initRoot() {
     var: dir({
       log: dir({
         syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'nginx[1233]: GET / 200 (via traefik)', 'backup[300]: /home sent to the homelab, encrypted', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
-        'auth.log': file([
+        'auth.log': file(() => (saw('lab-key'), [
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/cat /etc/shadow',
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/chmod +r diary.txt',
           'please: guest : asked nicely ; TTY=pts/0 ; granted for ONE command',
           'sshd: Connection closed by 192.0.2.66 port 22 [preauth]',
           'sudo: ian : TTY=pts/1 ; PWD=/home/ian ; USER=root ; COMMAND=/usr/bin/chmod 600 /home/ian/.ssh/id_homelab   # the homelab key, locked down',
-        ]),
+        ].map(esc))),
       }),
       www: dir({ 'iantiemann.nl': dir({ 'index.html': file(() => [esc('<!-- a working copy. The live one runs on the homelab, in ~/stacks/terminal/site -->'), 'Source: ' + link(PROFILE.repo)]) }) }),
     }),

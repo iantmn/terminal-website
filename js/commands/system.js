@@ -1,5 +1,5 @@
 // help, settings and the shell built-ins
-import { unlock, unlocked, ACH_IDS, ACH, noSolution, SECRET_ACH, SEASONAL_ACH } from '../achievements.js';
+import { unlock, unlocked, ACH_IDS, ACH, noSolution, SECRET_ACH, SEASONAL_ACH, seen } from '../achievements.js';
 import { SITE, PROFILE } from '../content.js';
 import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt, toHash } from '../core.js';
 import { resetDiary } from '../filesystem.js';
@@ -175,7 +175,8 @@ def('reset-achievements', 'system', 'forget all achievements', async () => {
   const answer = await ask(span('w', `Delete ${unlocked.size === 1 ? 'your 1 achievement' : `all ${unlocked.size} achievements`}? This cannot be undone. [y/N] `));
   if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Aborted. Your achievements are safe.'));
   unlocked.clear();
-  ['ach', 'read', 'rooms', 'found'].forEach(k => store.set(k, []));
+  ['ach', 'read', 'rooms', 'found', 'seen'].forEach(k => store.set(k, []));
+  seen.clear();
   found.clear();
   resetDiary();
   print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
@@ -191,6 +192,25 @@ def('reset-settings', 'system', 'theme, sound, CRT and aliases back to default',
   Object.keys(aliases).forEach(k => delete aliases[k]); store.set('aliases', aliases);
   print(span('a', 'Settings reset to the defaults.') + span('m', ` Your progress is untouched (${unlocked.size}/${ACH_IDS.length} achievements).`));
 });
+// the next step of each puzzle someone started, as a nudge and never the answer
+function nudges() {
+  const has = id => unlocked.has(id), s = k => seen.has(k), out = [];
+  if (!has('treasure') && s('map')) {
+    const missing = [['frag1', 'the journal'], ['frag2', 'the commits'], ['frag3', 'the hosts file']].filter(([k]) => !s(k)).map(([, what]) => what);
+    out.push(missing.length ? `Treasure hunt: ${3 - missing.length} of 3 fragments found. Still missing: ${missing.join(', ')}. Read the map again for where.` : 'Treasure hunt: you have all three fragments. Glue them together in the order of the map, then open the chest.');
+  }
+  if (!has('chmod') && s('diary-locked')) out.push('The diary is locked. Who owns it, and who may read it? ' + cmd('ls -l') + ' tells you. Changing that needs root, and you know the magic word.');
+  if (!has('homelab') && s('lab-denied')) {
+    if (!s('lab-key')) out.push('The homelab only takes keys. Somebody used one before you; logs remember who and which.');
+    else if (!s('lab-key-locked') && !s('lab-pass')) out.push('You know whose key it is and where it lives. Try it with ssh -i.');
+    else if (!s('lab-pass')) out.push('That key sits in a locked home folder. Reading it needs root for a moment.');
+    else if (!(s('diary') || has('chmod'))) out.push('The key has a passphrase. Ian wrote it down somewhere private, in the kind of file that starts with "Dear diary".');
+    else out.push('You have the key, the way to read it and the passphrase. Put the three together.');
+  }
+  if (has('homelab') && !has('outage')) out.push('The terminal you are using runs somewhere on the homelab. Have a look in ~/stacks, and wonder what happens if it stopped.');
+  if (!has('corrupt') && s('corrupt-clue')) out.push('A theme is hiding, and it is broken. Its name shows up where the logs and fsck complain.');
+  return out;
+}
 def('hint', 'system', 'a nudge towards an achievement', async args => {
   const n = parseInt(args[0], 10);
   if (args[0] === '-r' || args[0] === '--random') {
@@ -201,6 +221,11 @@ def('hint', 'system', 'a nudge towards an achievement', async args => {
     }
     const id = locked[Math.floor(Math.random() * locked.length)];
     return print(`${span('w', 'hint #' + (ACH_IDS.indexOf(id) + 1))} ${esc(ACH[id][1])}`);
+  }
+  if (!n) {
+    // first a nudge for a puzzle you are in the middle of, then how hint works
+    const tips = nudges();
+    if (tips.length) printLines([...tips.map(t => span('w', '💡 ') + t), '']);
   }
   if (!n) return printLines([
     span('m', 'usage: ') + cmd('hint -r') + span('m', ' | --random      a random tip for something you have not found yet'),
