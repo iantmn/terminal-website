@@ -208,7 +208,7 @@ def('share', 'system', 'copy a link that runs a command', async (args, raw) => {
   let copied = false;
   try { await navigator.clipboard.writeText(url); copied = true; } catch {}
   print(span(copied ? 'a' : 'm', copied ? 'Copied to the clipboard: ' : 'Your link: ') + link(url));
-  print(span('m', 'Whoever opens it sees ') + span('a2', esc(line)) + span('m', ' run.'));
+  print(span('m', 'Whoever opens it sees ') + span('a2', esc(line)) + span('m', ' run. On a phone? ') + cmd('qr ' + url, 'scan it'));
 }, { usage: '[command]', flags: [['command', 'the command to share (default: the last one you ran)'], ["'a | b'", 'quote a pipeline to share all of it']] });
 
 def(['repo', 'source', 'src'], 'system', 'source code of this site', () => {
