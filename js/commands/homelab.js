@@ -38,15 +38,16 @@ async function outage(what) {
   const log = el.querySelector('.log');
   const line = async (text, ms) => { await pause(ms); log.textContent += text + '\n'; };
   const now = () => new Date().toTimeString().slice(0, 8);
-  await line('Waiting for the watchdog, it runs every minute ...', 1500);
-  await line(`${now()} watchdog: terminal.iantiemann.nl is down, starting it again`, 4000);
-  await line('[+] Running 3/3', 700);
-  await line(' ✔ Network terminal_default      Created', 300);
-  await line(' ✔ Container terminal-traefik-1   Started', 400);
-  await line(' ✔ Container terminal-terminal-1  Started', 400);
-  await line('Waiting for terminal-terminal-1 to be healthy ...', 500);
-  await line('healthy. Reconnecting ...', 1600);
-  await pause(1000);
+  // down for roughly 5 to 9 seconds in all: long enough to notice, short enough not to wait for
+  await line('Waiting for the watchdog ...', 600);
+  await line(`${now()} watchdog: terminal.iantiemann.nl is down, starting it again`, 1000 + Math.random() * 4000);
+  await line('[+] Running 3/3', 300);
+  await line(' ✔ Network terminal_default      Created', 200);
+  await line(' ✔ Container terminal-traefik-1   Started', 250);
+  await line(' ✔ Container terminal-terminal-1  Started', 250);
+  await line('Waiting for terminal-terminal-1 to be healthy ...', 300);
+  await line('healthy. Reconnecting ...', 600);
+  await pause(400);
   STACKS.terminal.forEach(s => running.add(`terminal-${s}-1`));
   el.remove();
   restart = { what, seconds: Math.round((Date.now() - downAt) / 1000) };
