@@ -598,6 +598,78 @@ def(['traceroute', 'tracert', 'mtr'], 'more', 'the route to a host', async args 
   for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${o.n ? hops[i][1] : `${hops[i][0]} (${hops[i][1]})`}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
 }, { usage: '[-n] [-m hops] <host>', flags: [['-m hops', 'give up after this many hops'], ['-n', 'numbers only, no names']] });
 
+// a read-only crontab. The next run of every line comes from the real cron rules
+const CRONTABS = {
+  ian: [
+    ['30 6 * * 1-5', '/usr/bin/coffee --brew --strong', 'the first one'],
+    ['0 7-12 * * 1-5', '/usr/bin/coffee --refill', 'every hour of the morning'],
+    ['0 13 * * 1-5', '/usr/bin/coffee --after-lunch', ''],
+    ['*/30 9-17 * * 1-5', '/usr/bin/stretch --remind', 'ignored every time'],
+    ['0 9 * * 1', '/usr/bin/standup --monday', 'what did the weekend break?'],
+    ['45 16 * * 5', '/usr/bin/deploy --never', 'read-only Friday'],
+    ['0 20 * * 0', '/usr/bin/write-guide --next-article', ''],
+    ['0 22 * * *', '/usr/bin/homelab --tinker "just five minutes"', 'it is never five minutes'],
+    ['0 8 1 * *', '/usr/bin/label-cables --this-month-for-real', ''],
+    ['0 0 23 11 *', '/usr/bin/cake --birthday', ''],
+    ['@reboot', '/usr/bin/coffee --emergency', ''],
+  ],
+  root: [
+    ['0 3 * * *', '/usr/sbin/backup --offsite --encrypt', '3-2-1, every night'],
+    ['*/5 * * * *', '/usr/bin/check-dns', 'it is always DNS'],
+    ['15 4 * * 0', '/usr/bin/apt update && apt upgrade -y', ''],
+    ['0 0 * * *', '/usr/sbin/logrotate /etc/logrotate.conf', ''],
+  ],
+};
+// one cron field into the set of values it allows: *, 5, 1-5, */15, 9-17/2, lists of those
+function cronField(f, lo, hi) {
+  const set = new Set();
+  for (const part of f.split(',')) {
+    const [range, step = '1'] = part.split('/');
+    const [a, b] = range === '*' ? [lo, hi] : range.split('-').map(Number);
+    for (let v = a; v <= (range.includes('-') || range === '*' ? b : a); v += Number(step)) set.add(v);
+  }
+  return set;
+}
+function nextRun(spec, from = new Date()) {
+  if (spec.startsWith('@')) return null;
+  const [mi, ho, dom, mon, dow] = spec.split(/\s+/);
+  const M = cronField(mi, 0, 59), H = cronField(ho, 0, 23), D = cronField(dom, 1, 31), Mo = cronField(mon, 1, 12), W = cronField(dow.replace('7', '0'), 0, 6);
+  for (let d = 0; d < 400; d++) {
+    const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + d);
+    if (!Mo.has(day.getMonth() + 1)) continue;
+    // like cron: with both day fields set, either one may match
+    const domOk = D.has(day.getDate()), dowOk = W.has(day.getDay());
+    if (!(dom !== '*' && dow !== '*' ? domOk || dowOk : domOk && dowOk)) continue;
+    for (const h of [...H].sort((a, b) => a - b)) for (const m of [...M].sort((a, b) => a - b)) {
+      const t = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
+      if (t > from) return t;
+    }
+  }
+  return null;
+}
+const inWords = t => {
+  const min = Math.round((t - Date.now()) / 60000);
+  if (min < 60) return `in ${min} min`;
+  if (min < 48 * 60) return `in ${Math.round(min / 60)} h`;
+  return `in ${Math.round(min / 1440)} days`;
+};
+def('crontab', 'more', 'scheduled jobs (read-only)', args => {
+  const [o] = getopt(args, ['u']);
+  const user = o.u || 'ian';
+  if (o.e || o.r) return print(span('e', `crontab: ${o.e ? 'editing' : 'removing'} is not allowed, the schedule is read-only.`) + span('m', ' Even root does not touch the coffee schedule.'));
+  if (!CRONTABS[user]) return print(`no crontab for ${esc(user)}`);
+  const rows = CRONTABS[user];
+  const w = Math.max(...rows.map(r => r[0].length)) + 2, wc = Math.max(...rows.map(r => r[1].length)) + 2;
+  printLines([
+    span('m', `# crontab for ${user}` + (o.u ? '' : ' (guest has none, so here is mine)')),
+    span('w b', pad('# schedule', w) + pad('command', wc) + 'next run'),
+    ...rows.map(([s, c, note]) => {
+      const t = nextRun(s);
+      return esc(pad(s, w)) + span('a2', esc(pad(c, wc))) + span('m', t ? inWords(t) : 'at boot') + (note ? span('m', '   # ' + esc(note)) : '');
+    }),
+  ]);
+}, { usage: '[-l] [-u user]', flags: [['-l', 'list the jobs (the default)'], ['-u user', 'jobs of another user: ian or root'], ['-e', 'edit (not allowed)'], ['-r', 'remove (not allowed)']] });
+
 // one month as 8 lines of 20 characters, today in bold
 function monthLines(y, m) {
   const now = new Date();
@@ -697,3 +769,4 @@ completes('git', args => args.length ? null : ['log', 'status', 'blame']);
 completes('docker', args => args.length ? null : ['ps']);
 completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);
 completes('dig', () => ['+short', 'iantiemann.nl']);
+completes('crontab', args => args.at(-1) === '-u' ? Object.keys(CRONTABS) : null);
