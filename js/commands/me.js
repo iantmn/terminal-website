@@ -1,9 +1,10 @@
 // about Ian: experience, education, skills, posts
 import { unlock } from '../achievements.js';
-import { EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE, SKILLS } from '../content.js';
+import { ABOUT, EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE, SKILLS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, kv, sleep, state, charsPerLine } from '../core.js';
 import { refreshFeed, feedReady } from '../feed.js';
-import { def, completes } from '../registry.js';
+import { C, def, completes } from '../registry.js';
+import { found } from '../shell.js';
 import { aboutLines, fmtExp, fmtEdu, skillLines, fmtPost, cvLines, contactLines, findPost, postChoices } from '../render.js';
 
 function parseUA() {
@@ -109,6 +110,34 @@ def(['read', 'summary'], 'me', 'summary of a post', async args => {
 
 def(['cv', 'resume'], 'me', 'my CV', () => printLines(cvLines()));
 def(['contact', 'socials', 'social'], 'me', 'how to reach me', () => printLines(contactLines()));
+// tldr: me on one screen, for people with ten minutes and forty tabs. Everything comes from content.js.
+// tldr <command> is what the real tldr does: the short version of a command
+def('tldr', 'me', 'me in thirty seconds (or tldr <command>)', args => {
+  if (args[0]) {
+    const c = C[args[0].toLowerCase()];
+    if (!c || (!c.group && !found.has(c.name))) { state.failed = true; return print(span('e', `tldr: page not found: ${esc(args[0])}`) + span('m', ' Try ') + cmd('help')); }
+    return printLines([span('w b', esc(c.name)), '', span('m', '> ' + esc(c.desc || 'no description, some things you have to try')), '',
+      ...[[c.name + (c.usage ? ' ' + c.usage : ''), 'the usage'], ...(c.flags || []).slice(0, 4).map(([f, d]) => [`${c.name} ${f.split(',')[0]}`, d])].flatMap(([ex, d]) => [span('a', '- ') + esc(d[0].toUpperCase() + d.slice(1)) + ':', '  ' + span('a2', esc(ex)), ''])]);
+  }
+  const fact = k => ABOUT.facts.find(([n]) => n === k)?.[1];
+  const goal = ABOUT.sections.find(([t]) => t === 'Where I want to go')?.[1][0] || '';
+  const guides = POSTS.filter(p => p.type === 'guide');
+  // like kv(), but the values may hold links
+  const table = rows => `<div class="tbl">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join('')}</div>`;
+  printLines([
+    span('w b', PROFILE.name) + span('m', ` · ${esc(PROFILE.role)} · ${esc(PROFILE.location)}`), '',
+    table([
+      ['Now', esc(fact('Now') || PROFILE.role)],
+      ['Before', EXPERIENCE.slice(1, 3).map(e => esc(`${e.role} @ ${e.org} (${e.period})`)).join(span('m', ', '))],
+      ['In IT since', esc(fact('In IT since') || '')],
+      ['Studied', EDUCATION.map(e => esc(`${e.title}, ${e.org}`)).join(span('m', '; '))],
+      ['Strong in', SKILLS.slice(0, 6).map(s => esc(s.title)).join(span('m', ', '))],
+      ['Next', esc(goal.split(':')[0])],
+      ['Writes', `${guides.length} guides, the latest: ` + (guides[0] ? cmd('read ' + guides[0].n, guides[0].title) : '')],
+    ]), '',
+    span('m', 'The long versions: ') + [cmd('about'), cmd('experience'), cmd('skills'), cmd('cv')].join(span('m', ', ')) + span('m', '. Interested? ') + cmd('contact'),
+  ]);
+}, { usage: '[command]', flags: [['command', 'the short version of a command, like tldr grep']] });
 def(['talk', 'hire', 'chat'], null, '', () => {
   unlock('talk');
   printLines([
