@@ -25,27 +25,41 @@ const pause = ms => new Promise(r => setTimeout(r, ms));
 const siteDown = () => !running.has('terminal-traefik-1') || !running.has('terminal-terminal-1');
 
 // ---- the outage: connection lost, the watchdog, a fresh start ----
+// down is null when the watchdog brings the stack back, or { kind, reboot, where } when more went down:
+// kind 'vm' (shutdown on the Docker VM), 'guest' (qm stop 102 on the host) or 'host' (the Proxmox host itself)
 let restart = null;
-async function outage(what, vm = null) {
-  const downAt = Date.now();
+export const restarting = () => !!restart;
+export async function outage(what, down = null) {
+  const downAt = Date.now(), where = down?.where || 'the homelab';
   bootSound('down');
   // not cancellable on purpose: with the site gone, Ctrl+C has nothing left to stop
   await pause(900);
   const el = document.createElement('div');
   el.id = 'outage';
   el.setAttribute('role', 'alert');
+  const lost = !down ? '' : down.kind === 'host' ? ', the whole Proxmox host went down' : ', the whole Docker VM went down';
   el.innerHTML = `<div class="box"><div class="big e">Connection lost</div><div>terminal.iantiemann.nl stopped answering.</div>`
-    + `<div class="m">ERR_CONNECTION_REFUSED · after <b>${esc(what)}</b> on the homelab${vm ? ', the whole Docker VM went down' : ''}</div><pre class="log m"></pre></div>`;
+    + `<div class="m">ERR_CONNECTION_REFUSED · after <b>${esc(what)}</b> on ${esc(where)}${lost}</div><pre class="log m"></pre></div>`;
   document.body.appendChild(el);
   const log = el.querySelector('.log');
   const line = async (text, ms) => { await pause(ms); log.textContent += text + '\n'; };
   const now = () => new Date().toTimeString().slice(0, 8);
-  // down for roughly 5 to 9 seconds in all: long enough to notice, short enough not to wait for
-  if (vm) {
+  // down for roughly 5 to 10 seconds in all: long enough to notice, short enough not to wait for
+  if (down?.kind === 'host') {
+    await line(`${now()} pve: stopping all guests`, 500);
+    await line(`${now()} pve: ${down.reboot ? 'rebooting' : 'powered off'}`, 600);
+    if (!down.reboot) {
+      await line(`${now()} Uptime Kuma: 14 monitors are DOWN, notifying Ian`, 700);
+      await line(`${now()} Ian walked to the closet and pressed the power button`, 800 + Math.random() * 1500);
+    }
+    await line(`${now()} pve: Proxmox VE 8.2 is up, starting the guests with onboot=1`, 900);
+    await line(`${now()} pve: VM 102 (homelab) started, docker.service started`, 600);
+    await line('restart: unless-stopped, the stacks come back on their own', 300);
+  } else if (down) {
     // the watchdog lives on the VM too, so this time Proxmox has to bring it back
     await line('Waiting for Proxmox ...', 600);
-    await line(`${now()} pve: VM 102 (homelab) ${vm.reboot ? 'is rebooting' : 'shut down'}`, 500);
-    if (!vm.reboot) await line(`${now()} pve-ha-lrm: VM 102 should be running, starting it again`, 600 + Math.random() * 1500);
+    await line(`${now()} pve: VM 102 (homelab) ${down.reboot ? 'is rebooting' : down.kind === 'guest' ? 'stopped' : 'shut down'}`, 500);
+    if (!down.reboot) await line(`${now()} pve-ha-lrm: VM 102 should be running, starting it again`, 600 + Math.random() * 1500);
     await line(`${now()} pve: VM 102 started`, 600);
     await line('homelab: Debian GNU/Linux 12, docker.service started', 700);
     await line('restart: unless-stopped, the stacks come back on their own', 300);
@@ -62,16 +76,17 @@ async function outage(what, vm = null) {
   await pause(400);
   STACKS.terminal.forEach(s => running.add(`terminal-${s}-1`));
   el.remove();
-  restart = { what, vm, seconds: Math.round((Date.now() - downAt) / 1000) };
+  restart = { what, down, seconds: Math.round((Date.now() - downAt) / 1000) };
 }
 
-// shutdown, halt, poweroff or reboot on the Docker VM: this site runs on it, so it goes down too
-export async function vmDown(what, reboot = false) {
-  printLines(['', span('w', `Broadcast message from ian@homelab on pts/0 (${new Date().toString().slice(0, 24)}):`), '',
+// shutdown, halt, poweroff or reboot on the Docker VM or the Proxmox host: this site runs on both, so it goes down too
+export async function vmDown(what, reboot = false, kind = 'vm') {
+  const host = kind === 'host' ? 'pve' : 'homelab';
+  printLines(['', span('w', `Broadcast message from ${state.user}@${host} on pts/0 (${new Date().toString().slice(0, 24)}):`), '',
     span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
   await pause(700);
-  print(span('m', 'Connection to homelab closed by remote host.'));
-  await outage(what, { reboot });
+  print(span('m', `Connection to ${host} closed by remote host.`));
+  await outage(what, { kind, reboot, where: kind === 'host' ? 'pve' : 'the homelab' });
 }
 
 // ---- docker on the homelab ----
@@ -223,7 +238,8 @@ export const LAB = {
   dfNote: 'Room for one more service. There is always room for one more service.',
   mem: [16, 9.4, 1.1, 0.2, 5.5, 6.3], memNote: 'Sixteen of the host\'s gigabytes, nine of them containers.',
   uname: ['Linux', 'homelab', '6.1.0-25-amd64', '#1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3', 'x86_64', 'GNU/Linux'],
-  bootedDaysAgo: 47,
+  bootedDaysAgo: 47, clock: '3:12', load: '0.31, 0.27, 0.25',
+  unitHint: 'docker', unitNote: ' (not even ian touches these by hand)',
   // wg show. Keys are made up, the endpoints are documentation addresses. An active peer shakes hands every two minutes
   wg: {
     iface: ['wg0', 'oKq7Y1mWc0h3bJ8vZ2nLr5tE9uXy4sDf6gHa1jPq0Ws=', 51820],
@@ -247,6 +263,7 @@ export const LAB = {
       ['* * * * *', '/home/ian/stacks/terminal/watchdog.sh', 'brings the site back when it stops answering'],
       ['30 4 * * 0', 'docker image prune -af', 'old images out'],
       ['0 5 1 * *', 'cd ~/stacks && for s in */; do (cd $s && docker compose pull -q); done', 'fresh images, monthly'],
+      ['0 6 * * 1', 'cd ~/ansible && ansible-playbook site.yml', 'updates for this VM and the Proxmox host under it'],
     ],
     root: [
       ['0 4 * * 0', '/sbin/fstrim -av', 'gives freed space back to the Proxmox host'],
@@ -256,14 +273,13 @@ export const LAB = {
   },
 };
 
-// ---- the shell on the homelab, until exit, logout or Ctrl+D ----
-export async function labSession() {
-  const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot };
-  state.host = 'homelab'; state.user = 'ian'; state.asRoot = false;
-  HOME.splice(0, 2, 'home', 'ian'); state.cwd = [...HOME];
+// ---- a shell on another machine, until exit, logout or Ctrl+D (or until the site goes down under it) ----
+export async function remoteShell({ host, user, home, root = false, banner }) {
+  const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot }, savedHome = [...HOME];
+  state.host = host; state.user = user; state.asRoot = root;
+  HOME.splice(0, HOME.length, ...home); state.cwd = [...HOME];
   resetHistoryCursor();
-  unlock('homelab');
-  printLines(['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), '']);
+  printLines(banner);
   try {
     for (;;) {
       state.busy = false; inrow.style.visibility = '';
@@ -272,7 +288,7 @@ export async function labSession() {
       if (line === undefined) break;
       if (line === null || !line.trim()) continue;
       line = line.trim();
-      // !! and friends, from the homelab's own history
+      // !! and friends, from this machine's own history
       if (/(^|\s)!/.test(line)) {
         const x = expandHistory(line);
         if (x.missing) { print(span('e', `bash: !${esc(x.missing)}: event not found`)); continue; }
@@ -286,21 +302,31 @@ export async function labSession() {
       if (restart) break;
     }
   } finally {
-    HOME.splice(0, 2, 'home', 'guest');
+    HOME.splice(0, HOME.length, ...savedHome);
     Object.assign(state, saved);
     resetHistoryCursor();
   }
-  if (!restart) { print('logout'); return print(span('m', 'Connection to homelab closed.')); }
+  if (!restart) { print('logout'); print(span('m', `Connection to ${host} closed.`)); }
+}
+
+// ---- the homelab: ssh in, and when the site went down under you, the fresh start ----
+export async function labSession() {
+  unlock('homelab');
+  await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], banner: ['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), ''] });
+  if (!restart) return;
   // the site came back as a fresh start
-  const { what, vm, seconds } = restart;
+  const { what, down, seconds } = restart;
   restart = null;
   state.asRoot = false;
   await boot();
   unlock('outage');
-  if (vm) return print(`<div class="watchdog-note"><div class="big">🖥️ Proxmox ${vm.reboot ? 'rebooted' : 'started'} the Docker VM again</div>`
-    + `<div>It was down for ${seconds} seconds after <b>${esc(what)}</b> on the homelab: the VM went down and took this site with it. ${vm.reboot ? 'It came back up' : 'HA started VM 102 again'}, and Docker brought the stacks back.</div>`
-    + `<div class="m">You turned off the machine you were standing on. Bold.</div></div>`);
-  print(`<div class="watchdog-note"><div class="big">🐕 The watchdog restarted terminal.iantiemann.nl</div>`
-    + `<div>It was down for ${seconds} seconds after <b>${esc(what)}</b> on the homelab. Nothing got lost: the site is static, the stack came back on its own.</div>`
-    + `<div class="m">Thanks for the chaos test. That is exactly what the watchdog is for.</div></div>`);
+  const note = (icon, title, body, aside) => print(`<div class="watchdog-note"><div class="big">${icon} ${title}</div><div>${body}</div><div class="m">${aside}</div></div>`);
+  const after = `It was down for ${seconds} seconds after <b>${esc(what)}</b> on ${esc(down?.where || 'the homelab')}`;
+  if (down?.kind === 'host') return note(down.reboot ? '🖥️' : '🔌', down.reboot ? 'The Proxmox host rebooted' : 'Ian pressed the power button',
+    `${after}: the host went down, with every VM on it, this site included. ${down.reboot ? 'It came back by itself' : 'Somebody had to walk to the closet'}, the guests started on boot and Docker brought the stacks back.`,
+    'Root on the hypervisor, and you used it to turn everything off. Respect.');
+  if (down) return note('🖥️', `Proxmox ${down.reboot ? 'rebooted' : 'started'} the Docker VM again`,
+    `${after}: the VM went down and took this site with it. ${down.reboot ? 'It came back up' : 'HA started VM 102 again'}, and Docker brought the stacks back.`,
+    down.kind === 'guest' ? 'Stopping the VM you came in through. Bold.' : 'You turned off the machine you were standing on. Bold.');
+  note('🐕', 'The watchdog restarted terminal.iantiemann.nl', `${after}. Nothing got lost: the site is static, the stack came back on its own.`, 'Thanks for the chaos test. That is exactly what the watchdog is for.');
 }

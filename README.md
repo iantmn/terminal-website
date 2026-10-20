@@ -20,11 +20,11 @@ That serves it on http://localhost:8080. Without Docker, `python3 -m http.server
 - `css/style.css`: the themes and the terminal look
 - `js/main.js`: the entry point, it loads the commands and boots
 - `js/content.js`: everything the terminal tells about me
-- `js/commands/`: the commands, by topic (`me`, `nav`, `system`, `fun`, `linux`), plus `homelab.js` (the machine behind ssh), `python.js` (a tiny Python), `qr.js` (a QR encoder) and `guestbook.js`
+- `js/commands/`: the commands, by topic (`me`, `nav`, `system`, `fun`, `linux`), plus `homelab.js` (the Docker VM behind ssh), `pve.js` (the Proxmox host under it), and `python.js` (a tiny Python), `qr.js` (a QR encoder) and `guestbook.js`, which `lazy.js` loads the first time they run
 - `js/core.js`, `shell.js`, `input.js`: printing, parsing and running command lines, the keyboard
 - `js/days.js`: the message of the day, for special days and every day of the week
 - `js/visits.js`: your visits, for `last` and `finger`
-- `js/filesystem.js`, `achievements.js`, `themes.js`, `sound.js`, `visuals.js`, `boot.js`: the rest
+- `js/filesystem.js`, `achievements.js`, `themes.js`, `sound.js`, `visuals.js`, `boot.js`, `pager.js` (less): the rest
 
 A new command is a `def(names, group, description, run, { usage, flags })` call in one of the command files. Every command gets `-h`/`--help` and `--version` from that, and `completes(name, fn)` adds Tab completion for its arguments.
 

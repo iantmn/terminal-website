@@ -97,7 +97,7 @@ export const underHome = segs => segs[0] === HOME[0] && segs[1] === HOME[1];
 // ~ for anything inside the home folder, a normal absolute path everywhere else
 export const displayPath = segs => underHome(segs) ? '~' + (segs.length > 2 ? '/' + segs.slice(2).join('/') : '') : '/' + segs.join('/');
 export const pathStr = () => displayPath(state.cwd);
-export const promptHTML = () => `${span('u', `${state.user}@${state.host}`)}${span('m',':')}${span('h', esc(pathStr()))}${span('m','$')} `;
+export const promptHTML = () => `${span('u', `${state.user}@${state.host}`)}${span('m',':')}${span('h', esc(pathStr()))}${span('m', state.user === 'root' ? '#' : '$')} `;
 export const renderPrompt = () => { ps.innerHTML = state.asking ? state.asking.q : promptHTML(); };
 
 export const ask = q => new Promise(resolve => { state.asking = { q, resolve }; renderPrompt(); focusInput(); });

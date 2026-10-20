@@ -3,7 +3,7 @@ import { unlock, unlocked, ACH_IDS, ACH, noSolution, SECRET_ACH, SEASONAL_ACH, s
 import { SITE, PROFILE } from '../content.js';
 import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt, toHash } from '../core.js';
 import { resetDiary } from '../filesystem.js';
-import { hist, activeHist } from '../input.js';
+import { hist, activeHist, histKey } from '../input.js';
 import { C, def, completes } from '../registry.js';
 import { aliases, found, commandNames, helpLines } from '../shell.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
@@ -45,7 +45,7 @@ def(['clear', 'cls'], 'system', 'clear the screen', () => { out.innerHTML = ''; 
 def('history', 'system', 'command history', args => {
   const [o, [n]] = getopt(args);
   const hist = activeHist();
-  if (o.c) { hist.splice(0); store.set(state.host === 'homelab' ? 'labHist' : 'hist', hist); return print(span('m', 'history cleared')); }
+  if (o.c) { hist.splice(0); store.set(histKey(), hist); return print(span('m', 'history cleared')); }
   const from = n ? Math.max(0, hist.length - parseInt(n, 10)) : 0;
   hist.slice(from).forEach((h, i) => print(`${span('m', String(from + i + 1).padStart(4, ' '))}  ${esc(h)}`));
 }, { usage: '[n] [-c]', flags: [['n', 'only the last n commands'], ['-c', 'clear the history']] });
@@ -208,6 +208,7 @@ function nudges() {
     else out.push('You have the key, the way to read it and the passphrase. Put the three together.');
   }
   if (has('homelab') && !has('outage')) out.push('The terminal you are using runs somewhere on the homelab. Have a look in ~/stacks, and wonder what happens if it stopped.');
+  if (!has('pve') && s('pve-denied')) out.push(s('pve-key') ? 'You know which user and which key Ansible uses for the host. ssh takes both: -i for the key, user@ for the user.' : 'The Proxmox host only lets one user in, with one key. Something on the homelab logs in there every week; its crontab knows what.');
   if (!has('corrupt') && s('corrupt-clue')) out.push('A theme is hiding, and it is broken. Its name shows up where the logs and fsck complain.');
   return out;
 }

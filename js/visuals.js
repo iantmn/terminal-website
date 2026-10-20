@@ -42,7 +42,20 @@ export function neofetch() {
     '               ',
   ];
   // the homelab is a Debian VM for Docker, on a Proxmox host
-  const info = state.host === 'homelab' ? [
+  const info = state.host === 'pve' ? [
+    span('u', 'root') + '@' + span('u', 'pve'),
+    span('m', '--------'),
+    span('a2', 'OS') + ': Proxmox VE 8.2.4 (Debian GNU/Linux 12) x86_64',
+    span('a2', 'Host') + ': ASRock B550M Pro4',
+    span('a2', 'Kernel') + ': 6.8.12-1-pve',
+    span('a2', 'Uptime') + ': 112 days, 7 hours',
+    span('a2', 'Guests') + ': 5 VMs, 3 containers',
+    span('a2', 'Shell') + ': bash 5.2.15',
+    span('a2', 'CPU') + ': AMD Ryzen 7 5700G (16) @ 4.6GHz',
+    span('a2', 'Memory') + ': 31.2GiB / 62.7GiB',
+    span('a2', 'Storage') + ': rpool, a ZFS mirror of two 1TB NVMe disks',
+    ['--fg','--accent','--accent2','--link','--warn','--err'].map(v => `<span style="color:var(${v})">███</span>`).join(''),
+  ] : state.host === 'homelab' ? [
     span('u', 'ian') + '@' + span('u', 'homelab'),
     span('m', '-------------'),
     span('a2', 'OS') + ': Debian GNU/Linux 12 (bookworm) x86_64',

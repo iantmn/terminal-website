@@ -59,12 +59,20 @@ function noteFound(c) {
 }
 
 // a wrapper (sudo, please, watch) hands the rest of the line to another command, so only its first arg counts
-const LAB_COMMANDS = new Set(['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'docker', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'wg']);
+const BASE_COMMANDS = ['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'ssh'];
+const HOST_COMMANDS = {
+  homelab: [new Set([...BASE_COMMANDS, 'docker', 'wg']), 'A lean install.'],
+  pve: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool']), 'The hypervisor: everything runs on this, so tread lightly.'],
+};
 function invoke(c, name, args, line) {
-  if (state.host === 'homelab') {
-    if (c.name === 'help') return printLines([span('w b', 'homelab'), '  ' + [...LAB_COMMANDS].sort().map(n => cmd(n)).join('  '), '', span('m', 'A lean install. ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')]);
-    if (!LAB_COMMANDS.has(c.name)) return print(span('e', `${esc(name)}: command not found`) + span('m', ' (the homelab is a lean install, try help. exit goes back)'));
+  const remote = HOST_COMMANDS[state.host];
+  if (remote) {
+    const [only, about] = remote;
+    if (c.name === 'help') return printLines([span('w b', state.host), '  ' + [...only].sort().map(n => cmd(n)).join('  '), '', span('m', about + ' ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')]);
+    if (!only.has(c.name)) return print(span('e', `${esc(name)}: command not found`) + span('m', ` (${state.host} has less installed, try help. exit goes back)`));
   }
+  // qm and friends only exist on the Proxmox host
+  if (c.hosts && !c.hosts.includes(state.host)) return print(span('e', `command not found: ${esc(name)}`));
   noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
   if (wantsHelp(c, own)) return printLines(helpLines(c, name));

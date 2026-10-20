@@ -7,13 +7,14 @@ import { execChain, commandNames } from './shell.js';
 
 export const hist = store.get('hist', []);
 // the homelab has a history of its own; everything below works on the one of the machine you are on
-const labHist = store.get('labHist', []);
-export const activeHist = () => state.host === 'homelab' ? labHist : hist;
+const HIST = { iantiemann: ['hist', hist], homelab: ['labHist', store.get('labHist', [])], pve: ['pveHist', store.get('pveHist', [])] };
+export const activeHist = () => (HIST[state.host] || HIST.iantiemann)[1];
+export const histKey = () => (HIST[state.host] || HIST.iantiemann)[0];
 let hIdx = hist.length;
 // a line into the history of this machine, without repeating the last one
 export function remember(line) {
   const h = activeHist();
-  if (h[h.length - 1] !== line) { h.push(line); h.splice(0, h.length - 200); store.set(h === labHist ? 'labHist' : 'hist', h); }
+  if (h[h.length - 1] !== line) { h.push(line); h.splice(0, h.length - 200); store.set(histKey(), h); }
   hIdx = h.length;
 }
 // arrow-up starts from the newest line again, also right after switching machines

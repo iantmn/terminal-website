@@ -9,8 +9,11 @@ import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNa
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
 import { labSession, labDocker, mainDocker, LAB, vmDown } from './homelab.js';
+import { PVE, labSsh } from './pve.js';
 // the homelab or the main machine: commands about the system answer for the one you are on
-const onLab = () => state.host === 'homelab';
+const onLab = () => state.host !== 'iantiemann';
+// the data of the machine you are on: the Docker VM or the Proxmox host
+const here = () => state.host === 'pve' ? PVE : LAB;
 
 def('sudo', null, 'run a command as root', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
@@ -184,11 +187,13 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install pa
 // ssh homelab: only with Ian's key and its passphrase, and the key needs root to read
 def('ssh', 'more', 'log in to another machine', async args => {
   const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
-  if (state.host === 'homelab') return print(span('m', 'You are already on the homelab. ') + span('a2', 'exit') + span('m', ' goes back.'));
+  if (state.host === 'homelab') return labSsh(args);
+  if (state.host === 'pve') return print(span('m', 'This is as deep as it goes. ') + span('a2', 'exit') + span('m', ' goes back up.'));
   // with a key, the user is the one the key belongs to
   const [user, host] = target.includes('@') ? target.split('@') : [o.l || (o.i ? 'ian' : state.user), target];
   if (!host) return print(span('e', 'usage: ssh [-i key] [user@]host'));
-  if (!/^(homelab|10\.42\.0\.1)$/.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port ${esc(o.p || 22)}: Connection refused`));
+  if (/^(pve|pve\.lan|10\.20\.0\.10)$/i.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port 22: Connection timed out`) + span('m', '  (the Proxmox host only answers ssh from the homelab)'));
+  if (!/^(homelab|10\.42\.0\.1|10\.20\.0\.20)$/.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port ${esc(o.p || 22)}: Connection refused`));
   const denied = () => { saw('lab-denied'); print(span('e', `${esc(user)}@homelab: Permission denied (publickey).`)); };
   if (!o.i) return denied();
   const r = resolve(o.i);
@@ -206,13 +211,13 @@ def('ssh', 'more', 'log in to another machine', async args => {
   return labSession();
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
 def('reboot', null, 'restart the system', async args => {
-  if (onLab()) return vmDown('reboot', true);
+  if (onLab()) return vmDown('reboot', true, state.host === 'pve' ? 'host' : 'vm');
   unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot();
 });
 // a container has no system to shut down: PID 1 is nginx. The Docker VM it runs on can
 def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args, raw) => {
   const name = raw.trim().split(/\s+/)[0];
-  if (onLab()) return vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)));
+  if (onLab()) return vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)), state.host === 'pve' ? 'host' : 'vm');
   state.failed = true;
   printLines([
     span('e', 'System has not been booted with systemd as init system (PID 1). Can\'t operate.'),
@@ -224,10 +229,10 @@ def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args,
 def('uptime', 'more', 'how long this terminal has been running', args => {
   const [o] = getopt(args);
   if (onLab()) {
-    const d = LAB.bootedDaysAgo, since = new Date(Date.now() - d * 864e5 - 3 * 36e5);
+    const d = here().bootedDaysAgo, since = new Date(Date.now() - d * 864e5 - 3 * 36e5);
     if (o.s || o.since) return print(since.toISOString().replace('T', ' ').slice(0, 19));
     if (o.p || o.pretty) return print(`up ${Math.floor(d / 7)} weeks, ${d % 7} days, 3 hours`);
-    return print(`up ${d} days,  3:12,  1 user,  load average: 0.31, 0.27, 0.25`);
+    return print(`up ${d} days,  ${here().clock},  1 user,  load average: ${here().load}`);
   }
   if (o.s || o.since) {
     const d = new Date(BOOT_TIME), p = n => String(n).padStart(2, '0');
@@ -276,7 +281,7 @@ const curlDefault = url => print(/iantiemann/.test(url)
   : span('e', 'curl: (6) Could not resolve host') + span('m', ' - check the spelling, or the network.'));
 def(['uname'], 'more', 'what system this is', args => {
   const [o] = getopt(args);
-  const vals = onLab() ? LAB.uname : ['IanOS', 'iantiemann', '6.1.0-coffee', '#1 SMP PREEMPT_DYNAMIC', 'x86_64', 'GNU/JavaScript'];
+  const vals = onLab() ? here().uname : ['IanOS', 'iantiemann', '6.1.0-coffee', '#1 SMP PREEMPT_DYNAMIC', 'x86_64', 'GNU/JavaScript'];
   const parts = [['s', 'kernel-name'], ['n', 'nodename'], ['r', 'kernel-release'], ['v', 'kernel-version'], ['m', 'machine'], ['o', 'operating-system']].map((p, i) => [...p, vals[i]]);
   const pick = o.a || o.all ? parts : parts.filter(([s, l]) => o[s] || o[l]);
   print((pick.length ? pick : parts.slice(0, 1)).map(p => p[2]).join(' '));
@@ -322,17 +327,17 @@ const MAIN_PROCS = [
   { pid: 2016, user: 'ian',  cpu: 0.6,  mem: 0.9,  cmd: 'fix-the-printer --again' },
   { pid: 9000, user: 'guest', cpu: 0.3, mem: 0.2,  cmd: 'terminal.iantiemann.nl' },
 ];
-const procs = () => onLab() ? LAB.procs() : MAIN_PROCS;
+const procs = () => onLab() ? here().procs() : MAIN_PROCS;
 const jitter = v => Math.max(0, v + (Math.random() - 0.5) * v * 0.4);
 function topLines() {
   const rows = procs().map(p => ({ ...p, cpu: jitter(p.cpu) })).sort((a, b) => b.cpu - a.cpu);
   const total = rows.reduce((t, p) => t + p.cpu, 0);
   const bar = (pct, w = 30) => '|'.repeat(Math.round(pct / 100 * w)).padEnd(w, ' ');
   return [
-    `top - ${new Date().toLocaleTimeString()} up ${onLab() ? LAB.bootedDaysAgo + ' days' : uptime()},  1 user,  load average: ${onLab() ? '0.31, 0.27, 0.25' : '0.42, 0.13, 0.37'}`,
-    onLab() ? LAB.top.tasks : `Tasks: ${MAIN_PROCS.length} total,   ${MAIN_PROCS.length - 1} running,   1 sleeping (that's Ian, after midnight)`,
+    `top - ${new Date().toLocaleTimeString()} up ${onLab() ? here().bootedDaysAgo + ' days' : uptime()},  1 user,  load average: ${onLab() ? here().load : '0.42, 0.13, 0.37'}`,
+    onLab() ? here().top.tasks : `Tasks: ${MAIN_PROCS.length} total,   ${MAIN_PROCS.length - 1} running,   1 sleeping (that's Ian, after midnight)`,
     `CPU [${span('a', bar(Math.min(total, 100)))}] ${Math.min(total, 100).toFixed(1)}%`,
-    onLab() ? `Mem [${span('a2', bar(LAB.top.mem[0] / LAB.top.mem[1] * 100))}] ${LAB.top.mem[0]}G/${LAB.top.mem[1]}G   (${LAB.top.mem[2]})` : `Mem [${span('a2', bar(67.2))}] 10.7G/16.0G   (mostly browser tabs)`,
+    onLab() ? `Mem [${span('a2', bar(here().top.mem[0] / here().top.mem[1] * 100))}] ${here().top.mem[0]}G/${here().top.mem[1]}G   (${here().top.mem[2]})` : `Mem [${span('a2', bar(67.2))}] 10.7G/16.0G   (mostly browser tabs)`,
     '',
     span('w b', '  PID USER      %CPU  %MEM  COMMAND'),
     ...rows.map(p => `${String(p.pid).padStart(5)} ${pad(p.user, 8)} ${p.cpu.toFixed(1).padStart(5)} ${p.mem.toFixed(1).padStart(5)}  ${p.cmd === 'coffee.service' ? span('w', esc(p.cmd)) : esc(p.cmd)}`),
@@ -382,6 +387,7 @@ def(['kill', 'killall', 'pkill'], null, 'stop a process', args => {
   if (!t) return print(span('e', 'kill: usage: kill [-s sigspec | -n signum | -sigspec] pid | name'));
   const p = procs().find(p => String(p.pid) === t || p.cmd.split(' ')[0].replace('.service', '') === t || p.cmd.startsWith(t));
   if (!p) return print(span('e', `kill: (${esc(t)}) - No such process`));
+  if (state.host === 'pve') return print(span('m', 'Root on the hypervisor, killing processes. Every VM is one of them. Let\'s not. ') + cmd('qm list') + span('m', ' is the polite way.'));
   if (p.user === 'root') return print(span('e', `kill: (${p.pid}) - Operation not permitted`));
   if (p.cmd === 'coffee.service') { unlock('kill'); return print(span('w', 'Terminated: coffee.service') + span('m', '\ncoffee.service respawned (Restart=always). Some things are not negotiable.')); }
   if (p.user === 'guest') return print(span('m', 'You tried to kill the terminal you are using. Bold. Try ') + cmd('exit') + span('m', ' instead.'));
@@ -392,7 +398,7 @@ def(['kill', 'killall', 'pkill'], null, 'stop a process', args => {
 def('df', 'more', 'free disk space', args => {
   const [o] = getopt(args);
   const type = o.T || o['print-type'];
-  const rows = onLab() ? LAB.df : [
+  const rows = onLab() ? here().df : [
     ['/dev/brain', 'ext4', '1.0T', '987G', '13G', '99%', '/'],
     ['experience', 'years', '10y', '10y', '∞', '12%', '/home/guest/experience'],
     ['tmpfs', 'tmpfs', '640K', '640K', '0', '100%', '/dev/ideas'],
@@ -403,13 +409,13 @@ def('df', 'more', 'free disk space', args => {
   printLines([
     span('w b', line(['Filesystem', 'Type', 'Size', 'Used', 'Avail', 'Use%', 'Mounted on'])),
     ...rows.map(r => esc(line(r))),
-    span('m', onLab() ? LAB.dfNote : '/dev/brain is nearly full. Mostly config syntax and half-finished side projects.'),
+    span('m', onLab() ? here().dfNote : '/dev/brain is nearly full. Mostly config syntax and half-finished side projects.'),
   ]);
 }, { flags: [['-h, --human-readable', 'sizes like 1.0T (the default here)'], ['-T, --print-type', 'show the filesystem type']] });
 def('free', 'more', 'memory usage', args => {
   const [o] = getopt(args);
   const Ki = 1024, Mi = Ki * 1024, Gi = Mi * 1024;
-  const mem = onLab() ? LAB.mem.map(g => g * Gi) : [16 * Gi, 10 * Gi, 1.2 * Gi, 512 * Mi, 4.8 * Gi, 5.5 * Gi], swap = onLab() ? [8 * Gi, 0, 8 * Gi] : [2 * Gi, 0, 2 * Gi];
+  const mem = onLab() ? here().mem.map(g => g * Gi) : [16 * Gi, 10 * Gi, 1.2 * Gi, 512 * Mi, 4.8 * Gi, 5.5 * Gi], swap = onLab() ? [8 * Gi, 0, 8 * Gi] : [2 * Gi, 0, 2 * Gi];
   const unit = o.b || o.bytes ? 1 : o.k || o.kibi ? Ki : o.m || o.mebi ? Mi : o.g || o.gibi ? Gi : null;
   const human = v => v >= Gi ? (v / Gi < 10 ? (v / Gi).toFixed(1) : Math.round(v / Gi)) + 'Gi' : v >= Mi ? Math.round(v / Mi) + 'Mi' : v ? Math.round(v / Ki) + 'Ki' : '0B';
   const fmt = v => (unit ? String(Math.round(v / unit)) : human(v)).padStart(12);
@@ -418,14 +424,14 @@ def('free', 'more', 'memory usage', args => {
     'Mem:  ' + mem.map(fmt).join(''),
     'Swap: ' + swap.map(fmt).join(''),
     ...(o.t || o.total ? ['Total:' + [mem[0] + swap[0], mem[1] + swap[1], mem[2] + swap[2]].map(fmt).join('')] : []),
-    span('m', onLab() ? LAB.memNote : 'buff/cache is 80% browser tabs I will read later.'),
+    span('m', onLab() ? here().memNote : 'buff/cache is 80% browser tabs I will read later.'),
   ]);
 }, { flags: [['-h, --human', 'sizes like 16Gi (the default here)'], ['-b, -k, -m, -g', 'in bytes, KiB, MiB or GiB'], ['-t, --total', 'add a line with RAM + swap']] });
 def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => {
   const [o, rest] = getopt(args);
   const sub = /^\s*ifconfig\b/.test(raw) ? 'a' : rest[0] || 'a';
-  const ifs = onLab() ? LAB.ifs : [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '172.18.0.3/16', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500]];
-  if (/^r(oute)?$/.test(sub)) return printLines(onLab() ? LAB.routes : [
+  const ifs = onLab() ? here().ifs : [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '172.18.0.3/16', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500]];
+  if (/^r(oute)?$/.test(sub)) return printLines(onLab() ? here().routes : [
     // a container in the terminal_default Docker network: everything else goes through the Docker VM
     'default via 172.18.0.1 dev eth0',
     '172.18.0.0/16 dev eth0 proto kernel scope link src 172.18.0.3',
@@ -440,10 +446,10 @@ def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => 
 }, { usage: '[-br] [a | route | link]', flags: [['a, addr', 'addresses (default)'], ['route', 'the routing table'], ['link', 'interfaces only'], ['-br', 'brief: one line per interface']] });
 def('hostname', 'more', 'the name of this machine', args => {
   const [o] = getopt(args);
-  if (o.I || o['all-ip-addresses']) return print(onLab() ? LAB.ips : '172.18.0.3');
-  if (o.i || o['ip-address']) return print(onLab() ? LAB.ip : '172.18.0.3');
-  if (o.f || o.fqdn || o.long) return print(onLab() ? LAB.fqdn : 'terminal.iantiemann.nl');
-  if (o.d || o.domain) return print(onLab() ? LAB.domain : 'iantiemann.nl');
+  if (o.I || o['all-ip-addresses']) return print(onLab() ? here().ips : '172.18.0.3');
+  if (o.i || o['ip-address']) return print(onLab() ? here().ip : '172.18.0.3');
+  if (o.f || o.fqdn || o.long) return print(onLab() ? here().fqdn : 'terminal.iantiemann.nl');
+  if (o.d || o.domain) return print(onLab() ? here().domain : 'iantiemann.nl');
   print(state.host);
 }, { flags: [['-s, --short', 'the short name (default)'], ['-f, --fqdn', 'the full name with domain'], ['-d, --domain', 'only the domain'], ['-i', 'its IP address'], ['-I', 'every IP address']] });
 const USERS = { guest: [1001, [[1001, 'guest'], [27, 'curious'], [42, 'coffee']]], ian: [1000, [[1000, 'ian'], [27, 'sudo'], [42, 'coffee']]], root: [0, [[0, 'root']]] };
@@ -488,7 +494,7 @@ const MAIN_UNITS = [
   ['coffee.service', 'Keeps Ian operational', 128], ['cloudmodule-dev.service', 'CloudModule product development', 42],
   ['nginx.service', 'Serves this website', 1233], ['curiosity.target', 'Wants to know how everything works', null],
 ];
-const units = () => onLab() ? LAB.units : MAIN_UNITS;
+const units = () => onLab() ? here().units : MAIN_UNITS;
 def('systemctl', 'more', 'manage services', args => {
   const [o, [sub, unitArg = '']] = getopt(args);
   const name = unitArg.includes('.') ? unitArg : unitArg + '.service';
@@ -501,13 +507,13 @@ def('systemctl', 'more', 'manage services', args => {
     return printLines([
       `${span('a', '●')} ${esc(n)} - ${esc(desc)}`,
       `     Loaded: loaded (/lib/systemd/system/${esc(n)}; enabled)`,
-      `     Active: ${span('a', pid ? 'active (running)' : n.endsWith('.target') ? 'active' : 'active (exited)')} since ${n === 'coffee.service' ? '06:45 every morning' : onLab() ? LAB.bootedDaysAgo + ' days ago' : 'boot'}`,
+      `     Active: ${span('a', pid ? 'active (running)' : n.endsWith('.target') ? 'active' : 'active (exited)')} since ${n === 'coffee.service' ? '06:45 every morning' : onLab() ? here().bootedDaysAgo + ' days ago' : 'boot'}`,
       ...(pid ? [`   Main PID: ${pid} (${esc(n.split(/[.@]/)[0])})`] : []),
     ]);
   }
-  if (['start', 'stop', 'restart', 'enable', 'disable'].includes(sub)) return print(span('e', 'Failed to ' + esc(sub) + ' unit: Access denied') + span('m', onLab() ? ' (not even ian touches these by hand)' : ' (try asking nicely)'));
+  if (['start', 'stop', 'restart', 'enable', 'disable'].includes(sub)) return print(span('e', 'Failed to ' + esc(sub) + ' unit: Access denied') + span('m', onLab() ? here().unitNote : ' (try asking nicely)'));
   const rows = units().map(([n, desc, pid]) => esc(`${pad(n, 28)}loaded active ${pad(pid ? 'running' : n.endsWith('.target') ? 'active' : 'exited', 8)}${desc}`));
-  printLines([span('w b', 'UNIT                        LOAD   ACTIVE SUB     DESCRIPTION'), ...rows, span('m', 'Try ') + cmd(onLab() ? 'systemctl status docker' : 'systemctl status coffee')]);
+  printLines([span('w b', 'UNIT                        LOAD   ACTIVE SUB     DESCRIPTION'), ...rows, span('m', 'Try ') + cmd(onLab() ? 'systemctl status ' + here().unitHint : 'systemctl status coffee')]);
 }, { usage: '[status|is-active <unit>] [--failed]', flags: [['status <unit>', 'details of one service'], ['is-active <unit>', 'just active or inactive'], ['--failed', 'services that crashed']] });
 // fsck in the style of e2fsck: five passes, the last one finds the hidden corrupt theme
 def('fsck', 'more', 'check the filesystem for errors', async () => {
@@ -559,7 +565,7 @@ def('fsck', 'more', 'check the filesystem for errors', async () => {
 }, { usage: '[device]' });
 def(['netstat', 'ss'], 'more', 'network connections', args => {
   const [o] = getopt(args);
-  const rows = (onLab() ? LAB.netstat() : [
+  const rows = (onLab() ? here().netstat() : [
     ['tcp', '0.0.0.0:80', '0.0.0.0:*', 'LISTEN', '1233/nginx', '# this website'],
     ['tcp', '127.0.0.1:4242', '0.0.0.0:*', 'LISTEN', '128/coffee', '# the coffee machine'],
     ['udp', '127.0.0.11:53', '0.0.0.0:*', '', '-/dockerd', "# Docker's built-in DNS"],
@@ -577,13 +583,13 @@ def(['netstat', 'ss'], 'more', 'network connections', args => {
 const ago = s => { const parts = [[Math.floor(s / 3600), 'hour'], [Math.floor(s / 60) % 60, 'minute'], [s % 60, 'second']].filter(([n]) => n); return parts.map(([n, u]) => `${n} ${u}${n === 1 ? '' : 's'}`).join(', ') + ' ago'; };
 def('wg', null, 'WireGuard tunnels', args => {
   const sub = args[0] || 'show';
-  if (!onLab()) {
+  if (!onLab() || !here().wg) {
     state.failed = true;
-    return print(span('e', 'Unable to access interface: No such device') + span('m', '  This container has no tunnel. WireGuard ends on the Docker host.'));
+    return print(span('e', 'Unable to access interface: No such device') + span('m', onLab() ? '  The tunnel ends on the Docker VM (10.20.0.20), not on the host.' : '  This container has no tunnel. WireGuard ends on the Docker host.'));
   }
   if (!['show', 'showconf'].includes(sub)) { state.failed = true; return print(span('e', `Invalid subcommand: '${esc(sub)}'`) + span('m', ' (try wg show)')); }
   if (sub === 'showconf') return print(span('e', 'Unable to access interface: Operation not permitted') + span('m', '  (the private key stays private, even for you)'));
-  const { iface: [name, pub, port], peers } = LAB.wg;
+  const { iface: [name, pub, port], peers } = here().wg;
   if (args[1] === 'interfaces') return print(name);
   if (args[1] && args[1] !== name) { state.failed = true; return print(span('e', `Unable to access interface: No such device`)); }
   const since = Math.floor((Date.now() - BOOT_TIME) / 1000);
@@ -599,7 +605,7 @@ def('wg', null, 'WireGuard tunnels', args => {
 }, { usage: '[show [wg0|interfaces]]', flags: [['show', 'the interface and its peers (the default)'], ['show interfaces', 'only the names'], ['showconf', 'the config, private key included']] });
 def('dmesg', 'more', 'kernel messages', args => {
   const [o] = getopt(args);
-  const lines = onLab() ? LAB.dmesg : [
+  const lines = onLab() ? here().dmesg : [
     [0, 'Linux version 6.1.0-coffee (ian@iantiemann) #1 SMP PREEMPT_DYNAMIC'],
     [0.0042, 'Memory: 16G available (mostly browser tabs)'],
     [0.12, 'coffee: brewer initialised, 1 mug detected'],
@@ -611,7 +617,7 @@ def('dmesg', 'more', 'kernel messages', args => {
     [Math.floor((Date.now() - BOOT_TIME) / 1000), 'guest: still reading kernel logs, respect'],
   ];
   // -T prints wall-clock time instead of seconds since boot
-  const booted = onLab() ? Date.now() - LAB.bootedDaysAgo * 864e5 : BOOT_TIME;
+  const booted = onLab() ? Date.now() - here().bootedDaysAgo * 864e5 : BOOT_TIME;
   const stamp = t => o.T || o.ctime ? `[${new Date(booted + t * 1000).toString().slice(0, 24)}]` : `[${t.toFixed(6).padStart(12)}]`;
   printLines(lines.map(([t, msg, cls]) => cls ? span(cls, esc(`${stamp(t)} ${msg}`)) : esc(`${stamp(t)} ${msg}`)));
 }, { flags: [['-T, --ctime', 'human readable timestamps']] });
@@ -630,7 +636,7 @@ def('journalctl', 'more', 'system logs', async args => {
   const unit = o.u ?? o.unit, n = o.n ?? o.lines;
   const stamp = at => { const s = at.toString(); return s.slice(4, 10) + s.slice(15, 24); };
   const fmt = (name, pid, msg, at = new Date()) => `${span('m', esc(stamp(at)))} ${state.host} ${esc(`${name}[${pid}]: ${typeof msg === 'function' ? msg() : msg}`)}`;
-  let rows = (onLab() ? LAB.journal : JOURNAL).filter(([name]) => !unit || name === unit.replace('.service', ''));
+  let rows = (onLab() ? here().journal : JOURNAL).filter(([name]) => !unit || name === unit.replace('.service', ''));
   if (n !== undefined) rows = rows.slice(-parseInt(n, 10) || 0);
   if (o.r || o.reverse) rows = [...rows].reverse();
   if (rows.some(r => r[0] === 'treasure')) saw('frag1');
@@ -642,7 +648,7 @@ def('journalctl', 'more', 'system logs', async args => {
   // follow: new lines keep coming until Ctrl+C (or 30 of them)
   for (let i = 0, cup = 2; i < 30; i++) {
     await sleep(1500 + Math.random() * 1500);
-    const live = (onLab() ? LAB.live : LIVE).filter(([name]) => !unit || name === unit.replace('.service', ''));
+    const live = (onLab() ? here().live : LIVE).filter(([name]) => !unit || name === unit.replace('.service', ''));
     if (!live.length) continue;
     const [name, pid, msg] = live[Math.floor(Math.random() * live.length)];
     print(fmt(name, pid, msg.replace('{n}', () => cup++)));
@@ -767,7 +773,7 @@ const inWords = t => {
 def('crontab', 'more', 'scheduled jobs (read-only)', args => {
   const [o] = getopt(args, ['u']);
   const user = o.u || 'ian';
-  const tabs = onLab() ? LAB.crontabs : CRONTABS;
+  const tabs = onLab() ? here().crontabs : CRONTABS;
   if (o.e || o.r) return print(span('e', `crontab: ${o.e ? 'editing' : 'removing'} is not allowed, the schedule is read-only.`) + span('m', ' Even root does not touch the coffee schedule.'));
   if (!tabs[user]) return print(`no crontab for ${esc(user)}`);
   const rows = tabs[user];
@@ -875,7 +881,7 @@ for (const w of ['sudo', 'please', 'watch']) completes(w, completeWrapped);
 completes('which', () => commandNames());
 completes('kill', () => procs().filter(p => p.user !== 'root').map(p => p.cmd.split(' ')[0].replace('.service', '')));
 completes('systemctl', args => args.length ? units().map(([n]) => n.replace(/\.service$/, '')) : ['status', 'is-active', 'start', 'stop', 'restart', '--failed']);
-completes('journalctl', args => args.at(-1) === '-u' ? [...new Set((onLab() ? LAB.journal : JOURNAL).map(j => j[0]))] : null);
+completes('journalctl', args => args.at(-1) === '-u' ? [...new Set((onLab() ? here().journal : JOURNAL).map(j => j[0]))] : null);
 completes('git', args => args.length ? null : ['log', 'status', 'blame']);
 completes('docker', args => args.length ? null : ['ps']);
 completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);

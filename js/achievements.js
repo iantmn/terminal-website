@@ -64,6 +64,7 @@ export const ACH = {
   sudobang: ['Déjà vu',                    '',                                                        'sudo !!'],
   pwd:      ['Recalculating route...',     'Lost? Even a terminal gives directions if you ask.',      'pwd'],
   ghost:    ['Ghost in the shell',         'Some things only come out on one night of the year.',      'cat /dev/null on Halloween (31 October).'],
+  pve:      ['Hypervisor',                 'Under the homelab is one more machine. It only lets root in.', 'From the homelab: ssh -i ~/.ssh/ansible_pve root@pve, the key that ~/ansible/inventory.ini uses.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);
@@ -92,5 +93,5 @@ export function track(key, value, goal, ach) {
   if (set.size >= goal) unlock(ach);
 }
 // classics have no hint, secrets have a hint but never a solution: those you find yourself
-export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage'];
+export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage', 'pve'];
 export const noSolution = id => !ACH[id][1] || SECRET_ACH.includes(id);
