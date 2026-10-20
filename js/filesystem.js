@@ -393,7 +393,13 @@ export function initRoot() {
               'cd /home/ian/stacks/terminal && docker compose up -d',
             ], { mode: () => '-rwxr-xr-x' }),
             '.env': labFile(['TRANSIP_ACCOUNT_NAME=iantiemann', '# the private key lives in ./secrets, not in here'], { mode: () => '-rw-------' }),
-            site: dir({ 'index.html': labFile([esc('<!-- the page you are looking at, synced from GitHub -->'), 'You are already looking at it.']) }, { own: 'ian' }),
+            // what nginx serves: the files of this repo, synced from GitHub. labFile escapes plain lines itself
+            site: dir({
+              'index.html': labFile(['<!doctype html>', '<html lang="en">', '<!-- the page you are looking at right now -->', '<link rel="stylesheet" href="css/style.css">', '<script type="module" src="js/main.js"></script>', '...']),
+              'CNAME': labFile(['terminal.iantiemann.nl']),
+              css: dir({ 'style.css': labFile(['/* the themes and the terminal look */', ':root, body[data-theme="default"] { --bg:#1b1b1e; --fg:#d4d4d8; --accent:#50fa7b; }', '/* ...and 18 more themes */']) }, { own: 'ian' }),
+              js: dir(Object.fromEntries(['main.js', 'core.js', 'shell.js', 'input.js', 'filesystem.js', 'achievements.js', 'days.js'].map(n => [n, labFile([`// ${n}: the source is on GitHub`, 'repo: ' + PROFILE.repo])]).concat([['commands', dir(Object.fromEntries(['system.js', 'me.js', 'nav.js', 'fun.js', 'linux.js', 'homelab.js'].map(n => [n, labFile([`// ${n}`, '// yes, this file too'])])), { own: 'ian' })]])), { own: 'ian' }),
+            }, { own: 'ian' }),
             letsencrypt: dir({ 'acme.json': labFile(['{ "le": { "Certificates": [ { "domain": { "main": "terminal.iantiemann.nl" } } ] } }'], { mode: () => '-rw-------' }) }, { own: 'ian' }),
             secrets: dir({ 'transip.key': labFile(['-----BEGIN PRIVATE KEY-----', '(not today)', '-----END PRIVATE KEY-----'], { mode: () => '-rw-------' }) }, { own: 'ian', mode: () => 'drwx------' }),
           }, { own: 'ian' }),
