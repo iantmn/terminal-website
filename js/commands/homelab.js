@@ -153,9 +153,8 @@ const SYSTEM_PROCS = [
   { pid: 1, user: 'root', cpu: 0.0, mem: 0.1, cmd: '/sbin/init' },
   { pid: 902, user: 'root', cpu: 1.4, mem: 0.6, cmd: '/usr/bin/dockerd -H fd://' },
   { pid: 911, user: 'root', cpu: 0.6, mem: 0.3, cmd: '/usr/bin/containerd' },
-  { pid: 1104, user: 'root', cpu: 0.3, mem: 0.2, cmd: 'pveproxy' },
-  { pid: 1110, user: 'root', cpu: 0.2, mem: 0.2, cmd: 'pvedaemon' },
-  { pid: 1180, user: 'root', cpu: 0.4, mem: 0.1, cmd: 'pvestatd' },
+  { pid: 412, user: 'root', cpu: 0.0, mem: 0.0, cmd: 'sshd: /usr/sbin/sshd -D' },
+  { pid: 640, user: 'root', cpu: 0.1, mem: 0.0, cmd: '/usr/sbin/qemu-ga' },
   { pid: 1302, user: 'root', cpu: 0.1, mem: 0.0, cmd: 'cron' },
   { pid: 3311, user: 'ian', cpu: 0.0, mem: 0.0, cmd: '-bash' },
 ];
@@ -173,49 +172,49 @@ const CONTAINER_PROCS = {
 LOGS['printer-fix'] = ['Searching for printer ...', 'Error: printer not found', 'Exited with code 1'];
 const UNITS = [
   ['docker.service', 'Docker Application Container Engine', 902], ['containerd.service', 'containerd container runtime', 911],
-  ['pveproxy.service', 'PVE API Proxy Server', 1104], ['pvedaemon.service', 'PVE API Daemon', 1110], ['pvestatd.service', 'PVE Status Daemon', 1180],
+  ['qemu-guest-agent.service', 'QEMU Guest Agent (talks to the Proxmox host)', 640],
   ['ssh.service', 'OpenBSD Secure Shell server', 412], ['cron.service', 'Regular background program processing daemon', 1302],
-  ['zfs-zed.service', 'ZFS Event Daemon (zed)', 822], ['wg-quick@wg0.service', 'WireGuard via wg-quick(8) for wg0', null],
+  ['unattended-upgrades.service', 'Unattended Upgrades Shutdown', null], ['wg-quick@wg0.service', 'WireGuard via wg-quick(8) for wg0', null],
 ];
 export const LAB = {
   procs: () => [...SYSTEM_PROCS, ...Object.entries(CONTAINER_PROCS).filter(([name]) => running.has(name)).map(([, p]) => ({ user: 'root', ...p }))].sort((a, b) => a.pid - b.pid),
   units: UNITS,
   journal: [
-    ['pvestatd', 1180, 'all 3 nodes online'],
-    ['proxmox-backup', 2203, 'nightly sync to offsite storage completed, encrypted'],
+    ['qemu-ga', 640, 'info: guest-fsfreeze called (the nightly backup from the Proxmox host)'],
+    ['qemu-ga', 640, 'info: guest-fsfreeze-thaw called, backup done'],
     ['dockerd', 902, 'Container terminal-terminal-1 health status: healthy'],
     ['grafana', 1388, 'alert resolved: certificate renewed'],
     ['CRON', 2210, '(ian) CMD (/home/ian/stacks/terminal/watchdog.sh)'],
     ['sshd', 3311, 'Accepted publickey for ian from 10.42.0.12 port 52144 ssh2'],
   ],
-  live: [['CRON', 2210, '(ian) CMD (/home/ian/stacks/terminal/watchdog.sh)'], ['dockerd', 902, 'Container terminal-terminal-1 health status: healthy'], ['pvestatd', 1180, 'all 3 nodes online'], ['traefik', 1201, 'GET / 200 (terminal.iantiemann.nl)']],
+  live: [['CRON', 2210, '(ian) CMD (/home/ian/stacks/terminal/watchdog.sh)'], ['dockerd', 902, 'Container terminal-terminal-1 health status: healthy'], ['qemu-ga', 640, 'info: guest-ping called'], ['traefik', 1201, 'GET / 200 (terminal.iantiemann.nl)']],
   netstat: () => [
     ['tcp', '0.0.0.0:22', '0.0.0.0:*', 'LISTEN', '412/sshd', ''],
     ...(running.has('terminal-traefik-1') ? [['tcp', '0.0.0.0:80', '0.0.0.0:*', 'LISTEN', '1201/traefik', ''], ['tcp', '0.0.0.0:443', '0.0.0.0:*', 'LISTEN', '1201/traefik', '# this site']] : []),
-    ['tcp', '0.0.0.0:8006', '0.0.0.0:*', 'LISTEN', '1104/pveproxy', '# the Proxmox web interface'],
     ...(running.has('monitoring-grafana-1') ? [['tcp', '172.17.0.1:3000', '0.0.0.0:*', 'LISTEN', '1388/grafana', '']] : []),
     ...(running.has('monitoring-prometheus-1') ? [['tcp', '172.17.0.1:9090', '0.0.0.0:*', 'LISTEN', '1402/prometheus', '']] : []),
     ...(running.has('automation-n8n-1') ? [['tcp', '172.17.0.1:5678', '0.0.0.0:*', 'LISTEN', '1503/n8n', '']] : []),
     ['udp', '0.0.0.0:51820', '0.0.0.0:*', '', '-/wireguard', ''],
     ['tcp', '10.42.0.1:22', '10.42.0.12:52144', 'ESTABLISHED', '3311/sshd: ian', '# that is you'],
   ],
-  ifs: [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['vmbr0', 'UP', '192.168.1.10/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.1/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420], ['docker0', 'UP', '172.17.0.1/16', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500]],
-  routes: ['default via 192.168.1.1 dev vmbr0 proto kernel onlink', '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.1', '172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1', '192.168.1.0/24 dev vmbr0 proto kernel scope link src 192.168.1.10'],
-  ips: '192.168.1.10 10.42.0.1 172.17.0.1', ip: '192.168.1.10', fqdn: 'homelab.lan', domain: 'lan',
-  df: [['rpool/ROOT/pve-1', 'zfs', '98G', '21G', '77G', '22%', '/'], ['rpool/data', 'zfs', '1.7T', '612G', '1.1T', '36%', '/rpool/data'], ['backup', 'zfs', '3.6T', '1.9T', '1.7T', '53%', '/mnt/backup'], ['tmpfs', 'tmpfs', '6.3G', '2.1M', '6.3G', '1%', '/run']],
+  ifs: [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['ens18', 'UP', '192.168.1.20/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.1/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420], ['docker0', 'UP', '172.17.0.1/16', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500]],
+  routes: ['default via 192.168.1.1 dev ens18 proto dhcp metric 100', '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.1', '172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1', '192.168.1.0/24 dev ens18 proto kernel scope link src 192.168.1.20'],
+  ips: '192.168.1.20 10.42.0.1 172.17.0.1', ip: '192.168.1.20', fqdn: 'homelab.lan', domain: 'lan',
+  df: [['/dev/sda1', 'ext4', '62G', '14G', '45G', '24%', '/'], ['/dev/sdb1', 'ext4', '492G', '187G', '280G', '41%', '/var/lib/docker'], ['tmpfs', 'tmpfs', '1.6G', '1.2M', '1.6G', '1%', '/run']],
   dfNote: 'Room for one more service. There is always room for one more service.',
-  mem: [64, 41.2, 3.1, 0.4, 19.7, 21.9], memNote: 'Most of used is the ZFS cache. That is what it is for.',
-  uname: ['Linux', 'homelab', '6.8.12-4-pve', '#1 SMP PREEMPT_DYNAMIC PMX 6.8.12-4', 'x86_64', 'GNU/Linux'],
+  mem: [16, 9.4, 1.1, 0.2, 5.5, 6.3], memNote: 'Sixteen of the host\'s gigabytes, nine of them containers.',
+  uname: ['Linux', 'homelab', '6.1.0-25-amd64', '#1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3', 'x86_64', 'GNU/Linux'],
   bootedDaysAgo: 47,
   dmesg: [
-    [0, 'Linux version 6.8.12-4-pve (build@proxmox) #1 SMP PREEMPT_DYNAMIC PMX 6.8.12-4'],
-    [0.0021, 'Memory: 65536M available'],
-    [1.84, 'ZFS: Loaded module v2.2.6-pve1, ZFS pool version 5000'],
-    [3.11, 'vmbr0: port 1(enp3s0) entered forwarding state'],
+    [0, 'Linux version 6.1.0-25-amd64 (debian-kernel@lists.debian.org) #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3'],
+    [0, 'DMI: QEMU Standard PC (Q35 + ICH9, 2009), BIOS 4.2023.08-4 02/15/2024'],
+    [0, 'Hypervisor detected: KVM'],
+    [0.0021, 'Memory: 16384M available'],
+    [1.21, 'virtio_net virtio1 ens18: renamed from eth0'],
     [4.02, 'wireguard: WireGuard 1.0.0 loaded'],
     [9.73, 'docker0: port 1(veth3f2a1c) entered forwarding state'],
   ],
-  top: { tasks: 'Tasks: 312 total, 1 running, 311 sleeping', mem: [41.2, 64.0, 'ZFS cache, mostly'] },
+  top: { tasks: 'Tasks: 143 total, 1 running, 142 sleeping', mem: [9.4, 16.0, 'containers, mostly'] },
   crontabs: {
     ian: [
       ['* * * * *', '/home/ian/stacks/terminal/watchdog.sh', 'brings the site back when it stops answering'],
@@ -223,9 +222,8 @@ export const LAB = {
       ['0 5 1 * *', 'cd ~/stacks && for s in */; do (cd $s && docker compose pull -q); done', 'fresh images, monthly'],
     ],
     root: [
-      ['0 3 * * *', '/usr/sbin/proxmox-backup-client backup --repository pbs', 'every guest, every night'],
-      ['0 2 1 * *', '/usr/sbin/zpool scrub rpool', 'checks every block once a month'],
-      ['0 6 * * 1', '/usr/sbin/smartctl -t short /dev/sda', ''],
+      ['0 4 * * 0', '/sbin/fstrim -av', 'gives freed space back to the Proxmox host'],
+      ['0 2 * * *', 'docker system df > /var/log/docker-usage.log', ''],
       ['15 4 * * 0', 'apt update && apt -y full-upgrade', ''],
     ],
   },
@@ -238,7 +236,7 @@ export async function labSession() {
   HOME.splice(0, 2, 'home', 'ian'); state.cwd = [...HOME];
   resetHistoryCursor();
   unlock('homelab');
-  printLines(['Linux homelab 6.8.12-pve #1 SMP PREEMPT_DYNAMIC x86_64', '', span('m', 'The programs included with Proxmox VE are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), '']);
+  printLines(['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), '']);
   try {
     for (;;) {
       state.busy = false; inrow.style.visibility = '';

@@ -311,15 +311,15 @@ export function initRoot() {
   LAB = dir({
     etc: dir({
       hostname: file(['homelab']),
-      'os-release': file(['PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"', 'NAME="Debian GNU/Linux"', 'VERSION_ID="12"', 'ID=debian', '# with Proxmox VE on top']),
-      motd: file(['The programs included with Proxmox VE are free software.', 'Back up before you touch anything. Then back up again.']),
+      'os-release': file(['PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"', 'NAME="Debian GNU/Linux"', 'VERSION_ID="12"', 'ID=debian', '# a VM on the Proxmox host, Docker lives in here and not on the host']),
+      motd: file(['The programs included with the Debian GNU/Linux system are free software.', 'Back up before you touch anything. Then back up again.']),
     }),
     home: dir({
       ian: dir({
         'README.md': labFile(() => [
           span('w b', '# homelab'), '',
           'You made it in. Hardly anyone gets this far.', '',
-          'This box runs Proxmox with a few VMs and a lot of Docker. It is where the',
+          'This is the Docker VM, one of a few VMs on a Proxmox host (Docker stays off the host). It is where the',
           'guides on my site start: monitoring, logging, backups, reverse proxies.', '',
           'Look around: ' + cmd('ls stacks') + ', ' + cmd('cat stacks/terminal/docker-compose.yml') + ', ' + cmd('docker ps') + '.',
           'The terminal you came from runs in ' + span('a2', '~/stacks/terminal') + '. Please be gentle with it.', '',
@@ -450,18 +450,19 @@ export function initRoot() {
           }, { own: 'ian' }),
         }, { own: 'ian' }),
         'backups.log': labFile([
-          '03:00:01 pbs: backup job started (6 guests)',
-          '03:04:12 pbs: verify ok, 0 errors',
+          '# the Proxmox host backs this VM up to Proxmox Backup Server every night',
+          '03:00:01 vzdump: backup of VM 102 (homelab) started, mode snapshot',
+          '03:04:12 vzdump: guest-agent froze the filesystem, consistent snapshot',
           '03:20:45 pbs: sync to offsite storage completed, encrypted',
           '03:20:46 pbs: last restore test: 9 days ago, ok',
         ]),
         notes: dir({
-          'todo.md': labFile(['[ ] label every cable', '[ ] upgrade to the next Proxmox release', '[x] offsite backups (there is a guide for that)', '[ ] stop adding services', '[ ] see line 4']),
+          'todo.md': labFile(['[ ] label every cable', '[ ] upgrade the Proxmox host to the next release', '[x] offsite backups (there is a guide for that)', '[ ] stop adding services', '[ ] see line 4']),
           'ideas.md': labFile(['- a terminal version of my website        (done)', '- a typing test for sysadmins            (done)', '- a homelab you can ssh into             (you are in it)', '- a rubber duck that does code review']),
         }, { own: 'ian' }),
-        '.bash_history': labFile(['docker compose pull && docker compose up -d', 'zfs list', 'pvesh get /nodes', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'exit']),
+        '.bash_history': labFile(['docker compose pull && docker compose up -d', 'docker system df', 'docker image prune -af', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'exit']),
       }, { own: 'ian' }),
     }),
-    var: dir({ log: dir({ 'auth.log': file(['sshd[3311]: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key id_homelab', 'sshd[3311]: pam_unix(sshd:session): session opened for user ian', 'sshd[2981]: Connection closed by 192.0.2.66 port 22 [preauth]']), syslog: file(['systemd[1]: Started Proxmox VE API daemon.', 'pvestatd: all 3 nodes online', 'smartd: all disks PASSED', 'ian: logged in from 10.42.0.12', 'CRON[2210]: (ian) CMD (/home/ian/stacks/terminal/watchdog.sh)']) }) }),
+    var: dir({ log: dir({ 'auth.log': file(['sshd[3311]: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key id_homelab', 'sshd[3311]: pam_unix(sshd:session): session opened for user ian', 'sshd[2981]: Connection closed by 192.0.2.66 port 22 [preauth]']), syslog: file(['systemd[1]: Started qemu-guest-agent.service - QEMU Guest Agent.', 'systemd[1]: Started docker.service - Docker Application Container Engine.', 'qemu-ga: info: guest-ping called', 'ian: logged in from 10.42.0.12', 'CRON[2210]: (ian) CMD (/home/ian/stacks/terminal/watchdog.sh)']) }) }),
   });
 }

@@ -534,7 +534,7 @@ def(['netstat', 'ss'], 'more', 'network connections', args => {
     ['tcp', '0.0.0.0:22', '0.0.0.0:*', 'LISTEN', '412/sshd', '# not for you'],
     ['tcp', '127.0.0.1:4242', '0.0.0.0:*', 'LISTEN', '128/coffee', '# the coffee machine'],
     ['udp', '0.0.0.0:51820', '0.0.0.0:*', '', '-/wireguard', '# wg0 to the homelab'],
-    ['tcp', '10.42.0.12:41822', '10.42.0.1:8006', 'ESTABLISHED', '256/firefox', '# the Proxmox web interface on the homelab'],
+    ['tcp', '10.42.0.12:41822', '192.168.1.10:8006', 'ESTABLISHED', '256/firefox', '# the Proxmox web interface on the host'],
     ['tcp', '10.42.0.12:52144', '10.42.0.1:22', 'ESTABLISHED', '256/ssh', '# ian@homelab'],
     ['tcp', '127.0.4.2:22', 'you:52731', 'ESTABLISHED', '9000/terminal', "# that's you"],
   ]).filter(([pr, , , st]) => (!(o.t || o.tcp || o.u || o.udp) || ((o.t || o.tcp) && pr === 'tcp') || ((o.u || o.udp) && pr === 'udp'))
