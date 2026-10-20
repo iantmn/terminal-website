@@ -16,6 +16,7 @@ import './commands/fun.js';
 import './commands/linux.js';
 import './commands/python.js';
 import './commands/qr.js';
+import './commands/guestbook.js';
 
 // after every command is defined, so /usr/bin can list them
 initRoot();

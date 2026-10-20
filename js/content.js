@@ -9,6 +9,8 @@ export const PROFILE = {
   linkedin: 'https://www.linkedin.com/in/ian-tiemann/',
   rss: SITE + '/feed.xml',
   email: '',
+  // the guestbook backend (an n8n webhook for example); empty keeps the guestbook closed. See js/commands/guestbook.js
+  guestbook: '',
 };
 
 export const ABOUT = {
