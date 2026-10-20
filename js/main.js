@@ -13,6 +13,7 @@ import './commands/me.js';
 import './commands/nav.js';
 import './commands/fun.js';
 import './commands/linux.js';
+import './commands/python.js';
 
 // after every command is defined, so /usr/bin can list them
 initRoot();
