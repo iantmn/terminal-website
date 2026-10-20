@@ -190,6 +190,55 @@ const INCIDENT = {
   x_wait: { t: 60, end: 'lose', text: ['An hour later: still down. DNS records do not grow back on their own.'] },
   x_typo: { t: 30, end: 'lose', text: ['You type 192.0.2.01 instead of .10. Now it resolves to nothing at all. Nice try though.'] },
 };
+// a typing test with the lines a sysadmin types all day
+const TYPING_LINES = [
+  'docker compose up -d && docker compose logs -f traefik',
+  'sudo systemctl restart nginx && journalctl -u nginx -n 50',
+  'git commit -am "fix the typo" && git push origin main',
+  'ssh -i ~/.ssh/id_ed25519 admin@10.42.0.1 uptime',
+  'grep -rn TODO src/ | sort | uniq -c | sort -rn',
+  'tar -czf backup.tar.gz /etc /home && ls -lh backup.tar.gz',
+  'kubectl get pods -n monitoring -o wide',
+  'find /var/log -name "*.log" -mtime +7 -delete',
+  'curl -sI https://www.iantiemann.nl | head -n 1',
+  'chmod 600 ~/.ssh/config && ssh-add -l',
+];
+// how many single-character edits turn a into b
+function edits(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+def('typing', 'fun', 'a typing test, sysadmin edition', async () => {
+  if (state.capture) return print(span('e', 'typing: needs a real keyboard, not a pipe'));
+  const target = TYPING_LINES[Math.floor(Math.random() * TYPING_LINES.length)];
+  printLines([span('m', 'Type this line as fast as you can, then press Enter:'), '', '  ' + span('a2 b', esc(target)), '']);
+  let pasted = false;
+  const onPaste = () => { pasted = true; };
+  const kb = document.getElementById('kb');
+  kb.addEventListener('paste', onPaste);
+  state.busy = false; inrow.style.visibility = '';
+  const t0 = Date.now();
+  let typed;
+  try { typed = await ask(span('w', 'type> ')); } finally { kb.removeEventListener('paste', onPaste); }
+  if (typed === null || typed === '') return print(span('m', 'Stopped. Your keyboard can rest.'));
+  if (pasted) return print(span('e', 'Pasting does not count.') + span('m', ' Nice try though, that is very sysadmin of you.'));
+  const minutes = (Date.now() - t0) / 60000;
+  const wpm = Math.round(typed.length / 5 / minutes);
+  const accuracy = Math.max(0, Math.round((1 - edits(typed, target) / target.length) * 100));
+  const best = store.get('typingBest', 0), counts = accuracy >= 90;
+  if (counts && wpm > best) store.set('typingBest', wpm);
+  print(`${span('a b', wpm + ' WPM')} ${span('m', '·')} ${span(accuracy >= 95 ? 'a' : 'w', accuracy + '% accuracy')}` +
+    span('m', counts ? (wpm > best && best ? `  new best, it was ${best}` : `  best: ${Math.max(best, wpm)}`) : '  (90% accuracy or more counts for your best)'));
+  if (accuracy < 100) print(span('m', 'The line was: ') + esc(target));
+  if (wpm >= 60 && accuracy >= 95) unlock('typist');
+  else if (accuracy >= 95) print(span('m', '60 WPM or more gets you something. ') + cmd('typing', 'again?'));
+});
+
 def('incident', 'fun', 'be on call for one night', async () => {
   if (state.capture) return print(span('e', 'incident: you cannot pipe a pager'));
   const clock = m => { const t = 3 * 60 + 12 + m; return `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
