@@ -2,6 +2,9 @@ import { term, out } from './core.js';
 
 // the themes `theme` lists, in that order. gold (treasure hunt) and corrupt (hidden) come on top.
 // every theme needs a block in css/style.css
+// until someone picks a theme, follow the system: light mode gets the light theme
+export const defaultTheme = () => matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'default';
+
 export const THEMES = ['default', 'matrix', 'amber', 'dracula', 'solarized', 'nord', 'gruvbox', 'monokai', 'tokyonight', 'catppuccin',
   'synthwave', 'ubuntu', 'powershell', 'c64', 'light', 'github', 'oranje'];
 

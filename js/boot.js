@@ -4,6 +4,7 @@ import { out, inrow, state, print, span, cmd, link, sleep, renderPrompt, focusIn
 import { dayMessage } from './days.js';
 import { bootSound, soundOn, setSound, resumeAudio } from './sound.js';
 import { banner } from './visuals.js';
+import { defaultTheme } from './themes.js';
 
 // ---- boot ----
 export async function boot() {
@@ -36,7 +37,7 @@ export async function boot() {
   // today's message and the achievement count get their own block
   if (sn || unlocked.size) print('');
   if (sn) print(span('w', sn.msg));
-  if (sn && sn.theme && document.body.dataset.theme === 'default') document.body.dataset.theme = sn.theme;
+  if (sn && sn.theme && document.body.dataset.theme === defaultTheme()) document.body.dataset.theme = sn.theme;
   if (unlocked.size) print(span('m', `Welcome back - you've found ${unlocked.size}/${Object.keys(ACH).length} `) + cmd('achievements') + span('m', '.'));
   print('');
   if (nightOwl) unlock('nightowl');

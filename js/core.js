@@ -7,6 +7,7 @@ export const BOOT_TIME = Date.now();
 export const store = {
   get(k, d) { try { const v = localStorage.getItem('iterm.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('iterm.' + k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem('iterm.' + k); } catch {} },
 };
 
 export const HOME = ['home', 'guest'];

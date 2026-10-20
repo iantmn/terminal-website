@@ -4,7 +4,7 @@ import { C } from './registry.js';
 import { unlock } from './achievements.js';
 import { initRoot } from './filesystem.js';
 import { startFeed } from './feed.js';
-import { startGlitch } from './themes.js';
+import { startGlitch, defaultTheme } from './themes.js';
 import { powerScreen, boot } from './boot.js';
 import { run } from './input.js';
 // command modules only register themselves; the order sets the order within each help section
@@ -17,7 +17,7 @@ import './commands/linux.js';
 // after every command is defined, so /usr/bin can list them
 initRoot();
 
-document.body.dataset.theme = store.get('theme', 'default');
+document.body.dataset.theme = store.get('theme', defaultTheme());
 if (document.body.dataset.theme === 'corrupt') startGlitch();
 if (store.get('crt', false)) document.body.classList.add('crt');
 startFeed();

@@ -7,7 +7,7 @@ import { hist } from '../input.js';
 import { C, def } from '../registry.js';
 import { aliases, found } from '../shell.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
-import { startGlitch, THEMES } from '../themes.js';
+import { startGlitch, THEMES, defaultTheme } from '../themes.js';
 import { banner, neofetch } from '../visuals.js';
 
 // about
@@ -149,7 +149,7 @@ def('reset-settings', 'system', 'theme, sound, CRT and aliases back to default',
   state.busy = false; inrow.style.visibility = '';
   const answer = await ask(span('w', 'Reset theme, sound, CRT mode and aliases to their defaults? Your achievements stay. [y/N] '));
   if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Aborted. Nothing changed.'));
-  document.body.dataset.theme = 'default'; store.set('theme', 'default');
+  document.body.dataset.theme = defaultTheme(); store.del('theme');
   document.body.classList.remove('crt'); store.set('crt', false);
   setSound(true);
   Object.keys(aliases).forEach(k => delete aliases[k]); store.set('aliases', aliases);
