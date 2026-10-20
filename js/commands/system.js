@@ -1,17 +1,23 @@
 // help, settings and the shell built-ins
-import { unlock, unlocked, ACH_IDS, ACH, noSolution } from '../achievements.js';
+import { unlock, unlocked, ACH_IDS, ACH, noSolution, SECRET_ACH, SEASONAL_ACH } from '../achievements.js';
 import { SITE, PROFILE } from '../content.js';
 import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt, toHash } from '../core.js';
 import { resetDiary } from '../filesystem.js';
 import { hist, activeHist } from '../input.js';
 import { C, def, completes } from '../registry.js';
-import { aliases, found, commandNames } from '../shell.js';
+import { aliases, found, commandNames, helpLines } from '../shell.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
 import { startGlitch, THEMES, defaultTheme } from '../themes.js';
 import { banner, neofetch } from '../visuals.js';
 
 // about
-def(['help', 'h', '?'], 'system', 'show this help', () => {
+def(['help', 'h', '?'], 'system', 'show this help', args => {
+  // help grep is grep --help; a hidden command nobody found yet stays hidden, like an unknown topic in bash
+  if (args[0]) {
+    const c = C[args[0].toLowerCase()];
+    if (!c || (!c.group && !found.has(c.name))) return print(span('e', `help: no help topics match '${esc(args[0])}'.`) + span('m', ' Try ') + cmd('help') + span('m', ' or ') + span('a2', 'man -k &lt;word&gt;'));
+    return printLines(helpLines(c, args[0]));
+  }
   const groups = { me: 'Get to know me', nav: 'Navigate the filesystem', fun: 'Just for fun', system: 'System' };
   for (const [g, title] of Object.entries(groups)) {
     const list = Object.values(C).filter(c => c.group === g && !c.alias);
@@ -80,6 +86,20 @@ def('date', 'system', 'current date & time', args => {
 }, { usage: '[+format]', flags: [['+format', 'like +%Y-%m-%d or +%H:%M (strftime)'], ['-u, --utc', 'in UTC'], ['-I, --iso-8601', 'only the date, as 2026-10-19'], ['-R, --rfc', 'RFC 2822, as in email headers']] });
 def('banner', 'system', 'show the banner', () => banner());
 def(['neofetch', 'fastfetch', 'screenfetch'], 'system', 'system information', () => { unlock('neofetch'); neofetch(); });
+// a theme's colours, read from css/style.css, so the list can show each theme without switching to it
+const colorCache = {};
+function themeColors(t) {
+  if (colorCache[t]) return colorCache[t];
+  const out = {};
+  for (const sheet of document.styleSheets) {
+    let rules; try { rules = sheet.cssRules; } catch { continue; }
+    for (const r of rules) {
+      if (!r.selectorText || !r.selectorText.split(',').some(sel => sel.trim() === `body[data-theme="${t}"]`)) continue;
+      for (const k of ['bg', 'fg', 'accent', 'accent2', 'link', 'warn', 'err']) { const v = r.style.getPropertyValue('--' + k).trim(); if (v) out[k] = v; }
+    }
+  }
+  return colorCache[t] = out;
+}
 def('theme', 'system', 'change colour theme', args => {
   const themes = [...THEMES, ...(unlocked.has('treasure') ? ['gold'] : []), ...(unlocked.has('corrupt') ? ['corrupt'] : [])];
   if (args[0] === 'random') {
@@ -88,8 +108,14 @@ def('theme', 'system', 'change colour theme', args => {
     args = [others[Math.floor(Math.random() * others.length)]];
   }
   if (!args[0] || !(themes.includes(args[0]) || args[0] === 'corrupt')) {
-    print(span('m', 'usage: theme &lt;name&gt;   current: ') + span('a', document.body.dataset.theme));
-    return print(themes.map(t => cmd('theme ' + t, t)).join('  ') + '  ' + cmd('theme random', 'random'));
+    if (args[0]) print(span('e', `theme: no theme called '${esc(args[0])}'`));
+    const now = document.body.dataset.theme, w = Math.max(...themes.map(t => t.length)) + 2;
+    printLines(themes.map(t => {
+      const c = themeColors(t), mark = t === now ? span('a', '● ') : '  ';
+      const swatch = `<span style="background:${c.bg};color:${c.fg};padding:0 .6ch;border-radius:2px">Aa</span> ` + ['accent', 'accent2', 'link', 'warn', 'err'].map(k => `<span style="color:${c[k]}">██</span>`).join('');
+      return mark + cmd('theme ' + t, t) + ' '.repeat(w - t.length) + swatch;
+    }));
+    return print(span('m', 'Click one, or ') + cmd('theme random'));
   }
   document.body.dataset.theme = args[0]; store.set('theme', args[0]);
   if (args[0] === 'corrupt') {
@@ -121,14 +147,23 @@ def('crt', 'system', 'toggle retro CRT effect', () => {
   if (on) try { tone(60, 0, 0.5, 'sawtooth', 0.04); tone(2400, 0.05, 0.08, 'square', 0.02); } catch {}
   print(span('a', `CRT mode ${on ? 'on' : 'off'}`)); if (on) unlock('crt');
 });
+const bar = (n, total, w = 24) => { const k = Math.round(n / total * w); return span('a', '█'.repeat(k)) + span('m', '░'.repeat(w - k)); };
 def('achievements', 'system', 'easter eggs you found', () => {
   const total = ACH_IDS.length;
-  print(span('w b', `Achievements ${unlocked.size}/${total}`));
-  ACH_IDS.forEach((id, i) => {
-    const [name, hint] = ACH[id], n = String(i + 1).padStart(2, ' ');
-    if (unlocked.has(id)) print(`  ${span('w', '★')} ${span('m', n)} ${esc(name)}  ${span('m', '(' + esc(ACH[id][2]) + ')')}`);
-    else print(`  ${span('m', '☆ ' + n + ' ???')}  ${hint ? span('m', '- ' + esc(hint)) : span('m', '(classic, no hint)')}`);
-  });
+  print(`${span('w b', 'Achievements')}  ${bar(unlocked.size, total)}  ${unlocked.size}/${total} ${span('m', `(${Math.round(unlocked.size / total * 100)}%)`)}`);
+  // the numbers stay the order of the list, so hint <n> keeps meaning the same one
+  const kind = id => SEASONAL_ACH.includes(id) ? 'seasonal' : SECRET_ACH.includes(id) ? 'secret' : !ACH[id][1] ? 'classic' : 'normal';
+  const GROUPS = [['normal', 'Achievements', 'each one has a hint'], ['classic', 'Classics', 'what everyone tries in a terminal, no hints'], ['secret', 'Secrets', 'a hint, never a solution'], ['seasonal', 'Seasonal', 'only on one day of the year']];
+  for (const [k, title, about] of GROUPS) {
+    const ids = ACH_IDS.filter(id => kind(id) === k), got = ids.filter(id => unlocked.has(id)).length;
+    print('');
+    print(`${span('w b', title)} ${span('m', `${got}/${ids.length} · ${about}`)}`);
+    ids.forEach(id => {
+      const i = ACH_IDS.indexOf(id), [name, hint] = ACH[id], n = String(i + 1).padStart(2, ' ');
+      if (unlocked.has(id)) print(`  ${span('w', '★')} ${span('m', n)} ${esc(name)}  ${span('m', '(' + esc(ACH[id][2]) + ')')}`);
+      else print(`  ${span('m', '☆ ' + n + ' ???')}  ${hint ? span('m', '- ' + esc(hint)) : ''}`);
+    });
+  }
   print('');
   if (unlocked.size) print(span('m', 'Want to start over? ') + cmd('reset-achievements'));
   if (unlocked.size === total) print(span('a b', 'You found everything. Respect.'));
@@ -288,5 +323,6 @@ completes('theme', () => [...THEMES, 'random', ...(unlocked.has('treasure') ? ['
 completes('sound', () => ['on', 'off']);
 completes('hint', args => args.length ? ['--solution'] : ['-r', ...ACH_IDS.map((_, i) => i + 1)]);
 completes('man', () => [...commandNames(), 'ian']);
+completes('help', () => commandNames());
 completes('unalias', () => ['-a', ...Object.keys(aliases)]);
 completes('history', () => ['-c']);
