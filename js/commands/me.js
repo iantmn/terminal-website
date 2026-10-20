@@ -4,7 +4,7 @@ import { EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, kv, sleep, state } from '../core.js';
 import { refreshFeed, feedReady } from '../feed.js';
 import { def } from '../registry.js';
-import { aboutLines, fmtExp, fmtEdu, skillLines, fmtPost, cvLines, contactLines } from '../render.js';
+import { aboutLines, fmtExp, fmtEdu, skillLines, fmtPost, cvLines, contactLines, findPost, postChoices } from '../render.js';
 
 function parseUA() {
   const u = navigator.userAgent;
@@ -98,11 +98,13 @@ def(['articles', 'blog', 'guides', 'posts'], 'me', 'technical guides I wrote', a
 }, { flags: [['--refresh', 'fetch new posts from the RSS feed first']] });
 def(['projects', 'portfolio'], 'me', 'projects I worked on', async () => { await feedReady; listPosts('project'); });
 
-def(['read', 'summary'], 'me', 'summary of a post', args => {
-  const p = POSTS.find(p => p.n === parseInt(args[0], 10));
-  if (!p) return print(span('e', 'usage: read &lt;n&gt;') + span('m', '  (numbers from ') + cmd('articles') + span('m', ' or ') + cmd('projects') + span('m', ')'));
-  printLines(fmtPost(p));
-}, { usage: '<n>', flags: [['n', 'the number from articles or projects']] });
+def(['read', 'summary'], 'me', 'summary of a post', async args => {
+  await feedReady;
+  const { post, list } = findPost(args);
+  if (list) return printLines(postChoices(list, 'read'));
+  if (!post) return print(span('e', args.length ? `read: no post matches '${esc(args.join(' '))}'` : 'usage: read &lt;n|name&gt;') + span('m', '  (see ') + cmd('articles') + span('m', ' or ') + cmd('projects') + span('m', ')'));
+  printLines(fmtPost(post));
+}, { usage: '<n|name>', flags: [['n', 'the number from articles or projects'], ['name', 'words from the title, like read traefik']] });
 
 def(['cv', 'resume'], 'me', 'my CV', () => printLines(cvLines()));
 def(['contact', 'socials', 'social'], 'me', 'how to reach me', () => printLines(contactLines()));

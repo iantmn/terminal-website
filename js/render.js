@@ -40,6 +40,21 @@ export const fmtEdu = e => [
   ...relatedLines(e.at),
 ];
 
+// a post by number or by name (read traefik, open proxmox backup): every word has to be in the title or file name.
+// gives { post } for one hit, { list } for several, {} for none
+export function findPost(args) {
+  if (!args.length) return {};
+  const n = parseInt(args[0], 10);
+  if (String(n) === args[0]) { const post = POSTS.find(p => p.n === n); return post ? { post } : {}; }
+  const words = args.map(w => w.toLowerCase());
+  const list = POSTS.filter(p => words.every(w => `${p.title} ${p.file}`.toLowerCase().includes(w)));
+  return list.length === 1 ? { post: list[0] } : list.length ? { list } : {};
+}
+export const postChoices = (list, verb) => [
+  span('m', `${list.length} posts match, pick one:`),
+  ...list.map(p => `  ${span('m', `[${String(p.n).padStart(2, ' ')}]`)} ${p.icon} <a class="cmd" data-cmd="${verb} ${p.n}">${esc(p.title)}</a>`),
+];
+
 export function fmtPost(p) {
   const guide = p.type === 'guide';
   const origin = p.at && [...EXPERIENCE, ...EDUCATION].find(x => x.at === p.at);

@@ -1,9 +1,10 @@
 // moving around the filesystem
 import { unlock, track } from '../achievements.js';
-import { PROFILE, SITE, POSTS } from '../content.js';
+import { PROFILE, SITE } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
 import { resolve, lsLong, lsEntry, fileMeta, DIARY, diary, diaryReadable } from '../filesystem.js';
 import { def } from '../registry.js';
+import { findPost, postChoices } from '../render.js';
 
 def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
   const [o, targets] = getopt(args);
@@ -138,12 +139,16 @@ def(['open', 'xdg-open'], 'nav', 'open a post or link', args => {
     ]);
   }
   const map = { github: PROFILE.github, repo: PROFILE.repo, linkedin: PROFILE.linkedin, site: SITE, blog: SITE, cv: SITE + '/CV/', rss: PROFILE.rss };
-  const p = POSTS.find(p => p.n === parseInt(a, 10));
-  const url = p ? absUrl(p.url) : map[a] || (/^https?:\/\//.test(args[0] || '') ? args[0] : null);
-  if (!url) return print(span('e', 'usage: open &lt;n|github|repo|linkedin|site|cv|rss&gt;'));
+  let url = map[a] || (/^https?:\/\//.test(args[0] || '') ? args[0] : null);
+  if (!url && args.length) {
+    const { post, list } = findPost(args);
+    if (list) return printLines(postChoices(list, 'open'));
+    if (post) url = absUrl(post.url);
+  }
+  if (!url) return print(span('e', args.length ? `open: nothing called '${esc(args.join(' '))}'` : 'usage: open &lt;n|name|github|repo|linkedin|site|cv|rss&gt;'));
   print(span('m', 'opening ') + link(url) + span('m', ' ...'));
   window.open(url, '_blank', 'noopener');
-}, { usage: '<n|name>' });
+}, { usage: '<n|name>', flags: [['n', 'a post, by its number'], ['name', 'a post, by words from its title'], ['github, repo, linkedin, site, cv, rss', 'my pages']] });
 
 def(['chmod', 'chown'], null, 'change who may read a file (chmod) or who owns it (chown)', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0].toLowerCase();
