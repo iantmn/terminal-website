@@ -4,6 +4,7 @@ import { C } from './registry.js';
 import { unlock } from './achievements.js';
 import { initRoot } from './filesystem.js';
 import { startFeed } from './feed.js';
+import { recordVisit } from './visits.js';
 import { startGlitch, defaultTheme } from './themes.js';
 import { powerScreen, boot } from './boot.js';
 import { run } from './input.js';
@@ -23,6 +24,7 @@ document.body.dataset.theme = store.get('theme', defaultTheme());
 if (document.body.dataset.theme === 'corrupt') startGlitch();
 if (store.get('crt', false)) document.body.classList.add('crt');
 startFeed();
+recordVisit();
 
 // #ls+-la runs ls -la. Older links used - and _ for spaces (#cowsay-hi); those still work when the first word is no command
 function linkedCommand() {

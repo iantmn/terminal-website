@@ -1,5 +1,5 @@
 // the real Linux commands, each with a twist
-import { unlock } from '../achievements.js';
+import { unlock, unlocked, ACH_IDS } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, promptHTML, uptime, BOOT_TIME, HOME, getopt } from '../core.js';
@@ -7,6 +7,7 @@ import { FS, resolve } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
+import { visits, currentLogin, streak } from '../visits.js';
 
 def('sudo', null, 'run a command as root', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
@@ -644,6 +645,46 @@ def(['traceroute', 'tracert', 'mtr'], 'more', 'the route to a host', async args 
   for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${o.n ? hops[i][1] : `${hops[i][0]} (${hops[i][1]})`}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
 }, { usage: '[-n] [-m hops] <host>', flags: [['-m hops', 'give up after this many hops'], ['-n', 'numbers only, no names']] });
 
+// who is here, who was here, and what they plan
+const when = t => new Date(t).toString().slice(0, 21);
+const hhmm = ms => { const m = Math.max(0, Math.round(ms / 60000)); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+def('who', 'more', 'who is logged in', () => print(`${pad(state.user, 9)}pts/0        ${when(currentLogin()?.start || BOOT_TIME).slice(4)} (your browser)`));
+def('last', 'more', 'your earlier visits', args => {
+  const [o] = getopt(args, ['n']);
+  const now = currentLogin();
+  const rows = [...visits.logins].reverse().slice(0, o.n ? parseInt(o.n, 10) || 10 : 10);
+  printLines([
+    ...rows.map(l => {
+      const live = l === now;
+      const tail = live ? span('a', '  still logged in') : l.end ? `- ${when(l.end).slice(16)}  (${hhmm(l.end - l.start)})` : span('m', '  gone, no goodbye');
+      return esc(`guest    pts/0    browser          ${when(l.start)} `) + tail;
+    }),
+    '', span('m', `wtmp begins ${when(visits.first)}`),
+  ]);
+}, { usage: '[-n count]', flags: [['-n count', 'only the last visits']] });
+const PEOPLE = {
+  guest: () => [
+    'Login: guest                            Name: You, the curious visitor',
+    'Directory: /home/guest                  Shell: /bin/ish',
+    `On since ${when(currentLogin()?.start || BOOT_TIME)} on pts/0 from your browser`,
+    `First visit ${when(visits.first)}, ${visits.count} visit${visits.count === 1 ? '' : 's'}, ${streak()} day${streak() === 1 ? '' : 's'} in a row`,
+    `Plan: find all ${ACH_IDS.length} achievements. ${unlocked.size} down.`,
+  ],
+  ian: () => [
+    'Login: ian                              Name: Ian Tiemann',
+    'Directory: /home/ian                    Shell: /usr/bin/coffee',
+    'Last login on homelab from 10.42.0.12',
+    'Project: the CloudModule',
+    'Plan: finish this terminal website. It is never finished.',
+  ],
+  root: () => ['Login: root                             Name: root', 'Directory: /root                        Shell: /usr/sbin/nologin', 'Plan: none. root does not plan, root reacts.'],
+};
+def(['finger', 'pinky'], 'more', 'about a user', args => {
+  const who = (args[0] || state.user).toLowerCase();
+  if (!PEOPLE[who]) return print(span('e', `finger: ${esc(who)}: no such user.`));
+  printLines(PEOPLE[who]().map(esc));
+}, { usage: '[user]', flags: [['user', 'guest (you), ian or root']] });
+
 // a read-only crontab. The next run of every line comes from the real cron rules
 const CRONTABS = {
   ian: [
@@ -816,3 +857,4 @@ completes('docker', args => args.length ? null : ['ps']);
 completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);
 completes('dig', () => ['+short', 'iantiemann.nl']);
 completes('crontab', args => args.at(-1) === '-u' ? Object.keys(CRONTABS) : null);
+completes('finger', () => Object.keys(PEOPLE));
