@@ -1,7 +1,7 @@
 // about Ian: experience, education, skills, posts
 import { unlock } from '../achievements.js';
 import { EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE, SKILLS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, kv, sleep, state } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, kv, sleep, state, charsPerLine } from '../core.js';
 import { refreshFeed, feedReady } from '../feed.js';
 import { def, completes } from '../registry.js';
 import { aboutLines, fmtExp, fmtEdu, skillLines, fmtPost, cvLines, contactLines, findPost, postChoices } from '../render.js';
@@ -117,6 +117,38 @@ def(['talk', 'hire', 'chat'], null, '', () => {
     `  ${cmd('linkedin')}   ${cmd('contact')}`,
   ]);
 });
+
+// my years side by side: jobs as bars, studies as ◆ in the year I finished, posts per year below
+def(['timeline', 'career'], 'me', 'my career over the years', () => {
+  const now = new Date().getFullYear(), first = 2016, years = now - first + 1;
+  // a narrower label column on phones, so the years still fit
+  const labelW = charsPerLine() < 60 ? 15 : 26;
+  // as wide as the screen allows, 2 to 5 characters per year
+  const w = Math.max(2, Math.min(5, Math.floor((charsPerLine() - labelW - 2) / years)));
+  const col = y => (y - first) * w;
+  const label = (text, command) => cmd(command, text.length > labelW - 1 ? text.slice(0, labelW - 2) + '…' : text) + ' '.repeat(Math.max(1, labelW - text.length));
+  // 2016 when there is room, 16 when it is narrow, and on a phone only every other year
+  const axis = Array.from({ length: years }, (_, i) => (w < 3 && i % 2 ? '' : String(first + i).slice(w >= 4 ? 0 : 2)).padEnd(w)).join('');
+  const lines = [span('m', ' '.repeat(labelW) + axis), span('w b', 'Work')];
+  // oldest first; "IT specialist, software engineer & project manager" shows as its first part
+  const years_ = e => e.period.split(/\s*-\s*/).map(s => /now/i.test(s) ? now : parseInt(s, 10));
+  [...EXPERIENCE].sort((a, b) => years_(a)[0] - years_(b)[0]).forEach(e => {
+    const [from, to] = years_(e);
+    const bar = ' '.repeat(col(from)) + '█'.repeat((to - from + 1) * w - 1);
+    lines.push(label(`${e.org} · ${e.role.split(',')[0]}`, 'exp ' + (EXPERIENCE.indexOf(e) + 1)) + span('a', bar));
+  });
+  lines.push('', span('w b', 'Study'));
+  [...EDUCATION].sort((a, b) => a.year - b.year).forEach(e => {
+    const y = parseInt(e.year, 10);
+    lines.push(label(`${e.org} · ${e.title.replace(/^(BSc|HBO) /, '')}`, 'edu ' + (EDUCATION.indexOf(e) + 1)) + ' '.repeat(col(y)) + span('w', '◆'));
+  });
+  // posts per year, as a number in the year column
+  const perYear = Array(years).fill(0);
+  POSTS.forEach(p => { const i = parseInt(p.date, 10) - first; if (i >= 0 && i < years) perYear[i]++; });
+  lines.push('', span('w b', 'Writing'), label('posts per year', 'articles') + perYear.map(n => span(n ? 'a2' : 'm', String(n || '·').padEnd(w))).join(''));
+  printLines(lines);
+  print(span('m', 'Click a line for the full story.'));
+}, { usage: '', flags: [] });
 
 def('cloudmodule', 'me', 'peek at the product I work on', async () => {
   print(span('a b', 'CloudModule') + span('m', ' · status page · illustrative demo data, not a live feed'));
