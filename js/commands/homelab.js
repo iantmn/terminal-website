@@ -224,6 +224,14 @@ export const LAB = {
   mem: [16, 9.4, 1.1, 0.2, 5.5, 6.3], memNote: 'Sixteen of the host\'s gigabytes, nine of them containers.',
   uname: ['Linux', 'homelab', '6.1.0-25-amd64', '#1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3', 'x86_64', 'GNU/Linux'],
   bootedDaysAgo: 47,
+  // wg show. Keys are made up, the endpoints are documentation addresses. An active peer shakes hands every two minutes
+  wg: {
+    iface: ['wg0', 'oKq7Y1mWc0h3bJ8vZ2nLr5tE9uXy4sDf6gHa1jPq0Ws=', 51820],
+    peers: [
+      { name: "Ian's laptop", key: 'Xm9vB2cT7nQ4rW1yZ8kL3pH6sD0fJ5gA2eU9iO4tRk=', endpoint: '198.51.100.23:49152', ips: '10.42.0.12/32', handshake: 12, active: true, rx: '1.21 GiB', tx: '3.87 GiB' },
+      { name: "Ian's phone", key: 'Pq3rS8tU1vW6xY0zA4bC9dE2fG7hI5jK3lM8nO1pQs=', endpoint: '203.0.113.88:37811', ips: '10.42.0.13/32', handshake: 3 * 3600 + 14 * 60, rx: '84.2 MiB', tx: '412.5 MiB' },
+    ],
+  },
   dmesg: [
     [0, 'Linux version 6.1.0-25-amd64 (debian-kernel@lists.debian.org) #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3'],
     [0, 'DMI: QEMU Standard PC (Q35 + ICH9, 2009), BIOS 4.2023.08-4 02/15/2024'],

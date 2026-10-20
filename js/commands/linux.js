@@ -573,6 +573,30 @@ def(['netstat', 'ss'], 'more', 'network connections', args => {
     ...rows.map(([pr, l, f, st, pid, note]) => esc(`${pad(pr, 5)} ${pad(l, 20)} ${pad(f, 20)} ${pad(st, 12)} ${pid}`) + (note ? '  ' + span('m', esc(note)) : '')),
   ]);
 }, { usage: '[-tulnp]', flags: [['-t, --tcp', 'TCP only'], ['-u, --udp', 'UDP only'], ['-l, --listening', 'only ports that wait for connections'], ['-n, -p', 'numbers and programs (always on here)']] });
+// wg: WireGuard. The tunnel ends on the Docker VM, so only the homelab has one
+const ago = s => { const parts = [[Math.floor(s / 3600), 'hour'], [Math.floor(s / 60) % 60, 'minute'], [s % 60, 'second']].filter(([n]) => n); return parts.map(([n, u]) => `${n} ${u}${n === 1 ? '' : 's'}`).join(', ') + ' ago'; };
+def('wg', null, 'WireGuard tunnels', args => {
+  const sub = args[0] || 'show';
+  if (!onLab()) {
+    state.failed = true;
+    return print(span('e', 'Unable to access interface: No such device') + span('m', '  This container has no tunnel. WireGuard ends on the Docker host.'));
+  }
+  if (!['show', 'showconf'].includes(sub)) { state.failed = true; return print(span('e', `Invalid subcommand: '${esc(sub)}'`) + span('m', ' (try wg show)')); }
+  if (sub === 'showconf') return print(span('e', 'Unable to access interface: Operation not permitted') + span('m', '  (the private key stays private, even for you)'));
+  const { iface: [name, pub, port], peers } = LAB.wg;
+  if (args[1] === 'interfaces') return print(name);
+  if (args[1] && args[1] !== name) { state.failed = true; return print(span('e', `Unable to access interface: No such device`)); }
+  const since = Math.floor((Date.now() - BOOT_TIME) / 1000);
+  const k = (key, v) => '  ' + span('b', key + ':') + ' ' + v;
+  printLines([
+    span('a b', 'interface') + ': ' + span('a', name),
+    k('public key', pub), k('private key', '(hidden)'), k('listening port', port), '',
+    ...peers.flatMap(p => [
+      span('w b', 'peer') + ': ' + span('w', p.key) + span('m', '  # ' + esc(p.name)),
+      k('endpoint', p.endpoint), k('allowed ips', p.ips), k('latest handshake', ago(p.active ? (p.handshake + since) % 120 || 1 : p.handshake + since)), k('transfer', `${p.rx} received, ${p.tx} sent`), ...(p.active ? [k('persistent keepalive', 'every 25 seconds')] : []), '',
+    ]),
+  ]);
+}, { usage: '[show [wg0|interfaces]]', flags: [['show', 'the interface and its peers (the default)'], ['show interfaces', 'only the names'], ['showconf', 'the config, private key included']] });
 def('dmesg', 'more', 'kernel messages', args => {
   const [o] = getopt(args);
   const lines = onLab() ? LAB.dmesg : [
