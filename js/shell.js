@@ -3,6 +3,7 @@ import { unlock, unlocked } from './achievements.js';
 import { esc, span, cmd, pad, print, printLines, state, store, getopt } from './core.js';
 import { resolve, cannotWrite, writeFile, TMP_NOTE } from './filesystem.js';
 import { C } from './registry.js';
+import { pager } from './pager.js';
 
 export function tokenize(s) {
   const out = []; let cur = '', q = null;
@@ -58,7 +59,7 @@ function noteFound(c) {
 }
 
 // a wrapper (sudo, please, watch) hands the rest of the line to another command, so only its first arg counts
-const LAB_COMMANDS = new Set(['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'docker', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find']);
+const LAB_COMMANDS = new Set(['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'docker', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less']);
 function invoke(c, name, args, line) {
   if (state.host === 'homelab') {
     if (c.name === 'help') return printLines([span('w b', 'homelab'), '  ' + [...LAB_COMMANDS].sort().map(n => cmd(n)).join('  '), '', span('m', 'A lean install. ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')]);
@@ -231,6 +232,10 @@ async function execPipeline(line) {
     const [name, ...args] = tokenize(stages[i]);
     const f = FILTERS[(name || '').toLowerCase()];
     const last = i === stages.length - 1;
+    if (/^(less|more)$/i.test(name || '')) {
+      const [o] = getopt(args);
+      return pager(i === 1 ? html : lines.map(esc), 'stdin', { numbers: o.N || o['LINE-NUMBERS'] });
+    }
     if (f) {
       const c = C[name.toLowerCase()];
       const outLines = wantsHelp(c, args) ? helpLines(c, name) : f(args, lines);

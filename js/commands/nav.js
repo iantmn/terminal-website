@@ -5,6 +5,7 @@ import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPr
 import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode } from '../filesystem.js';
 import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
+import { pager } from '../pager.js';
 
 def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
   const [o, targets] = getopt(args);
@@ -81,7 +82,7 @@ def('cd', 'nav', 'change directory', args => {
   if (underHome(state.cwd) && ['experience', 'education', 'projects', 'articles'].includes(state.cwd[2])) track('rooms', state.cwd[2], 4, 'explorer');
 }, { usage: '[dir|-]', flags: [['-', 'go back to the previous directory'], ['~', 'go home (also: cd without arguments)']] });
 
-def(['cat', 'less', 'more', 'bat'], 'nav', 'print a file', args => {
+def(['cat', 'bat'], 'nav', 'print a file', args => {
   const [o, files] = getopt(args);
   if (!files.length) return print(span('e', 'usage: cat [-nbs] &lt;file&gt;'));
   const numberAll = o.n || o.number, numberFull = o.b || o['number-nonblank'], squeeze = o.s || o['squeeze-blank'];
@@ -214,6 +215,16 @@ def('find', 'nav', 'find files by name', args => {
   }
   printLines(out);
 }, { usage: '[path...] [-name pattern] [-type f|d] [-maxdepth n]', flags: [['path', 'where to start (default: .)'], ['-name pattern', 'names like *.md, with * and ?'], ['-iname pattern', 'the same, ignoring case'], ['-type f|d', 'only files (f) or folders (d)'], ['-maxdepth n', 'go at most n folders deep'], ['-mindepth n', 'skip the first n levels']] });
+
+// less: one page at a time, with search. cmd | less works too (shell.js)
+def(['less', 'more'], 'nav', 'read a file one page at a time', async args => {
+  const [o, files] = getopt(args);
+  if (!files.length) return print(span('e', 'Missing filename ("less --help" for help)') + span('m', ' Try ') + cmd('less about.txt') + span('m', ' or ') + cmd('history | less'));
+  const r = resolve(files[0]);
+  if (r.error) { state.failed = true; return print(span('e', `${esc(files[0])}: ${r.error === 'denied' ? 'Permission denied' : 'No such file or directory'}`)); }
+  if (r.node.type === 'dir') { state.failed = true; return print(span('e', `${esc(files[0])} is a directory`)); }
+  await pager(r.node.read(), files[0], { numbers: o.N || o['LINE-NUMBERS'] });
+}, { usage: '[-N] <file>', flags: [['-N, --LINE-NUMBERS', 'number every line'], ['space / b', 'a page down / up'], ['j / k', 'a line down / up'], ['g / G', 'the top / the end'], ['/word, n, N', 'search, next, previous'], ['q', 'quit']] });
 
 // touch, mkdir and rmdir: in /tmp they do what they say, everywhere else the filesystem is read-only
 const MAKE = {
