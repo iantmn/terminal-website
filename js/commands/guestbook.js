@@ -5,7 +5,6 @@
 // The endpoint has to allow this site in CORS, check lengths again, rate-limit and moderate; this file trusts nothing it gets back.
 import { print, printLines, span, esc, cmd, ask, store, state, inrow } from '../core.js';
 import { PROFILE } from '../content.js';
-import { def, completes } from '../registry.js';
 
 const MAX_NAME = 30, MAX_MESSAGE = 200;
 const closed = () => print(span('m', 'The guestbook is not open yet. Until then: ') + cmd('contact'));
@@ -57,6 +56,4 @@ async function sign() {
   print(span('a', 'Signed, thank you!') + span('m', ' It shows up once I had a look at it.'));
 }
 
-def('guestbook', 'me', 'read or sign the guestbook', args => args[0] === 'sign' ? sign() : read(),
-  { usage: '[sign]', flags: [['sign', 'leave a message yourself']] });
-completes('guestbook', args => args.length ? null : ['sign']);
+export const guestbook = args => args[0] === 'sign' ? sign() : read();

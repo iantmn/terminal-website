@@ -1,8 +1,7 @@
 // qr: a QR code for my pages or any text, to move from the screen to a phone.
 // A small encoder of its own (byte mode, error correction level M, versions 1 to 10), after the ISO 18004 steps
 import { print, span, esc } from '../core.js';
-import { PROFILE, SITE } from '../content.js';
-import { def, completes } from '../registry.js';
+import { QR_PAGES } from '../content.js';
 
 // ---- Reed-Solomon over GF(256) ----
 const gfMul = (x, y) => {
@@ -158,14 +157,12 @@ export function qrSvg(text, px = 200) {
   return `<svg class="qr" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${px}" height="${px}" shape-rendering="crispEdges" role="img" aria-label="QR code for ${esc(text)}"><rect class="qr-light" width="${total}" height="${total}" fill="#fff"/><path class="qr-dark" d="${d}" fill="#000"/></svg>`;
 }
 
-const PAGES = () => ({ site: SITE, terminal: location.origin + location.pathname, linkedin: PROFILE.linkedin, github: PROFILE.github, repo: PROFILE.repo, cv: SITE + '/CV/', rss: PROFILE.rss });
-def('qr', 'me', 'a QR code, to open a page on your phone', (args, raw) => {
-  const pages = PAGES();
+export function qr(args, raw) {
+  const pages = QR_PAGES();
   const what = args.length ? raw.replace(/^\s*qr\s+/, '').replace(/^(["'])(.*)\1$/s, '$2') : 'terminal';
   const text = pages[what.toLowerCase()] || what;
   const svg = qrSvg(text);
   if (!svg) return print(span('e', 'qr: that is too long for a small QR code, keep it under about 200 characters.'));
   print(svg);
   print(span('m', 'Scan it with your phone camera: ') + esc(text));
-}, { usage: '[page|text]', flags: [['terminal', 'this terminal (the default)'], ['site, linkedin, github, repo, cv, rss', 'my pages'], ['text', 'any link or text, like qr https://example.com']] });
-completes('qr', args => args.length ? null : Object.keys(PAGES()));
+}

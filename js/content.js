@@ -270,3 +270,6 @@ export const POSTS = [
     points:['Data visualisation to support parking policy','Privacy by design: anonymised data, tracking bikes rather than people','Values, revenue model and app design'],
     stack:['IoT','GPS','Data visualisation','App design'] },
 ];
+
+// the pages qr knows by name
+export const QR_PAGES = () => ({ site: SITE, terminal: location.origin + location.pathname, linkedin: PROFILE.linkedin, github: PROFILE.github, repo: PROFILE.repo, cv: SITE + '/CV/', rss: PROFILE.rss });

@@ -14,9 +14,7 @@ import './commands/me.js';
 import './commands/nav.js';
 import './commands/fun.js';
 import './commands/linux.js';
-import './commands/python.js';
-import './commands/qr.js';
-import './commands/guestbook.js';
+import './commands/lazy.js'; // python, qr and guestbook, loaded on first use
 
 // after every command is defined, so /usr/bin can list them
 initRoot();

@@ -1,7 +1,6 @@
 // a very small Python: numbers, strings, variables, a few built-ins and math. Its own parser, no eval
 import { unlock } from '../achievements.js';
 import { print, printLines, span, esc, link, ask, state, inrow, getopt } from '../core.js';
-import { def } from '../registry.js';
 
 class PyError extends Error { constructor(type, msg) { super(msg); this.type = type; } }
 const err = (type, msg) => { throw new PyError(type, msg); };
@@ -253,7 +252,7 @@ function splitArgs(s) {
 
 const newEnv = () => ({ vars: new Map(), modules: new Set() });
 
-def(['python', 'python3', 'py'], 'fun', 'a tiny Python (my first language)', async (args, raw) => {
+export async function python(args, raw) {
   const [o] = getopt(args, ['c']);
   if (o.V || o.version) return print('Python 3.12.0');
   const env = newEnv();
@@ -272,13 +271,13 @@ def(['python', 'python3', 'py'], 'fun', 'a tiny Python (my first language)', asy
     printLines(r.lines);
     if (r.leave) return;
   }
-}, { usage: '[-c code]', version: true, flags: [['-c code', 'run code and exit, like python -c "print(2**10)"'], ['-V, --version', 'the version']] });
+}
 
 // calc 2**10: the same Python, one expression, always prints the answer
-def(['calc', 'bc'], 'more', 'a calculator (the same tiny Python)', (args, raw) => {
+export function calc(args, raw) {
   const expr = raw.replace(/^\s*\S+\s*/, '').replace(/^(["'])(.*)\1$/s, '$2');
   if (!expr) return print(span('m', 'usage: calc 2**10   or for more: ') + span('a2', 'python'));
   const env = newEnv(); env.modules.add('math');
   const r = runLine(expr, env, true);
   printLines(r.lines.length ? r.lines : [span('m', '(nothing to show)')]);
-}, { usage: '<expression>', flags: [['expression', 'like 2**10, 0xff + 1, math.sqrt(2) or 7 // 2']] });
+}
