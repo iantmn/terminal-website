@@ -29,6 +29,18 @@ That serves it on http://localhost:8080. Without Docker, `python3 -m http.server
 
 A new command is a `def(names, group, description, run, { usage, flags })` call in one of the command files. Every command gets `-h`/`--help` and `--version` from that, and `completes(name, fn)` adds Tab completion for its arguments.
 
+## Tests
+
+Every command and flag, and the interactive parts (keys, pager, the homelab), are checked in a headless browser. GitHub Actions runs them on every push (`.github/workflows/tests.yml`). Locally:
+
+```bash
+npm install --no-save playwright@1.48.2
+npx playwright install chromium
+node tests/run.mjs
+```
+
+With Chrome or Edge installed, `CHANNEL=msedge node tests/run.mjs` skips the browser download. The suites also run from the browser console: `import('/tests/flags.js').then(m => m.runAll(m.T, 1))`.
+
 ## Guestbook
 
 The page is static, so the guestbook needs a small backend. Set `PROFILE.guestbook` in `js/content.js` to a JSON endpoint (an n8n webhook works) that:
