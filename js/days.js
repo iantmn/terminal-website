@@ -11,7 +11,7 @@ const WEEKDAYS = [
   [
     '😴 Sunday: idle mode. Wake-on-LAN at 08:00 Monday.',
     '📚 Sunday: catching up on reading. Speaking of which: ' + cmd('articles'),
-    '🧘 Sunday. No tickets, no pages, no DNS. Probably.',
+    '🧘 Sunday. No tickets, no pages, no alerts. Probably.',
   ],
   [
     '☕ Monday. weekend.service has stopped. Next restart is scheduled for Friday 17:00.',
@@ -52,7 +52,7 @@ export function dayMessage(d = new Date()) {
   const nth = (n, weekday) => wd === weekday && Math.ceil(day / 7) === n;
   const lastSunday = () => wd === 0 && day > new Date(y, m, 0).getDate() - 7;
   const special = (() => {
-    if (m === 1 && day === 1) return { msg: '🎆 Happy New Year! New year, same DNS problems.' };
+    if (m === 1 && day === 1) return { msg: '🎆 Happy New Year! New year, same backlog.' };
     if (m === 1 && day === 28) return { msg: '🔒 Data Privacy Day. Curious what your browser tells every website you visit? ' + cmd('whoami') };
     if (m === 2 && day === 14) return { msg: "❤️ Happy Valentine's Day. Roses are #ff0000, violets are #0000ff, I wrote this in CSS and it still won’t center." };
     if (m === 2 && day === 29) return { msg: '🐸 Leap day! A day that only exists once every four years, just like a fully labelled server rack.' };
@@ -61,7 +61,7 @@ export function dayMessage(d = new Date()) {
     if (m === 3 && day === 31) return { msg: '💾 World Backup Day. A backup only counts once you restored it. When did you last test yours?' };
     // the clocks go forward on the last Sunday of March
     if (m === 3 && lastSunday()) return { msg: '⏰ The clocks went forward tonight. If your cron job at 02:30 did not run, now you know why.' };
-    if (m === 4 && day === 1) return { msg: '🃏 April Fools! Today it is DNS. Even when it is not DNS.' };
+    if (m === 4 && day === 1) return { msg: '🃏 April Fools! Every bug is a feature today. Tomorrow they are bugs again.' };
     if (m === 4 && day === 4) return { msg: '🔍 4/04, Error 404 Day: the message for today could not be found.' };
     if (m === 4 && day === 27) return { theme: 'oranje', msg: "🧡 Happy King's Day! Everything is orange today." };
     // World Password Day: the first Thursday of May

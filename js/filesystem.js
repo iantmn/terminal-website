@@ -95,7 +95,7 @@ function buildFS() {
         ]; }),
         'settings.conf': file(() => [
           '# ian.conf', 'coffee_level = high', 'editor = "anything but vim"',
-          'tabs_or_spaces = spaces', 'dns_blame = always', 'over_engineering = enabled  # by design',
+          'tabs_or_spaces = spaces', 'backups = 3-2-1', 'over_engineering = enabled  # by design',
         ].map(esc)),
       }),
     }),
@@ -247,11 +247,11 @@ export function initRoot() {
         '# m  h  dom mon dow  user  command',
         '45 6   *   *   1-5  ian   /usr/bin/coffee --brew --strong',
         '0  3   *   *   *    root  /usr/sbin/backup --offsite --encrypt',
-        '*/5 *  *   *   *    root  /usr/bin/check-dns   # it is always dns',
+        '*/5 *  *   *   *    root  /usr/bin/check-dns',
         '0  17  *   *   5    root  /usr/bin/deploy --never',
       ]),
       fstab: file(['# <device>    <mount>       <type>  <options>', '/dev/brain    /             ext4    defaults,curious  0 1', '/dev/coffee   /mnt/mug      tmpfs   rw,hot            0 0', 'tmpfs         /dev/ideas    tmpfs   size=640K         0 0']),
-      'resolv.conf': file(['nameserver 127.0.0.53', '# if something is broken, check this file first. it was DNS.']),
+      'resolv.conf': file(['nameserver 127.0.0.53', '# when nothing resolves, look here first.']),
       shells: file(['/bin/bash', '/bin/zsh', '/usr/bin/coffee', '/bin/ish']),
       timezone: file(['Europe/Amsterdam']),
       sudoers: file(() => state.asRoot ? ['root   ALL=(ALL:ALL) ALL', 'ian    ALL=(ALL:ALL) ALL', '# guest is not in here. guest has manners instead.', 'guest  ALL=(please) ONE_COMMAND'].map(esc) : [span('e', 'cat: /etc/sudoers: Permission denied')], { mode: () => '-r--r-----' }),
@@ -269,7 +269,7 @@ export function initRoot() {
     mnt: dir({ mug: dir({ 'coffee.txt': file(['level: 95%', 'temperature: hot', 'status: being consumed']) }) }),
     opt: dir({ cloudmodule: dir({ README: file(() => ['CloudModule: a networking appliance for secure connectivity and cloud services.', 'Status page: ' + cmd('cloudmodule')]) }) }),
     proc: dir({
-      cpuinfo: file(() => ['processor   : 0', 'model name  : Ian Tiemann brain v1.0 @ caffeine-boosted GHz', `cpu cores   : ${navigator.hardwareConcurrency || 4} (yours, actually)`, 'flags       : curious coffee dns-blame design-thinking'].map(esc)),
+      cpuinfo: file(() => ['processor   : 0', 'model name  : Ian Tiemann brain v1.0 @ caffeine-boosted GHz', `cpu cores   : ${navigator.hardwareConcurrency || 4} (yours, actually)`, 'flags       : curious coffee rubber-duck design-thinking'].map(esc)),
       meminfo: file(() => [`MemTotal:   ${navigator.deviceMemory ? navigator.deviceMemory + ' GB' : '16 GB'}`, 'MemFree:    not much, too many browser tabs', 'Cached:     ideas for later'].map(esc)),
       uptime: file(() => [esc(`up ${uptime()}`)]),
       version: file(['Linux version 6.1.0-coffee (ian@iantiemann) (gcc, but mostly coffee) #1 SMP PREEMPT_DYNAMIC']),
@@ -284,7 +284,7 @@ export function initRoot() {
     }),
     var: dir({
       log: dir({
-        syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'homelab[256]: Proxmox Backup Server: nightly sync to offsite completed', 'homelab[256]: Grafana alert resolved: it was DNS', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
+        syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'homelab[256]: Proxmox Backup Server: nightly sync to offsite completed', 'homelab[256]: Grafana alert resolved: disk space freed', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
         'auth.log': file([
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/cat /etc/shadow',
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/chmod +r diary.txt',

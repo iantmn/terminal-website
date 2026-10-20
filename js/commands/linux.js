@@ -222,13 +222,13 @@ def(['curl', 'wget'], null, 'fetch a URL', async args => {
   }
   if ((o.I || o.head) && /iantiemann/.test(url)) return printLines([
     'HTTP/2 200', 'server: traefik (powered by coffee)', 'content-type: text/html; charset=utf-8',
-    'cache-control: max-age=600', 'x-dns: not the problem this time', 'x-clacks-overhead: GNU Terry Pratchett',
+    'cache-control: max-age=600', 'x-powered-by: coffee', 'x-clacks-overhead: GNU Terry Pratchett',
   ].map(esc));
   return curlDefault(url);
 }, { usage: '[-I] <url>', flags: [['-I, --head', 'only the response headers'], ['-s, --silent', 'no progress output'], ['-L, --location', 'follow redirects'], ['-o file', 'write to a file (read-only here)']] });
 const curlDefault = url => print(/iantiemann/.test(url)
   ? span('m', "You're already here. For the HTML version: ") + cmd('gui') + span('m', ', or the headers: ') + cmd('curl -I iantiemann.nl')
-  : span('e', 'curl: (6) Could not resolve host') + span('m', ' - it\'s always DNS.'));
+  : span('e', 'curl: (6) Could not resolve host') + span('m', ' - check the spelling, or the network.'));
 def(['uname'], 'more', 'what system this is', args => {
   const [o] = getopt(args);
   const parts = [['s', 'kernel-name', 'IanOS'], ['n', 'nodename', 'iantiemann'], ['r', 'kernel-release', '6.1.0-coffee'],
@@ -425,7 +425,7 @@ def(['which', 'type', 'whereis', 'command'], 'more', 'where a command lives', (a
 }, { usage: '[-a] <command>', flags: [['-a', 'every match, not just the first']] });
 const ENV = () => ({
   USER: 'guest', HOME: '/home/guest', SHELL: '/bin/zsh', LANG: 'en_GB.UTF-8', TERM: 'xterm-256color',
-  EDITOR: 'vim', COFFEE_LEVEL: 'high', DNS_BLAME: 'always', PWD: pathStr(),
+  EDITOR: 'vim', COFFEE_LEVEL: 'high', PWD: pathStr(),
 });
 def(['env', 'printenv', 'export', 'set'], 'more', 'environment variables', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0].toLowerCase(), env = ENV();
@@ -492,7 +492,7 @@ def('fsck', 'more', 'check the filesystem for errors', async () => {
   await sleep(300);
 
   await bar('Pass 4: Checking reference counts');
-  print(span('m', "  'it was DNS' referenced 128 times, expected 1. Count is accurate, leaving as is."));
+  print(span('m', "  'TODO' referenced 128 times, expected 0. Count is accurate, leaving as is."));
   await sleep(300);
 
   await bar('Pass 5: Checking group summary information');
@@ -551,7 +551,7 @@ const JOURNAL = [
   ['cloudmodule-dev', 42, 'Roadmap updated, stakeholders aligned'],
   ['treasure', 7, 'fragment 1/3 = "seg"'],
   ['homelab', 256, 'Proxmox Backup Server: nightly sync to offsite completed'],
-  ['homelab', 256, 'Grafana alert resolved: it was DNS'],
+  ['homelab', 256, 'Grafana alert resolved: certificate renewed'],
   ['fix-the-printer', 2016, 'Printer is out of paper. Again.'],
   ['terminal', 9000, () => `guest connected, uptime ${uptime()}`],
 ];
@@ -586,7 +586,7 @@ def(['dig', 'nslookup', 'host'], 'more', 'look up a DNS record', (args, raw) => 
   printLines([
     `;; QUESTION SECTION:`, `;${esc(host)}.            IN  A`, '',
     `;; ANSWER SECTION:`, `${esc(host)}.     300  IN  A  192.0.2.42`, '',
-    span('m', ';; Query time: 42 msec. If something is broken, it was probably DNS.'),
+    span('m', ';; Query time: 42 msec'),
   ]);
 }, { usage: '[+short] <host>', flags: [['+short', 'only the answer']] });
 def(['traceroute', 'tracert', 'mtr'], 'more', 'the route to a host', async args => {
@@ -615,7 +615,7 @@ const CRONTABS = {
   ],
   root: [
     ['0 3 * * *', '/usr/sbin/backup --offsite --encrypt', '3-2-1, every night'],
-    ['*/5 * * * *', '/usr/bin/check-dns', 'it is always DNS'],
+    ['*/5 * * * *', '/usr/bin/check-dns', 'just in case'],
     ['15 4 * * 0', '/usr/bin/apt update && apt upgrade -y', ''],
     ['0 0 * * *', '/usr/sbin/logrotate /etc/logrotate.conf', ''],
   ],
