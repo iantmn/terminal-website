@@ -20,6 +20,13 @@ def('sudo', null, 'run a command as root', (args, raw) => {
   if (/^(hire|talk)/.test(rest)) return C.talk.run([]);
   if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
   if (/^make\s+me\s+a\s+sandwich/i.test(rest)) return runAsRoot(rest); // xkcd 149
+  // sudo !!: the last command again, now with sudo in front
+  if (state.bang) {
+    unlock('sudo'); unlock('sudobang');
+    print('[sudo] password for guest: ');
+    print(span('e', 'guest is not in the sudoers file.') + span('m', " sudo !! is the most typed command in history, and it still doesn't work here."));
+    return print(span('m', 'The magic word works better: ') + cmd('please sudo !!'));
+  }
   unlock('sudo');
   print(`[sudo] password for guest: `);
   print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));

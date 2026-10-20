@@ -57,6 +57,7 @@ export const ACH = {
   deeplink: ['Teleporter',                 'The address bar is a terminal too.',                      'Open the site with #command after the URL, e.g. #fortune.'],
   chmod:    ['Permission granted',         'One file in the home folder is locked. Ask nicely for the keys.', 'please sudo chmod +r diary.txt (or please sudo chown guest diary.txt)'],
   corrupt:  ['Bit rot',                    'Not every theme is on the list. One of them is broken on purpose.', 'theme corrupt'],
+  sudobang: ['Déjà vu',                    '',                                                        'sudo !!'],
   pwd:      ['Recalculating route...',     'Lost? Even a terminal gives directions if you ask.',      'pwd'],
   ghost:    ['Ghost in the shell',         'Some things only come out on one night of the year.',      'cat /dev/null on Halloween (31 October).'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
