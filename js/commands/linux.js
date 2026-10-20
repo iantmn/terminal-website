@@ -399,6 +399,8 @@ def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => 
   const ifs = onLab() ? LAB.ifs : [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '127.0.4.2/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.12/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420]];
   if (/^r(oute)?$/.test(sub)) return printLines(onLab() ? LAB.routes : [
     'default via 127.0.4.1 dev eth0 proto dhcp metric 100',
+    // the home network behind the homelab, reached through the tunnel (AllowedIPs on the WireGuard peer)
+    '10.10.0.0/24 dev wg0 scope link',
     '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.12',
     '127.0.4.0/24 dev eth0 proto kernel scope link src 127.0.4.2',
     span('m', 'all roads lead to the homelab.'),
@@ -534,7 +536,7 @@ def(['netstat', 'ss'], 'more', 'network connections', args => {
     ['tcp', '0.0.0.0:22', '0.0.0.0:*', 'LISTEN', '412/sshd', '# not for you'],
     ['tcp', '127.0.0.1:4242', '0.0.0.0:*', 'LISTEN', '128/coffee', '# the coffee machine'],
     ['udp', '0.0.0.0:51820', '0.0.0.0:*', '', '-/wireguard', '# wg0 to the homelab'],
-    ['tcp', '10.42.0.12:41822', '192.168.1.10:8006', 'ESTABLISHED', '256/firefox', '# the Proxmox web interface on the host'],
+    ['tcp', '10.42.0.12:41822', '10.10.0.10:8006', 'ESTABLISHED', '256/firefox', '# the Proxmox web interface on the host'],
     ['tcp', '10.42.0.12:52144', '10.42.0.1:22', 'ESTABLISHED', '256/ssh', '# ian@homelab'],
     ['tcp', '127.0.4.2:22', 'you:52731', 'ESTABLISHED', '9000/terminal', "# that's you"],
   ]).filter(([pr, , , st]) => (!(o.t || o.tcp || o.u || o.udp) || ((o.t || o.tcp) && pr === 'tcp') || ((o.u || o.udp) && pr === 'udp'))
@@ -612,7 +614,7 @@ def(['traceroute', 'tracert', 'mtr'], 'more', 'the route to a host', async args 
   const host = target || 'iantiemann.nl';
   const max = Math.max(1, parseInt(o.m ?? 30, 10) || 30);
   print(`traceroute to ${esc(host)}, ${max} hops max`);
-  const hops = [['your-router.lan', '192.168.1.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [esc(host), '192.0.2.42']].slice(0, max);
+  const hops = [['your-router.lan', '10.10.0.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [esc(host), '192.0.2.42']].slice(0, max);
   for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${o.n ? hops[i][1] : `${hops[i][0]} (${hops[i][1]})`}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
 }, { usage: '[-n] [-m hops] <host>', flags: [['-m hops', 'give up after this many hops'], ['-n', 'numbers only, no names']] });
 
