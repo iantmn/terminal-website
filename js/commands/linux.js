@@ -65,7 +65,9 @@ def('ping', null, 'check if a host answers', async args => {
   const host = target || 'iantiemann.nl';
   const n = Math.min(Math.max(parseInt(o.c ?? 4, 10) || 4, 1), 20);
   const wait = Math.max(200, (parseFloat(o.i) || 0.6) * 1000), size = parseInt(o.s ?? 56, 10) || 56;
-  print(`PING ${esc(host)} (127.0.4.2): ${size} data bytes`);
+  // a few names this container knows; the rest resolves to a documentation address
+  const addr = { localhost: '127.0.0.1', homelab: '10.20.0.20', iantiemann: '172.18.0.3' }[host.toLowerCase()] || (/^[\d.]+$/.test(host) ? host : '192.0.2.42');
+  print(`PING ${esc(host)} (${addr}): ${size} data bytes`);
   const local = /^(localhost|127\.0\.0\.1|::1)$/i.test(host);
   const times = [];
   for (let i = 0; i < n; i++) {
@@ -396,26 +398,24 @@ def('free', 'more', 'memory usage', args => {
 def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => {
   const [o, rest] = getopt(args);
   const sub = /^\s*ifconfig\b/.test(raw) ? 'a' : rest[0] || 'a';
-  const ifs = onLab() ? LAB.ifs : [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '127.0.4.2/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.12/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420]];
+  const ifs = onLab() ? LAB.ifs : [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '172.18.0.3/16', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500]];
   if (/^r(oute)?$/.test(sub)) return printLines(onLab() ? LAB.routes : [
-    'default via 127.0.4.1 dev eth0 proto dhcp metric 100',
-    // the home network behind the homelab, reached through the tunnel (AllowedIPs on the WireGuard peer)
-    '10.10.0.0/24 dev wg0 scope link',
-    '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.12',
-    '127.0.4.0/24 dev eth0 proto kernel scope link src 127.0.4.2',
-    span('m', 'all roads lead to the homelab.'),
+    // a container in the terminal_default Docker network: everything else goes through the Docker VM
+    'default via 172.18.0.1 dev eth0',
+    '172.18.0.0/16 dev eth0 proto kernel scope link src 172.18.0.3',
+    span('m', 'all roads lead to the homelab: 172.18.0.1 is the Docker VM this container runs on.'),
   ]);
   if (args.includes('-br') || o.brief) return printLines(ifs.map(([n, st, addr]) => `${pad(n, 16)} ${pad(st, 14)} ${addr}`));
   if (/^l(ink)?$/.test(sub)) return printLines(ifs.map(([n, , , fl, mtu], i) => esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`)));
   printLines([
-    ...ifs.flatMap(([n, , addr, fl, mtu], i) => [esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`), `    inet ${addr}${n === 'eth0' ? ' brd 127.0.4.255' : ''} scope ${n === 'lo' ? 'host' : 'global'} ${n}`]),
-    ...(onLab() ? [] : [span('m', 'wg0 goes to the homelab. No, you cannot have the key.')]),
+    ...ifs.flatMap(([n, , addr, fl, mtu], i) => [esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`), `    inet ${addr}${n === 'eth0' ? ' brd 172.18.255.255' : ''} scope ${n === 'lo' ? 'host' : 'global'} ${n}`]),
+    ...(onLab() ? [] : [span('m', 'eth0 is the terminal_default Docker network. This terminal is a container.')]),
   ]);
 }, { usage: '[-br] [a | route | link]', flags: [['a, addr', 'addresses (default)'], ['route', 'the routing table'], ['link', 'interfaces only'], ['-br', 'brief: one line per interface']] });
 def('hostname', 'more', 'the name of this machine', args => {
   const [o] = getopt(args);
-  if (o.I || o['all-ip-addresses']) return print(onLab() ? LAB.ips : '127.0.4.2 10.42.0.12');
-  if (o.i || o['ip-address']) return print(onLab() ? LAB.ip : '127.0.4.2');
+  if (o.I || o['all-ip-addresses']) return print(onLab() ? LAB.ips : '172.18.0.3');
+  if (o.i || o['ip-address']) return print(onLab() ? LAB.ip : '172.18.0.3');
   if (o.f || o.fqdn || o.long) return print(onLab() ? LAB.fqdn : 'terminal.iantiemann.nl');
   if (o.d || o.domain) return print(onLab() ? LAB.domain : 'iantiemann.nl');
   print(state.host);
@@ -460,7 +460,7 @@ def(['env', 'printenv', 'export', 'set'], 'more', 'environment variables', (args
 }, { usage: '[VAR]', flags: [['VAR', 'printenv VAR prints just that value']] });
 const MAIN_UNITS = [
   ['coffee.service', 'Keeps Ian operational', 128], ['cloudmodule-dev.service', 'CloudModule product development', 42],
-  ['wg-quick@wg0.service', 'WireGuard tunnel to the homelab', null], ['curiosity.target', 'Wants to know how everything works', null],
+  ['nginx.service', 'Serves this website', 1233], ['curiosity.target', 'Wants to know how everything works', null],
 ];
 const units = () => onLab() ? LAB.units : MAIN_UNITS;
 def('systemctl', 'more', 'manage services', args => {
@@ -533,12 +533,11 @@ def('fsck', 'more', 'check the filesystem for errors', async () => {
 def(['netstat', 'ss'], 'more', 'network connections', args => {
   const [o] = getopt(args);
   const rows = (onLab() ? LAB.netstat() : [
-    ['tcp', '0.0.0.0:22', '0.0.0.0:*', 'LISTEN', '412/sshd', '# not for you'],
+    ['tcp', '0.0.0.0:80', '0.0.0.0:*', 'LISTEN', '1233/nginx', '# this website'],
     ['tcp', '127.0.0.1:4242', '0.0.0.0:*', 'LISTEN', '128/coffee', '# the coffee machine'],
-    ['udp', '0.0.0.0:51820', '0.0.0.0:*', '', '-/wireguard', '# wg0 to the homelab'],
-    ['tcp', '10.42.0.12:41822', '10.10.0.10:8006', 'ESTABLISHED', '256/firefox', '# the Proxmox web interface on the host'],
-    ['tcp', '10.42.0.12:52144', '10.42.0.1:22', 'ESTABLISHED', '256/ssh', '# ian@homelab'],
-    ['tcp', '127.0.4.2:22', 'you:52731', 'ESTABLISHED', '9000/terminal', "# that's you"],
+    ['udp', '127.0.0.11:53', '0.0.0.0:*', '', '-/dockerd', "# Docker's built-in DNS"],
+    ['tcp', '172.18.0.3:80', '172.18.0.2:41822', 'ESTABLISHED', '1233/nginx', "# that's you, through Traefik"],
+    ['tcp', '172.18.0.3:52144', '10.20.0.20:22', 'ESTABLISHED', '256/ssh', '# ian@homelab'],
   ]).filter(([pr, , , st]) => (!(o.t || o.tcp || o.u || o.udp) || ((o.t || o.tcp) && pr === 'tcp') || ((o.u || o.udp) && pr === 'udp'))
     && (!(o.l || o.listening) || st !== 'ESTABLISHED'));
   printLines([
@@ -554,7 +553,7 @@ def('dmesg', 'more', 'kernel messages', args => {
     [0.0042, 'Memory: 16G available (mostly browser tabs)'],
     [0.12, 'coffee: brewer initialised, 1 mug detected'],
     [1.337, 'eth0: link up, 1000 Mbps, full duplex'],
-    [2.016, 'wg0: tunnel to homelab established'],
+    [2.016, 'eth0: joined the terminal_default network as 172.18.0.3'],
     [3.141592, 'theme: loaded 17 themes'],
     [3.1416, "theme: bit rot detected in hidden theme 'c0rrupt', not listed", 'w'],
     [4.2, 'curiosity: target reached'],
@@ -569,12 +568,12 @@ const JOURNAL = [
   ['coffee', 128, 'Brewing cup 1 of many'],
   ['cloudmodule-dev', 42, 'Roadmap updated, stakeholders aligned'],
   ['treasure', 7, 'fragment 1/3 = "seg"'],
-  ['wg-quick', 256, 'wg0: handshake with the homelab (10.42.0.1) ok'],
+  ['nginx', 1233, 'GET / 200, 2797 bytes (via traefik)'],
   ['backup', 300, '/home sent to the homelab, encrypted'],
   ['fix-the-printer', 2016, 'Printer is out of paper. Again.'],
   ['terminal', 9000, () => `guest connected, uptime ${uptime()}`],
 ];
-const LIVE = [['coffee', 128, 'Brewing cup {n} of many'], ['wg-quick', 256, 'wg0: handshake ok'], ['cloudmodule-dev', 42, 'build passed'], ['terminal', 9000, 'guest is still here, nice']];
+const LIVE = [['coffee', 128, 'Brewing cup {n} of many'], ['nginx', 1233, 'GET / 200 (via traefik)'], ['cloudmodule-dev', 42, 'build passed'], ['terminal', 9000, 'guest is still here, nice']];
 def('journalctl', 'more', 'system logs', async args => {
   const [o] = getopt(args, ['n', 'u', 'lines', 'unit']);
   const unit = o.u ?? o.unit, n = o.n ?? o.lines;
@@ -614,7 +613,7 @@ def(['traceroute', 'tracert', 'mtr'], 'more', 'the route to a host', async args 
   const host = target || 'iantiemann.nl';
   const max = Math.max(1, parseInt(o.m ?? 30, 10) || 30);
   print(`traceroute to ${esc(host)}, ${max} hops max`);
-  const hops = [['your-router.lan', '10.10.0.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [esc(host), '192.0.2.42']].slice(0, max);
+  const hops = [['homelab', '172.18.0.1'], ['router.lan', '10.20.0.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [esc(host), '192.0.2.42']].slice(0, max);
   for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${o.n ? hops[i][1] : `${hops[i][0]} (${hops[i][1]})`}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
 }, { usage: '[-n] [-m hops] <host>', flags: [['-m hops', 'give up after this many hops'], ['-n', 'numbers only, no names']] });
 

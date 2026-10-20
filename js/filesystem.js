@@ -131,7 +131,7 @@ const SYSFILES = {
   },
   '/etc/motd': () => ['Welcome to IanOS. Unauthorised curiosity is strongly encouraged.', ...(dayMessage() ? [dayMessage().msg] : []), span('m', 'P.S. treasure hunters start at ~/.secrets/map.txt')],
   '/etc/hosts': () => [
-    '127.0.0.1    localhost', '127.0.4.2    iantiemann', '10.42.0.1    homelab', '192.0.2.42   iantiemann.nl',
+    '127.0.0.1    localhost', '172.18.0.3   iantiemann', '10.20.0.20   homelab', '192.0.2.42   iantiemann.nl',
     span('m', '# fragment 3/3 = "ult"'),
   ],
 };
@@ -268,7 +268,7 @@ export function initRoot() {
         '.ssh': dir({
           'id_homelab': file(['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBob21l', 'bGFiaXNub3R0aGF0b3Blbmlubm9jZW50bG9va2luZ2tleWZpbGVub3RoaW5ndG9zZWVo', 'ZXJlYnV0eW91Zm91bmRpdGFueXdheXdlbGxkb25lc2VyaW91c2x5', '-----END OPENSSH PRIVATE KEY-----', '# protected with a passphrase. I wrote it down somewhere safe, in the one file that starts with "Dear diary".'], { mode: () => '-rw-------', own: 'ian' }),
           'id_homelab.pub': file(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGhvbWVsYWJrZXlmb3JpYW4 ian@iantiemann'], { own: 'ian' }),
-          'config': file(['Host homelab', '    HostName 10.42.0.1', '    User ian', '    IdentityFile ~/.ssh/id_homelab'], { own: 'ian' }),
+          'config': file(['Host homelab', '    HostName 10.20.0.20', '    User ian', '    IdentityFile ~/.ssh/id_homelab'], { own: 'ian' }),
         }, { own: 'ian', mode: () => 'drwx------' }),
       }, { own: 'ian' }),
     }),
@@ -293,7 +293,7 @@ export function initRoot() {
     }),
     var: dir({
       log: dir({
-        syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'wg-quick[256]: wg0: handshake with the homelab ok', 'backup[300]: /home sent to the homelab, encrypted', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
+        syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'nginx[1233]: GET / 200 (via traefik)', 'backup[300]: /home sent to the homelab, encrypted', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
         'auth.log': file([
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/cat /etc/shadow',
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/chmod +r diary.txt',
@@ -357,6 +357,7 @@ export function initRoot() {
               '',
               '  terminal:',
               '    image: nginx:1.27-alpine',
+              '    hostname: iantiemann',
               '    restart: unless-stopped',
               '    volumes:',
               '      - ./site:/usr/share/nginx/html:ro',
@@ -371,6 +372,12 @@ export function initRoot() {
               '      interval: 30s',
               '      timeout: 3s',
               '      retries: 3',
+              '',
+              'networks:',
+              '  default:',
+              '    ipam:',
+              '      config:',
+              '        - subnet: 172.18.0.0/16',
               '',
               'secrets:',
               '  transip_key:',
