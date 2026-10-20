@@ -8,7 +8,9 @@ import { C, def, completes } from '../registry.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
-import { labSession, labDocker } from './homelab.js';
+import { labSession, labDocker, mainDocker, LAB } from './homelab.js';
+// the homelab or the main machine: commands about the system answer for the one you are on
+const onLab = () => state.host === 'homelab';
 
 def('sudo', null, 'run a command as root', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
@@ -76,26 +78,12 @@ def('ping', null, 'check if a host answers', async args => {
   print(span('m', `--- ${esc(host)} ping statistics ---\n${n} packets transmitted, ${n} received, 0% packet loss (unlike my old Wi-Fi)\nround-trip min/avg/max = ${Math.min(...times).toFixed(3)}/${avg.toFixed(3)}/${Math.max(...times).toFixed(3)} ms`));
   if (local) { print(span('w', "There's no place like 127.0.0.1")); unlock('home'); }
 }, { usage: '[-c count] [-i s] [-q] <host>', flags: [['-c count', 'stop after this many replies (max 20)'], ['-i seconds', 'wait between pings'], ['-s size', 'packet size in bytes'], ['-q', 'quiet: only the summary']] });
-def('docker', null, 'list the containers on the server', args => {
+def('docker', null, 'the containers on the homelab', args => {
   // the homelab has real stacks you can stop and start
   if (state.host === 'homelab') { unlock('docker'); return labDocker(args); }
-  if (args[0] !== 'ps') return print(span('m', 'usage: docker ps [-aq]   (the only command that matters)'));
-  const [o] = getopt(args.slice(1));
-  unlock('docker');
-  const rows = [
-    ['a1b2c3d4e5f6', 'traefik:v3', 'Up 213 days', 'reverse-proxy'],
-    ['b2c3d4e5f6a7', 'grafana/grafana', 'Up 213 days', 'grafana'],
-    ['c3d4e5f6a7b8', 'prom/prometheus', 'Up 213 days', 'prometheus'],
-    ['d4e5f6a7b8c9', 'grafana/loki', 'Up 128 days', 'loki'],
-    ['e5f6a7b8c9d0', 'grafana/alloy', 'Up 128 days', 'alloy'],
-    ['f6a7b8c9d0e1', 'ian/terminal:latest', 'Up ' + uptime(), 'terminal-iantiemann'],
-    // only with -a, like every container that ever gave up
-    ...(o.a || o.all ? [['0badc0ffee00', 'ian/printer-fix:latest', 'Exited (1) 3 years ago', 'printer']] : []),
-  ];
-  if (o.q || o.quiet) return printLines(rows.map(r => r[0]));
-  print(span('m', pad('CONTAINER ID', 14) + pad('IMAGE', 24) + pad('STATUS', 24) + 'NAMES'));
-  rows.forEach(r => print(pad(r[0], 14) + span('a2', esc(pad(r[1], 24))) + span(r[2].startsWith('Up') ? 'a' : 'e', esc(pad(r[2], 24))) + esc(r[3])));
-  print(span('m', '\nWant to run these yourself? ') + cmd('articles', 'my guides'));
+  // the containers run on the homelab; from here you can only look
+  if (args[0] === 'ps') unlock('docker');
+  return mainDocker(args);
 }, { usage: 'ps [-aq]', flags: [['-a, --all', 'also stopped containers'], ['-q, --quiet', 'only the container IDs']] });
 def(['kubectl', 'k8s', 'helm'], 'more', 'Kubernetes (still learning)', () => print(span('m', 'I am still learning Kubernetes. Docker compose up -d for now.')));
 def('git', null, "version control, Ian's career edition", args => {
@@ -207,6 +195,12 @@ def('ssh', 'more', 'log in to another machine', async args => {
 def(['reboot', 'shutdown', 'poweroff'], null, 'restart the system', async () => { unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot(); });
 def('uptime', 'more', 'how long this terminal has been running', args => {
   const [o] = getopt(args);
+  if (onLab()) {
+    const d = LAB.bootedDaysAgo, since = new Date(Date.now() - d * 864e5 - 3 * 36e5);
+    if (o.s || o.since) return print(since.toISOString().replace('T', ' ').slice(0, 19));
+    if (o.p || o.pretty) return print(`up ${Math.floor(d / 7)} weeks, ${d % 7} days, 3 hours`);
+    return print(`up ${d} days,  3:12,  1 user,  load average: 0.31, 0.27, 0.25`);
+  }
   if (o.s || o.since) {
     const d = new Date(BOOT_TIME), p = n => String(n).padStart(2, '0');
     return print(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`);
@@ -254,8 +248,8 @@ const curlDefault = url => print(/iantiemann/.test(url)
   : span('e', 'curl: (6) Could not resolve host') + span('m', ' - check the spelling, or the network.'));
 def(['uname'], 'more', 'what system this is', args => {
   const [o] = getopt(args);
-  const parts = [['s', 'kernel-name', 'IanOS'], ['n', 'nodename', 'iantiemann'], ['r', 'kernel-release', '6.1.0-coffee'],
-    ['v', 'kernel-version', '#1 SMP PREEMPT_DYNAMIC'], ['m', 'machine', 'x86_64'], ['o', 'operating-system', 'GNU/JavaScript']];
+  const vals = onLab() ? LAB.uname : ['IanOS', 'iantiemann', '6.1.0-coffee', '#1 SMP PREEMPT_DYNAMIC', 'x86_64', 'GNU/JavaScript'];
+  const parts = [['s', 'kernel-name'], ['n', 'nodename'], ['r', 'kernel-release'], ['v', 'kernel-version'], ['m', 'machine'], ['o', 'operating-system']].map((p, i) => [...p, vals[i]]);
   const pick = o.a || o.all ? parts : parts.filter(([s, l]) => o[s] || o[l]);
   print((pick.length ? pick : parts.slice(0, 1)).map(p => p[2]).join(' '));
 }, { flags: [['-a, --all', 'everything'], ['-s', 'kernel name (default)'], ['-n', 'host name'], ['-r', 'kernel release'], ['-v', 'kernel version'], ['-m', 'machine'], ['-o', 'operating system']] });
@@ -288,28 +282,29 @@ def('yes', 'more', 'say yes, a lot', async args => {
 }, { usage: '[text]' });
 
 // common commands, with Ian's day as the process list
-const PROCS = [
+const MAIN_PROCS = [
   { pid: 1,    user: 'root', cpu: 0.1,  mem: 0.4,  cmd: 'init --curiosity' },
   { pid: 42,   user: 'ian',  cpu: 34.0, mem: 18.2, cmd: 'cloudmodule-dev --product' },
   { pid: 101,  user: 'ian',  cpu: 21.5, mem: 9.6,  cmd: 'project-planning --stakeholders' },
   { pid: 128,  user: 'ian',  cpu: 12.8, mem: 6.1,  cmd: 'coffee.service' },
-  { pid: 256,  user: 'ian',  cpu: 9.3,  mem: 22.4, cmd: 'homelab --proxmox --docker' },
+  { pid: 256,  user: 'ian',  cpu: 9.3,  mem: 22.4, cmd: 'ssh ian@homelab' },
   { pid: 404,  user: 'ian',  cpu: 6.7,  mem: 4.8,  cmd: 'write-guide --next-article' },
   { pid: 512,  user: 'ian',  cpu: 4.2,  mem: 3.3,  cmd: 'learn kubernetes' },
   { pid: 1337, user: 'ian',  cpu: 2.0,  mem: 1.0,  cmd: 'rubberduck --listening' },
   { pid: 2016, user: 'ian',  cpu: 0.6,  mem: 0.9,  cmd: 'fix-the-printer --again' },
   { pid: 9000, user: 'guest', cpu: 0.3, mem: 0.2,  cmd: 'terminal.iantiemann.nl' },
 ];
+const procs = () => onLab() ? LAB.procs() : MAIN_PROCS;
 const jitter = v => Math.max(0, v + (Math.random() - 0.5) * v * 0.4);
 function topLines() {
-  const rows = PROCS.map(p => ({ ...p, cpu: jitter(p.cpu) })).sort((a, b) => b.cpu - a.cpu);
+  const rows = procs().map(p => ({ ...p, cpu: jitter(p.cpu) })).sort((a, b) => b.cpu - a.cpu);
   const total = rows.reduce((t, p) => t + p.cpu, 0);
   const bar = (pct, w = 30) => '|'.repeat(Math.round(pct / 100 * w)).padEnd(w, ' ');
   return [
-    `top - ${new Date().toLocaleTimeString()} up ${uptime()},  1 user,  load average: 0.42, 0.13, 0.37`,
-    `Tasks: ${PROCS.length} total,   ${PROCS.length - 1} running,   1 sleeping (that's Ian, after midnight)`,
+    `top - ${new Date().toLocaleTimeString()} up ${onLab() ? LAB.bootedDaysAgo + ' days' : uptime()},  1 user,  load average: ${onLab() ? '0.31, 0.27, 0.25' : '0.42, 0.13, 0.37'}`,
+    onLab() ? LAB.top.tasks : `Tasks: ${MAIN_PROCS.length} total,   ${MAIN_PROCS.length - 1} running,   1 sleeping (that's Ian, after midnight)`,
     `CPU [${span('a', bar(Math.min(total, 100)))}] ${Math.min(total, 100).toFixed(1)}%`,
-    `Mem [${span('a2', bar(67.2))}] 10.7G/16.0G   (mostly browser tabs)`,
+    onLab() ? `Mem [${span('a2', bar(LAB.top.mem[0] / LAB.top.mem[1] * 100))}] ${LAB.top.mem[0]}G/${LAB.top.mem[1]}G   (${LAB.top.mem[2]})` : `Mem [${span('a2', bar(67.2))}] 10.7G/16.0G   (mostly browser tabs)`,
     '',
     span('w b', '  PID USER      %CPU  %MEM  COMMAND'),
     ...rows.map(p => `${String(p.pid).padStart(5)} ${pad(p.user, 8)} ${p.cpu.toFixed(1).padStart(5)} ${p.mem.toFixed(1).padStart(5)}  ${p.cmd === 'coffee.service' ? span('w', esc(p.cmd)) : esc(p.cmd)}`),
@@ -336,17 +331,17 @@ def('ps', 'more', 'list processes', args => {
   const start = p => p.pid === 128 ? '06:45' : p.pid === 1 ? 'boot' : '08:00';
   if (/u/.test(bsd) || o.u) return printLines([
     span('w b', 'USER       PID %CPU %MEM TTY      STAT START  COMMAND'),
-    ...PROCS.map(p => `${pad(p.user, 8)} ${String(p.pid).padStart(5)} ${p.cpu.toFixed(1).padStart(4)} ${p.mem.toFixed(1).padStart(4)} ${pad(tty(p), 8)} ${p.pid === 2016 ? 'S   ' : 'R   '} ${pad(start(p), 6)} ${esc(p.cmd)}`),
+    ...procs().map(p => `${pad(p.user, 8)} ${String(p.pid).padStart(5)} ${p.cpu.toFixed(1).padStart(4)} ${p.mem.toFixed(1).padStart(4)} ${pad(tty(p), 8)} ${p.pid === 2016 ? 'S   ' : 'R   '} ${pad(start(p), 6)} ${esc(p.cmd)}`),
   ]);
   if (o.f || o.F) return printLines([
     span('w b', 'UID          PID  PPID  C STIME TTY          TIME CMD'),
-    ...PROCS.map(p => `${pad(p.user, 8)} ${String(p.pid).padStart(7)} ${String(p.pid === 1 ? 0 : 1).padStart(5)}  ${Math.round(p.cpu / 10)} ${pad(start(p), 5)} ${pad(tty(p), 8)} 00:00:42 ${esc(p.cmd)}`),
+    ...procs().map(p => `${pad(p.user, 8)} ${String(p.pid).padStart(7)} ${String(p.pid === 1 ? 0 : 1).padStart(5)}  ${Math.round(p.cpu / 10)} ${pad(start(p), 5)} ${pad(tty(p), 8)} 00:00:42 ${esc(p.cmd)}`),
   ]);
-  const list = o.e || o.A || /a|x/.test(bsd) ? PROCS : PROCS.filter(p => p.user === 'guest' || p.pid === 128);
+  const all = procs(), list = o.e || o.A || /a|x/.test(bsd) ? all : all.filter(p => p.user === state.user || (!onLab() && p.pid === 128));
   printLines([
     span('w b', '  PID TTY      STAT  COMMAND'),
     ...list.map(p => `${String(p.pid).padStart(5)} ${pad(tty(p), 8)} ${p.pid === 2016 ? 'S   ' : 'R   '}  ${esc(o.e || /a|x/.test(bsd) ? p.cmd : proc(p))}`),
-    ...(list === PROCS ? [] : [span('m', 'only yours (and the coffee). Everything: ') + cmd('ps aux') + span('m', ' or ') + cmd('ps -ef')]),
+    ...(list === all ? [] : [span('m', onLab() ? 'only yours. Everything: ' : 'only yours (and the coffee). Everything: ') + cmd('ps aux') + span('m', ' or ') + cmd('ps -ef')]),
   ]);
 }, { usage: '[aux | -ef]', flags: [['aux', 'every process, with user, CPU and memory'], ['-e, -A', 'every process'], ['-f', 'full format, with parent PIDs']] });
 const SIGNALS = ['HUP', 'INT', 'QUIT', 'ILL', 'TRAP', 'ABRT', 'BUS', 'FPE', 'KILL', 'USR1', 'SEGV', 'USR2', 'PIPE', 'ALRM', 'TERM'];
@@ -357,7 +352,7 @@ def(['kill', 'killall', 'pkill'], null, 'stop a process', args => {
   ]);
   const t = args.filter(a => !a.startsWith('-')).join(' ').toLowerCase();
   if (!t) return print(span('e', 'kill: usage: kill [-s sigspec | -n signum | -sigspec] pid | name'));
-  const p = PROCS.find(p => String(p.pid) === t || p.cmd.split(' ')[0].replace('.service', '') === t || p.cmd.startsWith(t));
+  const p = procs().find(p => String(p.pid) === t || p.cmd.split(' ')[0].replace('.service', '') === t || p.cmd.startsWith(t));
   if (!p) return print(span('e', `kill: (${esc(t)}) - No such process`));
   if (p.user === 'root') return print(span('e', `kill: (${p.pid}) - Operation not permitted`));
   if (p.cmd === 'coffee.service') { unlock('kill'); return print(span('w', 'Terminated: coffee.service') + span('m', '\ncoffee.service respawned (Restart=always). Some things are not negotiable.')); }
@@ -369,23 +364,24 @@ def(['kill', 'killall', 'pkill'], null, 'stop a process', args => {
 def('df', 'more', 'free disk space', args => {
   const [o] = getopt(args);
   const type = o.T || o['print-type'];
-  const rows = [
+  const rows = onLab() ? LAB.df : [
     ['/dev/brain', 'ext4', '1.0T', '987G', '13G', '99%', '/'],
     ['experience', 'years', '10y', '10y', '∞', '12%', '/home/guest/experience'],
     ['tmpfs', 'tmpfs', '640K', '640K', '0', '100%', '/dev/ideas'],
     ['coffee', 'liquid', '2.0L', '1.9L', '0.1L', '95%', '/mnt/mug'],
   ];
-  const line = r => `${pad(r[0], 15)}${type ? pad(r[1], 8) : ''}${r[2].padStart(5)} ${r[3].padStart(5)} ${r[4].padStart(5)} ${r[5].padStart(4)} ${r[6]}`;
+  const w = Math.max(15, ...rows.map(r => r[0].length + 1));
+  const line = r => `${pad(r[0], w)}${type ? pad(r[1], 8) : ''}${r[2].padStart(5)} ${r[3].padStart(5)} ${r[4].padStart(5)} ${r[5].padStart(4)} ${r[6]}`;
   printLines([
     span('w b', line(['Filesystem', 'Type', 'Size', 'Used', 'Avail', 'Use%', 'Mounted on'])),
     ...rows.map(r => esc(line(r))),
-    span('m', '/dev/brain is nearly full. Mostly config syntax and half-finished side projects.'),
+    span('m', onLab() ? LAB.dfNote : '/dev/brain is nearly full. Mostly config syntax and half-finished side projects.'),
   ]);
 }, { flags: [['-h, --human-readable', 'sizes like 1.0T (the default here)'], ['-T, --print-type', 'show the filesystem type']] });
 def('free', 'more', 'memory usage', args => {
   const [o] = getopt(args);
   const Ki = 1024, Mi = Ki * 1024, Gi = Mi * 1024;
-  const mem = [16 * Gi, 10 * Gi, 1.2 * Gi, 512 * Mi, 4.8 * Gi, 5.5 * Gi], swap = [2 * Gi, 0, 2 * Gi];
+  const mem = onLab() ? LAB.mem.map(g => g * Gi) : [16 * Gi, 10 * Gi, 1.2 * Gi, 512 * Mi, 4.8 * Gi, 5.5 * Gi], swap = onLab() ? [8 * Gi, 0, 8 * Gi] : [2 * Gi, 0, 2 * Gi];
   const unit = o.b || o.bytes ? 1 : o.k || o.kibi ? Ki : o.m || o.mebi ? Mi : o.g || o.gibi ? Gi : null;
   const human = v => v >= Gi ? (v / Gi < 10 ? (v / Gi).toFixed(1) : Math.round(v / Gi)) + 'Gi' : v >= Mi ? Math.round(v / Mi) + 'Mi' : v ? Math.round(v / Ki) + 'Ki' : '0B';
   const fmt = v => (unit ? String(Math.round(v / unit)) : human(v)).padStart(12);
@@ -394,16 +390,16 @@ def('free', 'more', 'memory usage', args => {
     'Mem:  ' + mem.map(fmt).join(''),
     'Swap: ' + swap.map(fmt).join(''),
     ...(o.t || o.total ? ['Total:' + [mem[0] + swap[0], mem[1] + swap[1], mem[2] + swap[2]].map(fmt).join('')] : []),
-    span('m', 'buff/cache is 80% browser tabs I will read later.'),
+    span('m', onLab() ? LAB.memNote : 'buff/cache is 80% browser tabs I will read later.'),
   ]);
 }, { flags: [['-h, --human', 'sizes like 16Gi (the default here)'], ['-b, -k, -m, -g', 'in bytes, KiB, MiB or GiB'], ['-t, --total', 'add a line with RAM + swap']] });
 def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => {
   const [o, rest] = getopt(args);
   const sub = /^\s*ifconfig\b/.test(raw) ? 'a' : rest[0] || 'a';
-  const ifs = [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '127.0.4.2/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.1/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420]];
-  if (/^r(oute)?$/.test(sub)) return printLines([
+  const ifs = onLab() ? LAB.ifs : [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['eth0', 'UP', '127.0.4.2/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.12/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420]];
+  if (/^r(oute)?$/.test(sub)) return printLines(onLab() ? LAB.routes : [
     'default via 127.0.4.1 dev eth0 proto dhcp metric 100',
-    '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.1',
+    '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.12',
     '127.0.4.0/24 dev eth0 proto kernel scope link src 127.0.4.2',
     span('m', 'all roads lead to the homelab.'),
   ]);
@@ -411,15 +407,15 @@ def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => 
   if (/^l(ink)?$/.test(sub)) return printLines(ifs.map(([n, , , fl, mtu], i) => esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`)));
   printLines([
     ...ifs.flatMap(([n, , addr, fl, mtu], i) => [esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`), `    inet ${addr}${n === 'eth0' ? ' brd 127.0.4.255' : ''} scope ${n === 'lo' ? 'host' : 'global'} ${n}`]),
-    span('m', 'wg0 goes to the homelab. No, you cannot have the key.'),
+    ...(onLab() ? [] : [span('m', 'wg0 goes to the homelab. No, you cannot have the key.')]),
   ]);
 }, { usage: '[-br] [a | route | link]', flags: [['a, addr', 'addresses (default)'], ['route', 'the routing table'], ['link', 'interfaces only'], ['-br', 'brief: one line per interface']] });
 def('hostname', 'more', 'the name of this machine', args => {
   const [o] = getopt(args);
-  if (o.I || o['all-ip-addresses']) return print('127.0.4.2 10.42.0.1');
-  if (o.i || o['ip-address']) return print('127.0.4.2');
-  if (o.f || o.fqdn || o.long) return print('terminal.iantiemann.nl');
-  if (o.d || o.domain) return print('iantiemann.nl');
+  if (o.I || o['all-ip-addresses']) return print(onLab() ? LAB.ips : '127.0.4.2 10.42.0.12');
+  if (o.i || o['ip-address']) return print(onLab() ? LAB.ip : '127.0.4.2');
+  if (o.f || o.fqdn || o.long) return print(onLab() ? LAB.fqdn : 'terminal.iantiemann.nl');
+  if (o.d || o.domain) return print(onLab() ? LAB.domain : 'iantiemann.nl');
   print(state.host);
 }, { flags: [['-s, --short', 'the short name (default)'], ['-f, --fqdn', 'the full name with domain'], ['-d, --domain', 'only the domain'], ['-i', 'its IP address'], ['-I', 'every IP address']] });
 const USERS = { guest: [1001, [[1001, 'guest'], [27, 'curious'], [42, 'coffee']]], ian: [1000, [[1000, 'ian'], [27, 'sudo'], [42, 'coffee']]], root: [0, [[0, 'root']]] };
@@ -460,30 +456,30 @@ def(['env', 'printenv', 'export', 'set'], 'more', 'environment variables', (args
   }
   printLines(Object.entries(env).map(([k, v]) => esc(`${k}=${v}`) + (k === 'EDITOR' ? '  ' + span('m', '# good luck getting out') : '')));
 }, { usage: '[VAR]', flags: [['VAR', 'printenv VAR prints just that value']] });
+const MAIN_UNITS = [
+  ['coffee.service', 'Keeps Ian operational', 128], ['cloudmodule-dev.service', 'CloudModule product development', 42],
+  ['wg-quick@wg0.service', 'WireGuard tunnel to the homelab', null], ['curiosity.target', 'Wants to know how everything works', null],
+];
+const units = () => onLab() ? LAB.units : MAIN_UNITS;
 def('systemctl', 'more', 'manage services', args => {
   const [o, [sub, unitArg = '']] = getopt(args);
-  const unit = unitArg.replace('.service', '');
+  const name = unitArg.includes('.') ? unitArg : unitArg + '.service';
   if (o.failed || sub === '--failed') return printLines(['  UNIT LOAD ACTIVE SUB DESCRIPTION', '0 loaded units listed.', span('m', 'nothing has failed. Today.')]);
-  if ((sub === 'status' || sub === 'is-active') && unit) {
-    const p = PROCS.find(p => p.cmd.split(' ')[0].replace('.service', '') === unit);
-    if (!p) { state.failed = true; return print(sub === 'is-active' ? 'inactive' : span('e', `Unit ${esc(unit)}.service could not be found.`)); }
+  if ((sub === 'status' || sub === 'is-active') && unitArg) {
+    const u = units().find(([n]) => n === name || n === unitArg);
+    if (!u) { state.failed = true; return print(sub === 'is-active' ? 'inactive' : span('e', `Unit ${esc(name)} could not be found.`)); }
     if (sub === 'is-active') return print('active');
+    const [n, desc, pid] = u;
     return printLines([
-      `${span('a', '●')} ${esc(unit)}.service`,
-      `     Loaded: loaded (/etc/systemd/system/${esc(unit)}.service; enabled)`,
-      `     Active: ${span('a', 'active (running)')} since ${unit === 'coffee' ? '06:45 every morning' : 'boot'}`,
-      `   Main PID: ${p.pid} (${esc(unit)})`,
+      `${span('a', '●')} ${esc(n)} - ${esc(desc)}`,
+      `     Loaded: loaded (/lib/systemd/system/${esc(n)}; enabled)`,
+      `     Active: ${span('a', pid ? 'active (running)' : n.endsWith('.target') ? 'active' : 'active (exited)')} since ${n === 'coffee.service' ? '06:45 every morning' : onLab() ? LAB.bootedDaysAgo + ' days ago' : 'boot'}`,
+      ...(pid ? [`   Main PID: ${pid} (${esc(n.split(/[.@]/)[0])})`] : []),
     ]);
   }
-  if (['start', 'stop', 'restart', 'enable', 'disable'].includes(sub)) return print(span('e', 'Failed to ' + esc(sub) + ' unit: Access denied') + span('m', ' (try asking nicely)'));
-  printLines([
-    span('w b', 'UNIT                        LOAD   ACTIVE SUB     DESCRIPTION'),
-    'coffee.service              loaded active running Keeps Ian operational',
-    'cloudmodule-dev.service     loaded active running CloudModule product development',
-    'homelab.service             loaded active running Proxmox, Docker and too many dashboards',
-    'curiosity.target            loaded active active  Wants to know how everything works',
-    span('m', 'Try ') + cmd('systemctl status coffee'),
-  ]);
+  if (['start', 'stop', 'restart', 'enable', 'disable'].includes(sub)) return print(span('e', 'Failed to ' + esc(sub) + ' unit: Access denied') + span('m', onLab() ? ' (not even ian touches these by hand)' : ' (try asking nicely)'));
+  const rows = units().map(([n, desc, pid]) => esc(`${pad(n, 28)}loaded active ${pad(pid ? 'running' : n.endsWith('.target') ? 'active' : 'exited', 8)}${desc}`));
+  printLines([span('w b', 'UNIT                        LOAD   ACTIVE SUB     DESCRIPTION'), ...rows, span('m', 'Try ') + cmd(onLab() ? 'systemctl status docker' : 'systemctl status coffee')]);
 }, { usage: '[status|is-active <unit>] [--failed]', flags: [['status <unit>', 'details of one service'], ['is-active <unit>', 'just active or inactive'], ['--failed', 'services that crashed']] });
 // fsck in the style of e2fsck: five passes, the last one finds the hidden corrupt theme
 def('fsck', 'more', 'check the filesystem for errors', async () => {
@@ -534,17 +530,14 @@ def('fsck', 'more', 'check the filesystem for errors', async () => {
 }, { usage: '[device]' });
 def(['netstat', 'ss'], 'more', 'network connections', args => {
   const [o] = getopt(args);
-  const rows = [
+  const rows = (onLab() ? LAB.netstat() : [
     ['tcp', '0.0.0.0:22', '0.0.0.0:*', 'LISTEN', '412/sshd', '# not for you'],
-    ['tcp', '0.0.0.0:443', '0.0.0.0:*', 'LISTEN', '1201/traefik', ''],
-    ['tcp', '127.0.0.1:3000', '0.0.0.0:*', 'LISTEN', '1388/grafana', ''],
-    ['tcp', '127.0.0.1:9090', '0.0.0.0:*', 'LISTEN', '1402/prometheus', ''],
-    ['tcp', '127.0.0.1:3100', '0.0.0.0:*', 'LISTEN', '1417/loki', ''],
     ['tcp', '127.0.0.1:4242', '0.0.0.0:*', 'LISTEN', '128/coffee', '# the coffee machine'],
     ['udp', '0.0.0.0:51820', '0.0.0.0:*', '', '-/wireguard', '# wg0 to the homelab'],
-    ['tcp', '10.42.0.1:8006', '10.42.0.12:41822', 'ESTABLISHED', '256/homelab', '# proxmox'],
-    ['tcp', '127.0.4.2:443', 'you:52731', 'ESTABLISHED', '9000/terminal', "# that's you"],
-  ].filter(([pr, , , st]) => (!(o.t || o.tcp || o.u || o.udp) || ((o.t || o.tcp) && pr === 'tcp') || ((o.u || o.udp) && pr === 'udp'))
+    ['tcp', '10.42.0.12:41822', '10.42.0.1:8006', 'ESTABLISHED', '256/firefox', '# the Proxmox web interface on the homelab'],
+    ['tcp', '10.42.0.12:52144', '10.42.0.1:22', 'ESTABLISHED', '256/ssh', '# ian@homelab'],
+    ['tcp', '127.0.4.2:22', 'you:52731', 'ESTABLISHED', '9000/terminal', "# that's you"],
+  ]).filter(([pr, , , st]) => (!(o.t || o.tcp || o.u || o.udp) || ((o.t || o.tcp) && pr === 'tcp') || ((o.u || o.udp) && pr === 'udp'))
     && (!(o.l || o.listening) || st !== 'ESTABLISHED'));
   printLines([
     `Active Internet connections (${o.l || o.listening ? 'only servers' : 'servers and established'})`,
@@ -554,7 +547,7 @@ def(['netstat', 'ss'], 'more', 'network connections', args => {
 }, { usage: '[-tulnp]', flags: [['-t, --tcp', 'TCP only'], ['-u, --udp', 'UDP only'], ['-l, --listening', 'only ports that wait for connections'], ['-n, -p', 'numbers and programs (always on here)']] });
 def('dmesg', 'more', 'kernel messages', args => {
   const [o] = getopt(args);
-  const lines = [
+  const lines = onLab() ? LAB.dmesg : [
     [0, 'Linux version 6.1.0-coffee (ian@iantiemann) #1 SMP PREEMPT_DYNAMIC'],
     [0.0042, 'Memory: 16G available (mostly browser tabs)'],
     [0.12, 'coffee: brewer initialised, 1 mug detected'],
@@ -566,35 +559,37 @@ def('dmesg', 'more', 'kernel messages', args => {
     [Math.floor((Date.now() - BOOT_TIME) / 1000), 'guest: still reading kernel logs, respect'],
   ];
   // -T prints wall-clock time instead of seconds since boot
-  const stamp = t => o.T || o.ctime ? `[${new Date(BOOT_TIME + t * 1000).toString().slice(0, 24)}]` : `[${t.toFixed(6).padStart(12)}]`;
+  const booted = onLab() ? Date.now() - LAB.bootedDaysAgo * 864e5 : BOOT_TIME;
+  const stamp = t => o.T || o.ctime ? `[${new Date(booted + t * 1000).toString().slice(0, 24)}]` : `[${t.toFixed(6).padStart(12)}]`;
   printLines(lines.map(([t, msg, cls]) => cls ? span(cls, esc(`${stamp(t)} ${msg}`)) : esc(`${stamp(t)} ${msg}`)));
 }, { flags: [['-T, --ctime', 'human readable timestamps']] });
 const JOURNAL = [
   ['coffee', 128, 'Brewing cup 1 of many'],
   ['cloudmodule-dev', 42, 'Roadmap updated, stakeholders aligned'],
   ['treasure', 7, 'fragment 1/3 = "seg"'],
-  ['homelab', 256, 'Proxmox Backup Server: nightly sync to offsite completed'],
-  ['homelab', 256, 'Grafana alert resolved: certificate renewed'],
+  ['wg-quick', 256, 'wg0: handshake with the homelab (10.42.0.1) ok'],
+  ['backup', 300, '/home sent to the homelab, encrypted'],
   ['fix-the-printer', 2016, 'Printer is out of paper. Again.'],
   ['terminal', 9000, () => `guest connected, uptime ${uptime()}`],
 ];
-const LIVE = [['coffee', 128, 'Brewing cup {n} of many'], ['homelab', 256, 'heartbeat ok'], ['cloudmodule-dev', 42, 'build passed'], ['homelab', 256, 'Grafana: all green'], ['terminal', 9000, 'guest is still here, nice']];
+const LIVE = [['coffee', 128, 'Brewing cup {n} of many'], ['wg-quick', 256, 'wg0: handshake ok'], ['cloudmodule-dev', 42, 'build passed'], ['terminal', 9000, 'guest is still here, nice']];
 def('journalctl', 'more', 'system logs', async args => {
   const [o] = getopt(args, ['n', 'u', 'lines', 'unit']);
   const unit = o.u ?? o.unit, n = o.n ?? o.lines;
   const stamp = at => { const s = at.toString(); return s.slice(4, 10) + s.slice(15, 24); };
-  const fmt = (name, pid, msg, at = new Date()) => `${span('m', esc(stamp(at)))} iantiemann ${esc(`${name}[${pid}]: ${typeof msg === 'function' ? msg() : msg}`)}`;
-  let rows = JOURNAL.filter(([name]) => !unit || name === unit.replace('.service', ''));
+  const fmt = (name, pid, msg, at = new Date()) => `${span('m', esc(stamp(at)))} ${state.host} ${esc(`${name}[${pid}]: ${typeof msg === 'function' ? msg() : msg}`)}`;
+  let rows = (onLab() ? LAB.journal : JOURNAL).filter(([name]) => !unit || name === unit.replace('.service', ''));
   if (n !== undefined) rows = rows.slice(-parseInt(n, 10) || 0);
   if (o.r || o.reverse) rows = [...rows].reverse();
   print(span('m', '-- Logs begin at boot --'));
-  rows.forEach((r, i) => print(fmt(...r, new Date(BOOT_TIME + i * 1000))));
+  const start = onLab() ? Date.now() - 6 * 36e5 : BOOT_TIME;
+  rows.forEach((r, i) => print(fmt(...r, new Date(start + i * (onLab() ? 36e5 : 1000)))));
   if (!rows.length) print(span('m', '-- No entries --'));
   if (!(o.f || o.follow)) return;
   // follow: new lines keep coming until Ctrl+C (or 30 of them)
   for (let i = 0, cup = 2; i < 30; i++) {
     await sleep(1500 + Math.random() * 1500);
-    const live = LIVE.filter(([name]) => !unit || name === unit.replace('.service', ''));
+    const live = (onLab() ? LAB.live : LIVE).filter(([name]) => !unit || name === unit.replace('.service', ''));
     if (!live.length) continue;
     const [name, pid, msg] = live[Math.floor(Math.random() * live.length)];
     print(fmt(name, pid, msg.replace('{n}', () => cup++)));
@@ -672,7 +667,6 @@ const CRONTABS = {
     ['45 16 * * 5', '/usr/bin/deploy --never', 'read-only Friday'],
     ['0 20 * * 0', '/usr/bin/write-guide --next-article', ''],
     ['0 22 * * *', '/usr/bin/homelab --tinker "just five minutes"', 'it is never five minutes'],
-    ['* * * * *', '/home/ian/stacks/terminal/watchdog.sh', 'brings this site back when it stops answering'],
     ['0 8 1 * *', '/usr/bin/label-cables --this-month-for-real', ''],
     ['0 0 23 11 *', '/usr/bin/cake --birthday', ''],
     ['@reboot', '/usr/bin/coffee --emergency', ''],
@@ -720,12 +714,13 @@ const inWords = t => {
 def('crontab', 'more', 'scheduled jobs (read-only)', args => {
   const [o] = getopt(args, ['u']);
   const user = o.u || 'ian';
+  const tabs = onLab() ? LAB.crontabs : CRONTABS;
   if (o.e || o.r) return print(span('e', `crontab: ${o.e ? 'editing' : 'removing'} is not allowed, the schedule is read-only.`) + span('m', ' Even root does not touch the coffee schedule.'));
-  if (!CRONTABS[user]) return print(`no crontab for ${esc(user)}`);
-  const rows = CRONTABS[user];
+  if (!tabs[user]) return print(`no crontab for ${esc(user)}`);
+  const rows = tabs[user];
   const w = Math.max(...rows.map(r => r[0].length)) + 2, wc = Math.max(...rows.map(r => r[1].length)) + 2;
   printLines([
-    span('m', `# crontab for ${user}` + (o.u ? '' : ' (guest has none, so here is mine)')),
+    span('m', `# crontab for ${user}` + (o.u || onLab() ? '' : ' (guest has none, so here is mine)')),
     span('w b', pad('# schedule', w) + pad('command', wc) + 'next run'),
     ...rows.map(([s, c, note]) => {
       const t = nextRun(s);
@@ -825,10 +820,9 @@ def('lolcat', 'more', 'rainbows', args => args.length ? print(rainbow(args.join(
 // Tab completion for the arguments
 for (const w of ['sudo', 'please', 'watch']) completes(w, completeWrapped);
 completes('which', () => commandNames());
-completes('kill', () => PROCS.filter(p => p.user !== 'root').map(p => p.cmd.split(' ')[0].replace('.service', '')));
-const UNITS = ['coffee', 'cloudmodule-dev', 'homelab', 'curiosity'];
-completes('systemctl', args => args.length ? UNITS : ['status', 'is-active', 'start', 'stop', 'restart', '--failed']);
-completes('journalctl', args => args.at(-1) === '-u' ? [...new Set(JOURNAL.map(j => j[0]))] : null);
+completes('kill', () => procs().filter(p => p.user !== 'root').map(p => p.cmd.split(' ')[0].replace('.service', '')));
+completes('systemctl', args => args.length ? units().map(([n]) => n.replace(/\.service$/, '')) : ['status', 'is-active', 'start', 'stop', 'restart', '--failed']);
+completes('journalctl', args => args.at(-1) === '-u' ? [...new Set((onLab() ? LAB.journal : JOURNAL).map(j => j[0]))] : null);
 completes('git', args => args.length ? null : ['log', 'status', 'blame']);
 completes('docker', args => args.length ? null : ['ps']);
 completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);

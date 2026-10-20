@@ -293,16 +293,16 @@ export function initRoot() {
     }),
     var: dir({
       log: dir({
-        syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'homelab[256]: Proxmox Backup Server: nightly sync to offsite completed', 'homelab[256]: Grafana alert resolved: disk space freed', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
+        syslog: file(() => ['coffee[128]: Brewing cup 1 of many', 'wg-quick[256]: wg0: handshake with the homelab ok', 'backup[300]: /home sent to the homelab, encrypted', `terminal[9000]: guest connected, uptime ${uptime()}`].map(esc)),
         'auth.log': file([
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/cat /etc/shadow',
           'sudo: guest : user NOT in sudoers ; TTY=pts/0 ; COMMAND=/usr/bin/chmod +r diary.txt',
           'please: guest : asked nicely ; TTY=pts/0 ; granted for ONE command',
           'sshd: Connection closed by 192.0.2.66 port 22 [preauth]',
-          'sshd: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key /home/ian/.ssh/id_homelab',
+          'sudo: ian : TTY=pts/1 ; PWD=/home/ian ; USER=root ; COMMAND=/usr/bin/chmod 600 /home/ian/.ssh/id_homelab   # the homelab key, locked down',
         ]),
       }),
-      www: dir({ 'iantiemann.nl': dir({ 'index.html': file(() => [esc('<!-- you are looking at it right now -->'), 'Source: ' + link(PROFILE.repo)]) }) }),
+      www: dir({ 'iantiemann.nl': dir({ 'index.html': file(() => [esc('<!-- a working copy. The live one runs on the homelab, in ~/stacks/terminal/site -->'), 'Source: ' + link(PROFILE.repo)]) }) }),
     }),
   });
 
@@ -462,6 +462,6 @@ export function initRoot() {
         '.bash_history': labFile(['docker compose pull && docker compose up -d', 'zfs list', 'pvesh get /nodes', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'exit']),
       }, { own: 'ian' }),
     }),
-    var: dir({ log: dir({ syslog: file(['systemd[1]: Started Proxmox VE API daemon.', 'pvestatd: all 3 nodes online', 'smartd: all disks PASSED', 'ian: logged in from 10.42.0.12', 'CRON[2210]: (ian) CMD (/home/ian/stacks/terminal/watchdog.sh)']) }) }),
+    var: dir({ log: dir({ 'auth.log': file(['sshd[3311]: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key id_homelab', 'sshd[3311]: pam_unix(sshd:session): session opened for user ian', 'sshd[2981]: Connection closed by 192.0.2.66 port 22 [preauth]']), syslog: file(['systemd[1]: Started Proxmox VE API daemon.', 'pvestatd: all 3 nodes online', 'smartd: all disks PASSED', 'ian: logged in from 10.42.0.12', 'CRON[2210]: (ian) CMD (/home/ian/stacks/terminal/watchdog.sh)']) }) }),
   });
 }

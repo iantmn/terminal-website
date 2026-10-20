@@ -1,5 +1,5 @@
 import { PROFILE, POSTS } from './content.js';
-import { $, esc, span, print, printLines, sleep, uptime, out, term } from './core.js';
+import { $, esc, span, print, printLines, sleep, uptime, out, term, state } from './core.js';
 
 function figlet(text) {
   const G = {
@@ -41,7 +41,20 @@ export function neofetch() {
     '               ',
     '               ',
   ];
-  const info = [
+  // the homelab is a plain Debian with Proxmox on top
+  const info = state.host === 'homelab' ? [
+    span('u', 'ian') + '@' + span('u', 'homelab'),
+    span('m', '-------------'),
+    span('a2', 'OS') + ': Debian GNU/Linux 12 (bookworm) x86_64',
+    span('a2', 'Host') + ': Proxmox VE 8.2',
+    span('a2', 'Kernel') + ': 6.8.12-4-pve',
+    span('a2', 'Uptime') + ': 47 days, 3 hours',
+    span('a2', 'Packages') + ': 912 (dpkg), 9 containers',
+    span('a2', 'Shell') + ': bash 5.2.15',
+    span('a2', 'CPU') + ': AMD Ryzen 7 5700G (16) @ 4.6GHz',
+    span('a2', 'Memory') + ': 41.2GiB / 64.0GiB (the ZFS cache, mostly)',
+    ['--fg','--accent','--accent2','--link','--warn','--err'].map(v => `<span style="color:var(${v})">███</span>`).join(''),
+  ] : [
     span('u', 'guest') + '@' + span('u', 'iantiemann'),
     span('m', '----------------'),
     span('a2', 'OS') + ': IanOS 2026 (Jekyll-flavoured)',
