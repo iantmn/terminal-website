@@ -147,6 +147,11 @@ export async function runFeatures(onResult = () => {}) {
     const gone = !(await out('ps aux')).includes('fix-the-printer');
     return { ok: said.includes('Terminated') && gone && !document.body.contains(box), info: said.split('\n').find(l => l.includes('Terminated')) || 'no kill message' };
   });
+  await check('achievements --share draws a card to download', async () => {
+    await run('achievements --share'); await idle(); await wait(200);
+    const img = [...outEl.querySelectorAll('img.share-card')].pop(), link = [...outEl.querySelectorAll('a[download]')].pop();
+    return { ok: !!img && img.src.startsWith('data:image/png') && img.naturalWidth === 1200 && link?.download === 'iantiemann-achievements.png', info: img ? `${img.naturalWidth}x${img.naturalHeight}` : 'no image' };
+  });
   await check('cmd | less pages through the output', async () => { const p = run('help | less'); await wait(200); const rows = document.querySelectorAll('#pager .pl').length; key('q'); await p; await idle(); return { ok: rows > 20, info: rows + ' rows' }; });
   await check('status: every monitor up', async () => (await out('status')).includes('All systems operational'));
   await check('tldr', async () => { const o = await out('tldr'); return o.includes('Now') && o.includes('Strong in'); });

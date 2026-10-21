@@ -151,7 +151,43 @@ def('crt', 'system', 'toggle retro CRT effect', () => {
   print(span('a', `CRT mode ${on ? 'on' : 'off'}`)); if (on) unlock('crt');
 });
 const bar = (n, total, w = 24) => { const k = Math.round(n / total * w); return span('a', '█'.repeat(k)) + span('m', '░'.repeat(w - k)); };
-def('achievements', 'system', 'easter eggs you found', () => {
+// achievements --share: a card in the colours of your theme, 1200x630 so it previews well wherever it is shared
+async function shareCard() {
+  const c = { bg: '#1b1b1e', fg: '#d4d4d8', accent: '#50fa7b', accent2: '#8be9fd', warn: '#f1fa8c', ...themeColors(document.body.dataset.theme), muted: getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#8b8b94' };
+  const total = ACH_IDS.length, got = unlocked.size;
+  // the rarest first: secrets, then the ones with a hint, then the classics
+  const rank = id => SECRET_ACH.includes(id) || SEASONAL_ACH.includes(id) ? 0 : ACH[id][1] ? 1 : 2;
+  const best = ACH_IDS.filter(id => unlocked.has(id)).sort((a, b) => rank(a) - rank(b)).slice(0, 6);
+  const canvas = Object.assign(document.createElement('canvas'), { width: 1200, height: 630 });
+  const g = canvas.getContext('2d');
+  await document.fonts?.load?.('700 40px "JetBrains Mono"').catch(() => {});
+  const font = (size, weight = 400) => { g.font = `${weight} ${size}px "JetBrains Mono", ui-monospace, monospace`; };
+  g.fillStyle = c.bg; g.fillRect(0, 0, 1200, 630);
+  g.strokeStyle = c.accent; g.lineWidth = 4; g.strokeRect(24, 24, 1152, 582);
+  font(26); g.fillStyle = c.muted; g.fillText('guest@iantiemann:~$ achievements --share', 64, 92);
+  font(72, 700); g.fillStyle = c.warn; g.fillText(`★ ${got} / ${total}`, 64, 196);
+  font(32); g.fillStyle = c.fg; g.fillText(got === total ? 'everything found. Respect.' : 'achievements found', 64, 246);
+  // the progress bar
+  g.fillStyle = c.muted; g.globalAlpha = 0.35; g.fillRect(64, 282, 1072, 28); g.globalAlpha = 1;
+  g.fillStyle = c.accent; g.fillRect(64, 282, Math.round(1072 * got / total), 28);
+  font(26); g.fillStyle = c.accent2;
+  best.forEach((id, i) => g.fillText(`${SECRET_ACH.includes(id) ? '◆' : '★'} ${ACH[id][0]}`, 64 + (i % 2) * 540, 372 + Math.floor(i / 2) * 48));
+  if (!best.length) { g.fillStyle = c.muted; g.fillText('nothing yet. The hunt starts with: help', 64, 372); }
+  font(26, 700); g.fillStyle = c.accent; g.fillText('terminal.iantiemann.nl', 64, 566);
+  font(22); g.fillStyle = c.muted; g.fillText('can you find more?', 820, 566);
+  const url = canvas.toDataURL('image/png');
+  print(`<img class="share-card" src="${url}" alt="${got} of ${total} achievements on terminal.iantiemann.nl" width="600" height="315">`);
+  const line = print(`<a href="${url}" download="iantiemann-achievements.png">${span('a2', 'download it')}</a>` + (navigator.canShare ? span('m', ' or ') + '<a href="#" class="share-it">' + span('a2', 'share it') + '</a>' : ''));
+  // sharing needs the click itself, so it hangs on the link
+  line.querySelector('.share-it')?.addEventListener('click', async e => {
+    e.preventDefault(); e.stopPropagation();
+    const file = new File([await (await fetch(url)).blob()], 'iantiemann-achievements.png', { type: 'image/png' });
+    const data = { files: [file], title: 'My achievements', text: `${got}/${total} on terminal.iantiemann.nl` };
+    try { if (navigator.canShare(data)) await navigator.share(data); else await navigator.share({ title: data.title, text: data.text, url: 'https://terminal.iantiemann.nl/' }); } catch {}
+  });
+}
+def('achievements', 'system', 'easter eggs you found', async args => {
+  if (args.includes('--share') || args.includes('-s')) return shareCard();
   const total = ACH_IDS.length;
   print(`${span('w b', 'Achievements')}  ${bar(unlocked.size, total)}  ${unlocked.size}/${total} ${span('m', `(${Math.round(unlocked.size / total * 100)}%)`)}`);
   // the numbers stay the order of the list, so hint <n> keeps meaning the same one
@@ -171,7 +207,7 @@ def('achievements', 'system', 'easter eggs you found', () => {
   if (unlocked.size) print(span('m', 'Want to start over? ') + cmd('reset-achievements'));
   if (unlocked.size === total) print(span('a b', 'You found everything. Respect.'));
   else print(span('m', 'Stuck? ') + cmd('hint -r') + span('m', ' gives a random tip, ') + span('a2', 'hint &lt;n&gt;') + span('m', ' a tip for a specific one.'));
-});
+}, { flags: [['-s, --share', 'a picture of your progress, to download or share']] });
 def('reset-achievements', 'system', 'forget all achievements', async () => {
   if (!unlocked.size) return print(span('m', 'Nothing to reset, you have no achievements yet.'));
   state.busy = false; inrow.style.visibility = '';

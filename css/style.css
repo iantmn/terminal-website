@@ -114,6 +114,7 @@ body[data-theme="light"] .qr .qr-dark, body[data-theme="github"] .qr .qr-dark { 
 .htop-row.sel { background:var(--sel); }
 .htop-key { cursor:pointer; }
 .inv { background:var(--fg); color:var(--bg); }
+.share-card { display:block; max-width:100%; height:auto; margin:.4em 0; border-radius:6px; }
 .beat { display:inline-block; width:.6ch; height:1em; margin-right:.3ch; border-radius:2px; vertical-align:-.15em; background:var(--accent); }
 .beat.down { background:var(--err); }
 .watchdog-note { white-space:normal; border:1px solid var(--warn); border-radius:4px; padding:.8em 1em; margin:.6em 0; }
