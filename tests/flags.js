@@ -271,6 +271,8 @@ export const T = [
   ['tail -n 1 about.txt cv.txt', o => o.includes('==> about.txt <==') && o.includes('==> cv.txt <==')],
   ['wc -l about.txt cv.txt', o => / total$/.test(o) && lines(o).length === 3],
   ['head nope', o => o.includes('No such file')],
+  // the network map
+  ['netmap', o => o.includes('pve') && o.includes('10.20.0.20') && o.includes('you are here') && o.includes('wg0')],
   // command not found, but helpful
   ['nmap', o => o.includes('can be installed with') && o.includes('sudo apt install nmap')],
   ['qm list', o => o.includes('Proxmox host')],

@@ -169,10 +169,10 @@ export async function runFeatures(onResult = () => {}) {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
     const b = n(), done = labSession();
-    for (const l of ['wg show', 'ssh -i ~/.ssh/ansible_pve root@pve', 'qm list', 'exit', 'exit']) await send(l);
+    for (const l of ['wg show', 'nmap -sn 10.20.0.0/24', 'ssh -i ~/.ssh/ansible_pve root@pve', 'qm list', 'exit', 'exit']) await send(l);
     await done; await idle();
     const o = since(b);
-    return { ok: o.includes('interface: wg0') && o.includes('root@pve:~# qm list') && o.includes('102 homelab') && state.host === 'iantiemann', info: o.split('\n').slice(-2).join(' | ') };
+    return { ok: o.includes('interface: wg0') && o.includes('Nmap scan report for pve.lan') && o.includes('root@pve:~# qm list') && o.includes('102 homelab') && state.host === 'iantiemann', info: o.split('\n').slice(-2).join(' | ') };
   });
   return results;
 }

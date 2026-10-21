@@ -16,6 +16,7 @@ const FILES = [
   'js/commands/linux.js',
   'js/commands/me.js',
   'js/commands/nav.js',
+  'js/commands/network.js',
   'js/commands/pve.js',
   'js/commands/python.js',
   'js/commands/qr.js',
