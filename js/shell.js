@@ -1,7 +1,7 @@
 // parsing and running command lines: aliases, pipes, && and ;
 import { unlock, unlocked } from './achievements.js';
-import { esc, span, cmd, pad, print, printLines, state, store, getopt } from './core.js';
-import { resolve, cannotWrite, writeFile, TMP_NOTE } from './filesystem.js';
+import { esc, span, cmd, pad, print, printLines, state, store, getopt, pathStr, HOME } from './core.js';
+import { resolve, cannotWrite, writeFile, TMP_NOTE, glob } from './filesystem.js';
 import { C } from './registry.js';
 import { pager } from './pager.js';
 
@@ -102,6 +102,48 @@ function splitOutside(str, seps) {
   return parts.filter(p => p.text);
 }
 
+// ---- variables: the environment, what export and NAME=value set (for this visit), and $? ----
+export const vars = {};
+export function envVars() {
+  return {
+    USER: state.user, LOGNAME: state.user, HOME: '/' + HOME.join('/'), PWD: pathStr(), HOSTNAME: state.host,
+    SHELL: state.host === 'iantiemann' ? '/bin/zsh' : '/bin/bash', LANG: 'en_GB.UTF-8', TERM: 'xterm-256color',
+    EDITOR: 'vim', COFFEE_LEVEL: 'high', ...vars,
+  };
+}
+// $NAME, ${NAME}, $? and $$, anywhere but inside single quotes
+function expandVars(line) {
+  if (!line.includes('$')) return line;
+  const env = envVars();
+  let out = '', q = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q === "'") { if (ch === "'") q = null; out += ch; continue; }
+    if (q === '"' && ch === '"') q = null;
+    else if (!q && (ch === '"' || ch === "'")) q = ch;
+    if (ch !== '$') { out += ch; continue; }
+    const rest = line.slice(i + 1);
+    let m;
+    if (rest[0] === '?') { out += String(state.status); i++; }
+    else if (rest[0] === '$') { out += '9000'; i++; }
+    else if ((m = rest.match(/^\{(\w+)\}/) || rest.match(/^[A-Za-z_]\w*/))) { out += env[m[1] ?? m[0]] ?? ''; i += m[0].length; }
+    else out += ch;
+  }
+  return out;
+}
+// unquoted words with * or ? become the paths they match, like bash; the command name itself stays
+function expandGlobs(line) {
+  if (!/[*?]/.test(line)) return line;
+  return line.replace(/(^|[\s|;&])([^\s"'|;&<>]*[*?][^\s"'|;&<>]*)(?=$|[\s|;&<>])/g, (all, pre, word, at) => {
+    const before = line.slice(0, at + pre.length);
+    // inside quotes, or the first word of a command: leave it
+    if ((before.match(/"/g) || []).length % 2 || (before.match(/'/g) || []).length % 2) return all;
+    if (!before.trim() || /[|;&]\s*$/.test(before)) return all;
+    const hits = glob(word);
+    return pre + (hits ? hits.join(' ') : word);
+  });
+}
+
 export const aliases = store.get('aliases', {});
 const expandAlias = line => {
   const name = line.split(/\s+/)[0];
@@ -114,6 +156,7 @@ async function execOne(line) {
   let c = C[name.toLowerCase()];
   if (!c && name.includes('/')) { const r = resolve(name); if (!r.error && r.node.exec) c = C[r.node.exec]; }
   if (!c) {
+    state.failed = true; state.code = 127;
     const visible = Object.values(C).filter(x => x.group && !x.alias).map(x => x.name);
     const best = visible.map(n => [n, lev(name.toLowerCase(), n)]).sort((a, b) => a[1] - b[1])[0];
     return print(span('e', `command not found: ${esc(name)}`) + (best && best[1] <= 2 ? span('m', ' - did you mean ') + cmd(best[0]) + span('m', '?') : span('m', ' - type ') + cmd('help')));
@@ -263,11 +306,16 @@ async function execPipeline(line) {
 export async function execChain(raw, depth = 0) {
   for (const part of splitOutside(raw, ['&&', ';'])) {
     if (part.op === '&&' && state.failed) continue;
-    state.failed = false;
-    const text = expandAlias(part.text);
-    if (text !== part.text && depth < 3 && /;|&&/.test(text)) await execChain(text, depth + 1);
+    state.failed = false; state.code = null;
+    const aliased = expandAlias(part.text);
+    if (aliased !== part.text && depth < 3 && /;|&&/.test(aliased)) { await execChain(aliased, depth + 1); continue; }
+    const text = expandGlobs(expandVars(aliased));
+    // NAME=value on its own sets a variable
+    const set = text.match(/^([A-Za-z_]\w*)=(\S*|"[^"]*"|'[^']*')$/);
+    if (set) vars[set[1]] = set[2].replace(/^(["'])(.*)\1$/, '$2');
     else if (hasRedirect(text)) await execRedirect(text);
     else await execPipeline(text);
+    state.status = state.failed ? state.code ?? 1 : 0;
   }
 }
 

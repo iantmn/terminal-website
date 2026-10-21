@@ -146,4 +146,34 @@ export function removeNode(p, { recursive = false, onlyEmpty = false } = {}) {
   delete w.dir.children[w.name];
   return null;
 }
+// a glob like *.md, experience/* or /etc/*.conf: the matching paths, written the way the pattern was, sorted.
+// Hidden names only match a pattern that starts with a dot; null when nothing matches, so the word stays as typed
+const hasGlob = s => /[*?]/.test(s);
+export function glob(pattern) {
+  if (!hasGlob(pattern)) return null;
+  const dirOnly = pattern.endsWith('/');
+  const segs = pattern.replace(/\/+$/, '').split('/');
+  // where it starts: / (''), ~ ('~') or the folder you are in (null)
+  let paths = [pattern.startsWith('/') ? '' : segs[0] === '~' ? '~' : null];
+  const parts = paths[0] === null ? segs : segs.slice(1);
+  const join = (p, n) => p === null ? n : p === '' ? '/' + n : p + '/' + n;
+  parts.forEach((seg, i) => {
+    const last = i === parts.length - 1, next = [];
+    for (const p of paths) {
+      if (!seg) continue;
+      if (!hasGlob(seg)) { const q = join(p, seg), r = resolve(q); if (!r.error && (last || r.node.type === 'dir')) next.push(q); continue; }
+      const r = resolve(p === null ? '.' : p === '' ? '/' : p);
+      if (r.error || r.node.type !== 'dir') continue;
+      const re = new RegExp('^' + seg.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+      for (const n of Object.keys(r.node.children).sort()) {
+        const child = r.node.children[n];
+        if ((n.startsWith('.') && !seg.startsWith('.')) || !re.test(n)) continue;
+        if ((!last || dirOnly) && child.type !== 'dir') continue;
+        next.push(join(p, n));
+      }
+    }
+    paths = next;
+  });
+  return paths.length ? paths.map(p => dirOnly ? p + '/' : p) : null;
+}
 export const isMine = p => { const r = resolve(p); return !r.error && !!r.node.mine; };

@@ -6,7 +6,7 @@ import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrol
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { HOSTS } from './labstate.js';
-import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
+import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped, vars, envVars } from '../shell.js';
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
 // the homelab or the main machine: commands about the system answer for the one you are on
@@ -480,20 +480,27 @@ def(['which', 'type', 'whereis', 'command'], 'more', 'where a command lives', (a
     print(`/usr/bin/${esc(a)}` + (o.a ? `\n/bin/${esc(a)}` : ''));
   });
 }, { usage: '[-a] <command>', flags: [['-a', 'every match, not just the first']] });
-const ENV = () => ({
-  USER: 'guest', HOME: '/home/guest', SHELL: '/bin/zsh', LANG: 'en_GB.UTF-8', TERM: 'xterm-256color',
-  EDITOR: 'vim', COFFEE_LEVEL: 'high', PWD: pathStr(),
-});
 def(['env', 'printenv', 'export', 'set'], 'more', 'environment variables', (args, raw) => {
-  const tool = raw.trim().split(/\s+/)[0].toLowerCase(), env = ENV();
-  if (tool === 'export' && args.length) return print(span('e', 'export: read-only environment') + span('m', ' - but nice try. Want a shortcut? ') + cmd('alias'));
+  const tool = raw.trim().split(/\s+/)[0].toLowerCase(), env = envVars();
+  // export NAME=value: for this visit, like a variable in a shell that has not been closed yet
+  if (tool === 'export' && args.length) {
+    for (const a of args) {
+      const m = a.match(/^([A-Za-z_]\w*)(?:=(.*))?$/);
+      if (!m) { state.failed = true; print(span('e', `export: '${esc(a)}': not a valid identifier`)); continue; }
+      if (m[2] !== undefined) vars[m[1]] = m[2];
+      else if (!(m[1] in vars)) vars[m[1]] = '';
+    }
+    return;
+  }
+  if (tool === 'export') return printLines(Object.entries(env).map(([k, v]) => esc(`declare -x ${k}="${v}"`)));
   if (tool === 'printenv' && args.length) {
     const vals = args.filter(a => a in env);
     if (!vals.length) state.failed = true;
     return printLines(vals.map(a => esc(env[a])));
   }
   printLines(Object.entries(env).map(([k, v]) => esc(`${k}=${v}`) + (k === 'EDITOR' ? '  ' + span('m', '# good luck getting out') : '')));
-}, { usage: '[VAR]', flags: [['VAR', 'printenv VAR prints just that value']] });
+}, { usage: '[VAR] | export NAME=value', flags: [['VAR', 'printenv VAR prints just that value'], ['export NAME=value', 'set a variable for this visit, then echo $NAME']] });
+def('unset', null, 'forget a variable', args => { args.forEach(a => delete vars[a]); });
 const MAIN_UNITS = [
   ['coffee.service', 'Keeps Ian operational', 128], ['cloudmodule-dev.service', 'CloudModule product development', 42],
   ['nginx.service', 'Serves this website', 1233], ['curiosity.target', 'Wants to know how everything works', null],
@@ -836,8 +843,34 @@ const FILTER_INFO = {
   uniq: ['drop repeated lines', '[-cdui]', [['-c, --count', 'prefix lines with how often they occur'], ['-d, --repeated', 'only lines that repeat'], ['-u, --unique', 'only lines that do not repeat'], ['-i, --ignore-case', 'ignore case']]],
   lolcat: ['rainbows', '[text]', []],
 };
-Object.keys(FILTERS).forEach(f => def(f, 'more', FILTER_INFO[f][0], () => print(span('m', `${f} reads from a pipe here. Try `) + cmd(f === 'grep' ? 'skills -a | grep linux' : `articles | ${f}${f === 'head' || f === 'tail' ? ' -n 3' : ''}`)),
-  { usage: FILTER_INFO[f][1], flags: FILTER_INFO[f][2] }));
+// head, tail, wc, sort and uniq read a pipe or files: head -n 3 about.txt, wc -l experience/*
+const TAKES = { head: ['n', 'c', 'lines', 'bytes'], tail: ['n', 'c', 'lines', 'bytes'] };
+function readText(p) {
+  const r = resolve(p);
+  if (r.error) return { error: r.error === 'denied' ? 'Permission denied' : 'No such file or directory' };
+  if (r.node.type === 'dir') return { error: 'Is a directory' };
+  state.silent = true;
+  try { return { lines: htmlToText(r.node.read()) }; } finally { state.silent = false; }
+}
+Object.keys(FILTERS).forEach(f => def(f, 'more', FILTER_INFO[f][0], args => {
+  const [, paths] = getopt(args, TAKES[f] || []);
+  if (!paths.length || f === 'lolcat') return print(span('m', `${f} reads from a pipe or from files. Try `) + cmd(f === 'grep' ? 'skills -a | grep linux' : f === 'lolcat' ? 'fortune | lolcat' : `${f}${f === 'head' || f === 'tail' ? ' -n 3' : ''} about.txt`));
+  const opts = args.filter(a => !paths.includes(a)), read = [];
+  for (const p of paths) {
+    const t = readText(p);
+    if (t.error) { state.failed = true; print(span('e', `${f}: ${esc(p)}: ${t.error}`)); } else read.push([p, t.lines]);
+  }
+  if (!read.length) return;
+  if (f === 'sort' || f === 'uniq') return printLines(FILTERS[f](opts, read.flatMap(([, l]) => l)));
+  if (f === 'wc') {
+    // one line per file, the name behind it, and a total when there are more
+    const rows = read.map(([p, l]) => [FILTERS.wc(opts, l)[0], p]);
+    if (rows.length > 1) rows.push([rows.reduce((sum, [c]) => c.trim().split(/\s+/).map((n, i) => (sum[i] || 0) + +n), []).map(n => String(n).padStart(7)).join(' '), 'total']);
+    return printLines(rows.map(([c, p]) => `${c.length < 7 ? c.padStart(7) : c} ${esc(p)}`));
+  }
+  // head and tail: a header per file when there is more than one
+  read.forEach(([p, l], i) => printLines([...(read.length > 1 ? [(i ? '\n' : '') + span('w', `==> ${esc(p)} <==`)] : []), ...FILTERS[f](opts, l)]));
+}, { usage: FILTER_INFO[f][1] + (f === 'lolcat' ? '' : ' [file...]'), flags: FILTER_INFO[f][2] }));
 // grep with files, or -r for folders: grep -rn proxmox ~. Without either it reads from a pipe (shell.js)
 def('grep', 'more', FILTER_INFO.grep[0], args => {
   const [o, rest] = getopt(args, ['e']);

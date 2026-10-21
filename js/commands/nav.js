@@ -12,7 +12,7 @@ def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
   // ll is ls -al, like on most Linux boxes
   if (/^\s*ll\b/.test(raw)) o.a = o.l = true;
   const all = o.a || o.all, almost = o.A || o['almost-all'], long = o.l, hs = o.h || o['human-readable'];
-  const one = o['1'] || o.num === 1, rev = o.r || o.reverse, recursive = o.R || o.recursive;
+  const one = o['1'] || o.num === 1 || !!state.capture, rev = o.r || o.reverse, recursive = o.R || o.recursive;
   const by = o.t ? 'time' : o.S ? 'size' : null;
   const opts = { humanSizes: hs };
   const list = (node, segs, label, name = displayPath) => {
@@ -46,7 +46,7 @@ def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
     const r = resolve(target);
     if (r.error === 'denied') { print(span('e', `ls: cannot open directory '${esc(target)}': Permission denied`)); continue; }
     if (r.error) { print(span('e', `ls: cannot access '${esc(target)}': No such file or directory`)); continue; }
-    if (r.node.type === 'file' || o.d || o.directory) { print((long ? lsLong(r.segs.at(-1) || '/', r.node, opts) : '') + (r.segs.length ? lsEntry(r.segs.at(-1), r.node, r.segs.slice(0, -1)) : '/')); continue; }
+    if (r.node.type === 'file' || o.d || o.directory) { print((long ? lsLong(r.segs.at(-1) || '/', r.node, opts) : '') + (!r.segs.length ? '/' : target ? pathLink(target, r.node) : lsEntry(r.segs.at(-1), r.node, r.segs.slice(0, -1)))); continue; }
     // an absolute target keeps absolute headers, like ls -R /home
     const abs = (target || '').startsWith('/'), label = segs => abs ? '/' + segs.join('/') : displayPath(segs);
     list(r.node, r.segs, targets.length > 1 || recursive ? label(r.segs) : '', label);

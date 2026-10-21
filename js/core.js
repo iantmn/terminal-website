@@ -18,6 +18,8 @@ export const state = {
   capture: null,
   // set by error output, read by &&
   failed: false,
+  // the exit status of the last command, for $?; code is set by a command that wants a specific one (127: not found)
+  status: 0, code: null,
   // set by Ctrl+C, the next sleep() then throws
   cancelled: false,
   // a command is running and the input row is hidden

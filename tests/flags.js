@@ -191,7 +191,7 @@ export const T = [
   ['whereis ls', o => o.includes('/usr/share/man/man1/ls.1.gz')],
   // env
   ['env', o => o.includes('HOME=/home/guest')], ['printenv HOME', o => o === '/home/guest'], ['printenv HOME USER', o => o === '/home/guest\nguest'],
-  ['printenv NOPE', o => o === ''], ['export A=1', o => o.includes('read-only')], ['set', o => o.includes('SHELL=')],
+  ['printenv NOPE', o => o === ''], ['export A=1 && printenv A', o => o === '1'], ['set', o => o.includes('SHELL=')],
   // systemctl
   ['systemctl', o => o.includes('coffee.service')], ['systemctl --failed', o => o.includes('0 loaded units')],
   ['systemctl is-active coffee', o => o === 'active'], ['systemctl is-active nope', o => o === 'inactive'],
@@ -253,6 +253,24 @@ export const T = [
   ['please ls --help', o => o.includes('Usage: ls')],
   ['skills -a | grep -h', o => o.startsWith('Usage: grep')], ['articles | wc --help', o => o.startsWith('Usage: wc')],
   ['help', o => o.includes('reset-settings')],
+  // the shell: variables, $?, globs, filters on files, ls in a pipe
+  ['echo $HOME $USER', o => o === '/home/guest guest'],
+  ["echo '$HOME'", o => o === '$HOME'],
+  ['cat nope; echo $?', o => o.endsWith('1')],
+  ['nope; echo $?', o => o.endsWith('127')],
+  ['echo ok; echo $?', o => o === 'ok\n0'],
+  ['export FOO=bar && echo $FOO ${FOO}x', o => o === 'bar barx'],
+  ['X=12; echo $X; unset X; echo [$X]', o => o === '12\n[]'],
+  ['echo *.txt', o => o.includes('about.txt') && o.includes('cv.txt') && !o.includes('*')],
+  ['echo "*.txt"', o => o === '*.txt'],
+  ['echo nomatch*', o => o === 'nomatch*'],
+  ['calc 2*3', o => o === '6'],
+  ['ls /etc/*o*', o => o.includes('/etc/hosts') && !o.includes('passwd')],
+  ['ls | head -n 3', o => lines(o).length === 3],
+  ['head -n 2 about.txt', o => lines(o).length === 2],
+  ['tail -n 1 about.txt cv.txt', o => o.includes('==> about.txt <==') && o.includes('==> cv.txt <==')],
+  ['wc -l about.txt cv.txt', o => / total$/.test(o) && lines(o).length === 3],
+  ['head nope', o => o.includes('No such file')],
 ];
 
 // the slow ones: they sleep between lines
