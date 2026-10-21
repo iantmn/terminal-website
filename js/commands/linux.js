@@ -236,7 +236,7 @@ def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args,
     span('m', `This is a Docker container (terminal-terminal-1), PID 1 is nginx: there is nothing here to ${{ shutdown: 'shut down', poweroff: 'power off' }[name] || esc(name)}.`),
     span('m', 'Shutting down is possible from the Docker host it runs on. Maybe you can find out where this is hosted?'),
   ]);
-}, { usage: '[-h|-r] [now]', flags: [['-h, now', 'power off'], ['-r, --reboot', 'reboot instead']] });
+}, { usage: '[-h|-r] [now]', flags: [['-h', 'power off'], ['now', 'right away, the only time there is here'], ['-r, --reboot', 'reboot instead']] });
 def('uptime', 'more', 'how long this terminal has been running', args => {
   const [o] = getopt(args);
   if (onLab()) {
@@ -843,8 +843,8 @@ def('cal', 'more', 'a calendar', args => {
 
 const FILTER_INFO = {
   grep: ['search files or the input for a pattern', '[-rlicvnowxF] <pattern> [file...]', [['-r, --recursive', 'search every file in the folders too'], ['-l, --files-with-matches', 'only the names of files that match'], ['-i, --ignore-case', 'ignore case (lowercase patterns already do)'], ['-v, --invert-match', 'lines that do not match'], ['-c, --count', 'only the number of matching lines'], ['-n, --line-number', 'show line numbers'], ['-o, --only-matching', 'only the matching part'], ['-w, --word-regexp', 'whole words only'], ['-x, --line-regexp', 'whole lines only'], ['-F, --fixed-strings', 'the pattern is text, not a regex'], ['-e pattern', 'the pattern, even if it starts with -']]],
-  head: ['the first lines of the input', '[-n lines] [-c bytes]', [['-n lines, -lines', 'how many lines (default 10)'], ['-c bytes', 'the first bytes instead']]],
-  tail: ['the last lines of the input', '[-n lines] [-c bytes]', [['-n lines, -lines', 'how many lines (default 10)'], ['-n +N', 'everything from line N'], ['-c bytes', 'the last bytes instead']]],
+  head: ['the first lines of the input', '[-n lines] [-c bytes]', [['-n lines, -N', 'how many lines (default 10)'], ['-c bytes', 'the first bytes instead']]],
+  tail: ['the last lines of the input', '[-n lines] [-c bytes]', [['-n lines, -N', 'how many lines (default 10)'], ['-n +N', 'everything from line N'], ['-c bytes', 'the last bytes instead']]],
   wc: ['count lines, words and bytes', '[-lwmc]', [['-l, --lines', 'lines'], ['-w, --words', 'words'], ['-m, --chars', 'characters'], ['-c, --bytes', 'bytes']]],
   sort: ['sort the input', '[-rnuf]', [['-r, --reverse', 'reverse the order'], ['-n, --numeric-sort', 'compare as numbers'], ['-u, --unique', 'drop duplicate lines'], ['-f, --ignore-case', 'ignore case']]],
   uniq: ['drop repeated lines', '[-cdui]', [['-c, --count', 'prefix lines with how often they occur'], ['-d, --repeated', 'only lines that repeat'], ['-u, --unique', 'only lines that do not repeat'], ['-i, --ignore-case', 'ignore case']]],

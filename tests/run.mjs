@@ -99,6 +99,10 @@ try {
   await page.evaluate(async () => { const f = await import('/tests/flags.js'); await f.runAll([...f.T, ...f.SLOW], 1, r => window.report(r)); });
   current.end();
 
+  current = suite('Help texts agree');
+  await page.evaluate(async () => { const f = await import('/tests/help.js'); await f.runHelp(r => window.report(r)); });
+  current.end();
+
   current = suite('Interactive features');
   await page.evaluate(async () => { const f = await import('/tests/features.js'); await f.runFeatures(r => window.report(r)); });
   current.end();

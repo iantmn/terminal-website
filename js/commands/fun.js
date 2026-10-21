@@ -42,7 +42,7 @@ def('cowsay', null, 'a cow says something', args => {
   const msg = words.join(' ') || 'moo';
   const line = '-'.repeat(msg.length + 2);
   printLines([` ${line}`, `< ${msg} >`, ` ${line}`, ...COWS[animal].map(l => l.replace('(oo)', `(${eyes})`))].map(esc));
-}, { usage: '[-f animal] [-e eyes] <text>', flags: [['-l', 'list the animals'], ['-f animal', 'another animal, like -f tux'], ['-e eyes', 'two characters for the eyes'], ['-b -d -g -p -s -t -w -y', 'borg, dead, greedy, paranoid, stoned, tired, wired, young']] });
+}, { usage: '[-f animal] [-e eyes] <text>', flags: [['-l', 'list the animals'], ['-f animal', 'another animal, like -f tux'], ['-e eyes', 'two characters for the eyes'], ['-b, -d, -g, -p, -s, -t, -w, -y', 'borg, dead, greedy, paranoid, stoned, tired, wired, young']] });
 const FORTUNES = [
   "It's always DNS. Except when it's the firewall. Then it's DNS.",
   "There is no cloud. It's just someone else's Proxmox cluster.",
