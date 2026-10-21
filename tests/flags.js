@@ -272,6 +272,8 @@ export const T = [
   ['wc -l about.txt cv.txt', o => / total$/.test(o) && lines(o).length === 3],
   ['head nope', o => o.includes('No such file')],
   // the network map, the dashboards, mtr
+  ['desk', o => o.includes('ASRock B550M Pro4') && o.includes('a drawing') === false && o.includes('A drawing')],
+  ['cat /dev/desk', o => o.includes('router') && o.includes('Ryzen 7 5700G')],
   ['grafana', o => o.includes('homelab CPU') && o.includes('/var/lib/docker') && /[▁▂▃▄▅▆▇█]{20}/.test(o)],
   ['mtr -r -c 3 iantiemann.nl', o => o.includes('Loss%') && o.includes('router.lan') && lines(o).length === 10],
   ['netmap', o => o.includes('pve') && o.includes('10.20.0.20') && o.includes('you are here') && o.includes('wg0')],

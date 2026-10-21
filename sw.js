@@ -25,6 +25,7 @@ const FILES = [
   'js/content.js',
   'js/core.js',
   'js/days.js',
+  'js/desk.js',
   'js/feed.js',
   'js/fs/home.js',
   'js/fs/homelab.js',

@@ -5,6 +5,7 @@ import { esc, span, cmd, link, state, uptime } from '../core.js';
 import { C } from '../registry.js';
 import { dayMessage } from '../days.js';
 import { THEMES } from '../themes.js';
+import { DESK } from '../desk.js';
 import { dir, file, locked } from './nodes.js';
 
 // fake files outside ~
@@ -81,6 +82,7 @@ export function buildRoot(FS) {
       urandom: file(SYSFILES['/dev/urandom']),
       zero: file(() => [esc('\\0'.repeat(32)), span('m', '(nothing but zeros. like a monday before coffee.)')]),
       brain: file(() => [span('m', 'block device. Check it with ') + cmd('fsck') + span('m', '.')]),
+      desk: file(() => [...DESK(), '', span('m', 'a drawing, from the device everything else runs on. ') + cmd('desk')]),
       tty: file(() => [span('m', "that's you, typing.")]),
     }),
     etc: dir({
