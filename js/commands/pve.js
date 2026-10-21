@@ -1,12 +1,12 @@
 // pve: the Proxmox host under the homelab. Reached with ssh from the Docker VM, with the key Ansible uses.
 // qm, pct, pvesh, pvesm, pveversion and zpool only exist here; qm stop 102 stops the VM this site runs on
 import { unlock, saw } from '../achievements.js';
-import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, charsPerLine } from '../core.js';
-import { resolve, addTree } from '../filesystem.js';
+import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, charsPerLine, HOME } from '../core.js';
+import { resolve, addTree, writeFile } from '../filesystem.js';
 import { buildPve } from '../fs/pve.js';
 import { def, completes } from '../registry.js';
 import { remoteShell, outage } from './homelab.js';
-import { VMS, CTS, up, stoppedSince, HOSTS } from './labstate.js';
+import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML } from './labstate.js';
 
 addTree('pve', buildPve());
 
@@ -305,6 +305,82 @@ def('ansible', null, 'run one Ansible module on some hosts', args => {
 
 completes('ansible-playbook', () => ['site.yml', '--check', '--list-tasks', '--list-hosts']);
 completes('ansible', args => args.length ? ['-m', 'ping'] : ['all', 'proxmox', 'docker']);
+// ---- one file out of a VM backup: proxmox-file-restore, and scp to put it back ----
+// the snapshots of VM 102 (the names pvesm list pbs shows); the newest one ran at 03:04, after the file was deleted
+const snapshots = () => [2, 1, 0].map(d => `vm/102/${new Date(Date.now() - d * 864e5).toISOString().slice(0, 10)}T01:04:01Z`);
+const ARCHIVE = '/drive-scsi0.img.fidx/part/1';
+// what the Docker VM looked like in a snapshot: its tree now, plus the file that was still there in the older ones
+function inSnapshot(snap, path) {
+  const rel = path.startsWith(ARCHIVE) ? path.slice(ARCHIVE.length) || '/' : null;
+  if (rel === null) return path === '/' || path === '/drive-scsi0.img.fidx' || path === '/drive-scsi0.img.fidx/part' ? { dir: { '/': ['drive-scsi0.img.fidx/', 'drive-scsi1.img.fidx/', 'qemu-server.conf.blob'], '/drive-scsi0.img.fidx': ['part/'], '/drive-scsi0.img.fidx/part': ['1/'] }[path] } : null;
+  const had = snap !== snapshots()[2];
+  if (rel.replace(/\/$/, '') === '/home/ian/stacks/monitoring/prometheus.yml') return had ? { file: PROMETHEUS_YML } : null;
+  const saved = { host: state.host, home: [...HOME] };
+  state.host = 'homelab'; HOME.splice(0, HOME.length, 'home', 'ian');
+  try {
+    const r = resolve(rel);
+    if (r.error) return null;
+    if (r.node.type !== 'dir') return { file: r.node.read() };
+    const names = Object.entries(r.node.children).filter(([n, c]) => !c.mine).map(([n, c]) => n + (c.type === 'dir' ? '/' : ''));
+    if (rel.replace(/\/$/, '') === '/home/ian/stacks/monitoring' && had) names.push('prometheus.yml');
+    return { dir: names.sort() };
+  } finally { state.host = saved.host; HOME.splice(0, HOME.length, ...saved.home); }
+}
+def('proxmox-file-restore', null, 'get single files out of a VM backup', args => {
+  const [sub, snap, path, target] = args;
+  const usage = () => printLines([span('m', esc('USAGE: proxmox-file-restore list <snapshot> <path>')), span('m', esc('       proxmox-file-restore extract <snapshot> <path> <target>')), '',
+    'The snapshots are the ones ' + cmd('pvesm list pbs') + ' shows, without the pbs:backup/ in front, like', '  ' + span('a2', esc(snapshots()[0])),
+    'and the path starts with the disk and partition: ' + span('a2', ARCHIVE + '/home/ian'), '',
+    span('m', 'Example: ') + cmd(`proxmox-file-restore list ${snapshots()[0]} ${ARCHIVE}/home/ian`)]);
+  if (!['list', 'extract'].includes(sub) || !snap || !path) return usage();
+  if (!snapshots().includes(snap)) { state.failed = true; return print(span('e', `Error: unable to find snapshot '${esc(snap)}'`) + span('m', '  (pvesm list pbs shows them; this tool takes vm/102/... without pbs:backup/)')); }
+  const x = inSnapshot(snap, path);
+  if (!x) {
+    state.failed = true;
+    if (/prometheus\.yml$/.test(path)) { saw('restore-wrong-snapshot'); return print(span('e', `Error: '${esc(path)}' not found in ${esc(snap)}`) + span('m', '  (this backup ran at 03:04; the file was deleted at 22:14 the evening before. An older snapshot still has it.)')); }
+    return print(span('e', `Error: '${esc(path)}' not found in ${esc(snap)}`));
+  }
+  if (sub === 'list') return x.dir ? printLines(x.dir.map(esc)) : print(span('e', `Error: '${esc(path)}' is a file, extract it instead`));
+  if (!target) return usage();
+  if (x.dir) { state.failed = true; return print(span('e', 'Error: extracting folders takes a while here, extract the one file you need')); }
+  print(span('m', 'Starting VM for file restore (a small helper VM that reads the backup) ...'));
+  const text = (x.file.map(l => l.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")).join('\n')) + '\n';
+  const err = writeFile(target, text);
+  if (err) { state.failed = true; return print(span('e', `Error: unable to write '${esc(target)}': ${err}`) + span('m', '  (/tmp is the place for it)')); }
+  if (/prometheus\.yml$/.test(path)) saw('restore-extracted');
+  print(span('a', `Extracted ${esc(path.split('/').pop())} to ${esc(target)}.`) + span('m', ' Now it only has to go back where it came from.'));
+}, { hosts: ['pve'], usage: 'list|extract <snapshot> <path> [target]', flags: [['list snapshot path', 'what is in a folder of the backup'], ['extract snapshot path target', 'copy one file out of the backup, to target on this host']] });
+
+// scp: from the host to the Docker VM, where the file belongs
+def('scp', null, 'copy a file to another machine', args => {
+  const [, [src, dest]] = getopt(args, ['i', 'P']);
+  if (!src || !dest) return print(span('e', 'usage: scp <file> [user@]host:<path>'));
+  const m = dest.match(/^(?:(\w+)@)?([\w.-]+):(.*)$/);
+  if (!m) return print(span('m', 'scp copies to another machine: ') + span('a2', 'scp /tmp/file ian@homelab:stacks/...'));
+  const [, user = 'ian', host, path] = m;
+  if (!/^(homelab|homelab\.lan|10\.20\.0\.20)$/.test(host)) { state.failed = true; return print(span('e', `ssh: Could not resolve hostname ${esc(host)}: Name or service not known`)); }
+  if (user !== 'ian') { state.failed = true; return print(span('e', `${esc(user)}@homelab: Permission denied (publickey).`)); }
+  const r = resolve(src);
+  if (r.error || r.node.type !== 'file') { state.failed = true; return print(span('e', `scp: ${esc(src)}: No such file or directory`)); }
+  const text = r.node.mine ? r.node.text : r.node.read().map(l => l.replace(/<[^>]+>/g, '')).join('\n') + '\n';
+  // write on the Docker VM: relative paths start in ian's home there
+  const saved = { host: state.host, home: [...HOME] };
+  state.host = 'homelab'; HOME.splice(0, HOME.length, 'home', 'ian');
+  let target = path.startsWith('/') ? path : '/home/ian/' + path;
+  const d = resolve(target);
+  if (!d.error && d.node.type === 'dir') target = target.replace(/\/+$/, '') + '/' + src.split('/').pop();
+  let err;
+  try { err = writeFile(target, text); const w = resolve(target); if (!err && !w.error) w.node.own = 'ian'; } finally { state.host = saved.host; HOME.splice(0, HOME.length, ...saved.home); }
+  if (err) { state.failed = true; return print(span('e', `scp: ${esc(target)}: ${err}`)); }
+  print(`${esc(src.split('/').pop())}${' '.repeat(Math.max(1, 30 - src.split('/').pop().length))}100%  ${text.length}B   1.2MB/s   00:00`);
+  if (target === '/home/ian/stacks/monitoring/prometheus.yml') {
+    RESTORE.done = true;
+    unlock('restore');
+    print(span('a', 'prometheus.yml is back.') + span('m', ' A backup only counts once you restored it, and now this one does. On the homelab: ') + span('a2', 'docker restart monitoring-prometheus-1'));
+  }
+}, { hosts: ['pve'], usage: '<file> [user@]host:<path>', flags: [['file', 'the file on this machine'], ['host:path', 'where it goes, like ian@homelab:stacks/monitoring/']] });
+
+completes('proxmox-file-restore', args => !args.length ? ['list', 'extract'] : args.length === 1 ? snapshots() : args.length === 2 ? [ARCHIVE + '/home/ian/'] : null);
 completes('qm', args => args.length ? VMS.map(v => String(v.id)) : ['list', 'status', 'config', 'start', 'stop', 'shutdown', 'reboot']);
 completes('pct', args => args.length ? CTS.map(c => String(c.id)) : ['list', 'status', 'start', 'stop', 'enter']);
 completes('pvesh', args => args.length ? Object.keys(API) : ['get', 'ls']);

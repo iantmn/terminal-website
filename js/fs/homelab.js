@@ -169,7 +169,9 @@ export function buildLab() {
               '  prometheus:',
               '  grafana:',
             ]),
-          }, { own: 'ian' }),
+            'config.alloy': labFile(['// Alloy: the logs of every container, to Loki', 'discovery.docker "containers" { host = "unix:///var/run/docker.sock" }', 'loki.source.docker "logs" {', '  host    = "unix:///var/run/docker.sock"', '  targets = discovery.docker.containers.targets', '  forward_to = [loki.write.local.receiver]', '}']),
+            // prometheus.yml is missing on purpose: the restore puzzle. scp from pve puts it back, so ian may write here
+          }, { own: 'ian', writable: true }),
           automation: dir({
             'docker-compose.yml': labFile([
               'name: automation',
@@ -198,10 +200,12 @@ export function buildLab() {
           '03:20:46 pbs: last restore test: 9 days ago, ok',
         ]),
         notes: dir({
-          'todo.md': labFile(['[ ] label every cable', '[ ] upgrade the Proxmox host to the next release', '[x] offsite backups (there is a guide for that)', '[ ] stop adding services', '[ ] see line 4']),
+          'todo.md': labFile(() => (saw('restore-start'), ['[ ] label every cable', '[ ] upgrade the Proxmox host to the next release', '[x] offsite backups (there is a guide for that)', '[ ] stop adding services', '[ ] see line 4',
+            '[ ] stacks/monitoring/prometheus.yml is gone: rm in the wrong tab, last night at 22:14. Prometheus still runs on what it',
+            '    loaded, so do NOT restart it before the file is back. The nightly VM backups on the Proxmox host have it.'].map(esc))),
           'ideas.md': labFile(['- a terminal version of my website        (done)', '- a typing test for sysadmins            (done)', '- a homelab you can ssh into             (you are in it)', '- a rubber duck that does code review']),
         }, { own: 'ian' }),
-        '.bash_history': labFile(['docker compose pull && docker compose up -d', 'docker system df', 'docker image prune -af', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'exit']),
+        '.bash_history': labFile(['docker compose pull && docker compose up -d', 'docker system df', 'docker image prune -af', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'cd ~/stacks/monitoring', 'rm prometheus.yml', span('m', '# wrong tab. that was not /tmp'), 'exit']),
       }, { own: 'ian' }),
     }),
     var: dir({ log: dir({ 'auth.log': file(['sshd[3311]: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key id_homelab', 'sshd[3311]: pam_unix(sshd:session): session opened for user ian', 'sshd[2981]: Connection closed by 192.0.2.66 port 22 [preauth]']), syslog: file(['systemd[1]: Started qemu-guest-agent.service - QEMU Guest Agent.', 'systemd[1]: Started docker.service - Docker Application Container Engine.', 'qemu-ga: info: guest-ping called', 'ian: logged in from 10.42.0.12', 'CRON[2210]: (ian) CMD (/home/ian/stacks/terminal/watchdog.sh)']) }) }),

@@ -62,7 +62,7 @@ function noteFound(c) {
 const BASE_COMMANDS = ['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'ssh'];
 const HOST_COMMANDS = {
   homelab: [new Set([...BASE_COMMANDS, 'docker', 'wg', 'ansible', 'ansible-playbook']), 'A lean install.'],
-  pve: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool']), 'The hypervisor: everything runs on this, so tread lightly.'],
+  pve: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool', 'proxmox-file-restore', 'scp', 'cp', 'rm', 'mkdir', 'touch']), 'The hypervisor: everything runs on this, so tread lightly.'],
 };
 function invoke(c, name, args, line) {
   const remote = HOST_COMMANDS[state.host];

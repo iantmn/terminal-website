@@ -134,6 +134,14 @@ export const SOLUTIONS = {
     await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve'); await answer('exit'); await answer('exit');
     await p; await idle();
   },
+  restore: async () => {
+    const yesterday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+    const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve');
+    await answer(`proxmox-file-restore extract vm/102/${yesterday}T01:04:01Z /drive-scsi0.img.fidx/part/1/home/ian/stacks/monitoring/prometheus.yml /tmp/prometheus.yml`);
+    await answer('scp /tmp/prometheus.yml homelab:stacks/monitoring/');
+    await answer('exit'); await answer('exit'); await p; await idle();
+  },
   student: () => all('learn restart; pwd; ls; cd experience; cat netw-it-specialist.md; cd ..; skills -a | grep linux; ls; help ls'),
   completionist: async () => {},
 };

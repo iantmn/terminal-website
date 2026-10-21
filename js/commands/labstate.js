@@ -15,6 +15,25 @@ export const INCIDENTS = [];
 // what ps, df, ip and friends show on each machine behind ssh; homelab.js and pve.js fill it in when they load
 export const HOSTS = {};
 
+// ---- the restore puzzle: stacks/monitoring/prometheus.yml went at 22:14 last night, the 03:00 backup ran without it ----
+export const RESTORE = { done: false };
+export const PROMETHEUS_YML = [
+  '# scraped every 15 seconds: the hosts, the Docker VM and the containers',
+  'global:',
+  '  scrape_interval: 15s',
+  '',
+  'scrape_configs:',
+  '  - job_name: prometheus',
+  '    static_configs: [{ targets: [localhost:9090] }]',
+  '  - job_name: node',
+  '    static_configs: [{ targets: [10.20.0.10:9100, 10.20.0.20:9100] }]',
+  '  - job_name: pve',
+  '    metrics_path: /pve',
+  '    static_configs: [{ targets: [10.20.0.10:9221] }]',
+  '  - job_name: traefik',
+  '    static_configs: [{ targets: [terminal-traefik-1:8080] }]',
+];
+
 // ---- the guests on the Proxmox host ----
 export const VMS = [
   { id: 101, name: 'homeassistant', mem: 4096, disk: 32, pid: 2101, cores: 2, note: 'The lights still work. The automations do not.' },

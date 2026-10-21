@@ -8,7 +8,7 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE } from './labstate.js';
 
 addTree('homelab', buildLab());
 
@@ -116,7 +116,7 @@ async function compose(args) {
   if (!stack || !STACKS[stack]) return print(span('e', 'no configuration file provided: not found') + span('m', '  (cd into ~/stacks/terminal, monitoring or automation first)'));
   const cs = all().filter(c => c.stack === stack && (!rest.filter(a => !a.startsWith('-')).length || rest.includes(c.svc)));
   if (sub === 'ps') return printLines(table(cs.filter(c => o.a || running.has(c.name)).map(c => [c.name, c.image, c.svc, status(c), ports(c)]), ['NAME', 'IMAGE', 'SERVICE', 'STATUS', 'PORTS']));
-  if (sub === 'logs') return printLines(cs.flatMap(c => (LOGS[c.svc] || ['(nothing to report)']).map(l => span('a2', pad(c.svc, 11) + '|') + ' ' + esc(l))));
+  if (sub === 'logs') return printLines(cs.flatMap(c => logsOf(c).map(l => span('a2', pad(c.svc, 11) + '|') + ' ' + esc(l))));
   if (sub === 'pull') {
     print(`[+] Pulling ${cs.length}/${cs.length}`);
     for (const c of cs) { await pause(250); print(` ${span('a', '✔')} ${pad(c.svc, 12)} Pulled`); }
@@ -124,12 +124,20 @@ async function compose(args) {
   }
   if (sub === 'up' || sub === 'start') {
     print(`[+] Running ${cs.length}/${cs.length}`);
-    for (const c of cs) { await pause(250); print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${running.has(c.name) ? 'Running' : 'Started'}`); running.add(c.name); }
+    for (const c of cs) {
+      await pause(250);
+      if (cannotStart(c) && !running.has(c.name)) { print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
+      print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${running.has(c.name) ? 'Running' : 'Started'}`); running.add(c.name);
+    }
     if (sub === 'up' && !o.d && !o.detach) print(span('m', '(the logs stay in the background here, like with -d)'));
     return;
   }
   if (sub === 'restart') {
-    for (const c of cs) { await pause(300); print(` ${span('a', '✔')} Container ${pad(c.name, 22)} Started`); running.add(c.name); }
+    for (const c of cs) {
+      await pause(300);
+      if (cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] = Date.now(); print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
+      print(` ${span('a', '✔')} Container ${pad(c.name, 22)} Started`); running.add(c.name);
+    }
     if (stack === 'terminal') print(span('m', 'The site blinked for a second. Nobody noticed. Probably.'));
     return;
   }
@@ -159,9 +167,10 @@ export async function labDocker(args) {
     for (const n of rest) {
       const c = find(n);
       if (!c) { print(span('e', `Error response from daemon: No such container: ${esc(n)}`)); continue; }
-      if (sub === 'logs') { printLines((LOGS[c.svc] || ['(nothing to report)']).map(esc)); continue; }
+      if (sub === 'logs') { printLines(logsOf(c).map(esc)); continue; }
       if (c === PRINTER) { if (sub !== 'stop') print(span('e', 'Error response from daemon: printer-fix: printer not found. It never is.')); else print(esc(n)); continue; }
       await pause(400);
+      if (sub !== 'stop' && cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] ??= Date.now(); print(span('e', esc(cannotStart(c)))); continue; }
       if (sub === 'stop') { running.delete(c.name); stoppedAt[c.name] = Date.now(); } else running.add(c.name);
       print(esc(n));
     }
@@ -202,6 +211,11 @@ const CONTAINER_PROCS = {
   'automation-n8n-1': { pid: 1503, cpu: 0.6, mem: 1.1, cmd: 'node /usr/local/bin/n8n' },
   'automation-postgres-1': { pid: 1511, cpu: 0.3, mem: 0.5, cmd: 'postgres' },
 };
+// Prometheus warns about its config until it is restored; and without it, it does not start
+const logsOf = c => [...(LOGS[c.svc] || ['(nothing to report)']), ...(c.svc === 'prometheus' && !RESTORE.done ? ['level=warn msg="/etc/prometheus/prometheus.yml: no such file or directory, running on the config loaded at start. A restart will fail."'] : [])];
+const cannotStart = c => c.svc === 'prometheus' && !RESTORE.done
+  ? 'Error response from daemon: failed to create task for container monitoring-prometheus-1: error mounting "/home/ian/stacks/monitoring/prometheus.yml": bind source path does not exist'
+  : null;
 LOGS['printer-fix'] = ['Searching for printer ...', 'Error: printer not found', 'Exited with code 1'];
 const UNITS = [
   ['docker.service', 'Docker Application Container Engine', 902], ['containerd.service', 'containerd container runtime', 911],

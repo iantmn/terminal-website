@@ -211,6 +211,7 @@ function nudges() {
   }
   if (has('homelab') && !has('outage')) out.push('The terminal you are using runs somewhere on the homelab. Have a look in ~/stacks, and wonder what happens if it stopped.');
   if (!has('pve') && s('pve-denied')) out.push(s('pve-key') ? 'You know which user and which key Ansible uses for the host. ssh takes both: -i for the key, user@ for the user.' : 'The Proxmox host only lets one user in, with one key. Something on the homelab logs in there every week; its crontab knows what.');
+  if (!has('restore') && s('restore-start')) out.push(s('restore-extracted') ? 'You have the file on the Proxmox host. It belongs on the homelab: scp can take it there.' : s('restore-wrong-snapshot') ? 'That backup ran after the file was gone. Take an older snapshot.' : 'The backups are made per VM, on the Proxmox host. Getting one file out of one has its own tool there.');
   if (!has('corrupt') && s('corrupt-clue')) out.push('A theme is hiding, and it is broken. Its name shows up where the logs and fsck complain.');
   return out;
 }

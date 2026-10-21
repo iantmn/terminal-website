@@ -20,6 +20,7 @@ export function buildPve() {
         'storage.cfg': conf(['dir: local', '        path /var/lib/vz', '        content iso,vztmpl', '', 'zfspool: local-zfs', '        pool rpool/data', '        content images,rootdir', '        sparse 1', '', 'pbs: pbs', '        server 10.20.0.30', '        datastore main', '        content backup', '        encryption-key 1']),
       }),
     }),
+    tmp: dir({}, { mode: () => 'drwxrwxrwt', writable: true }),
     root: dir({
       'notes.txt': file(() => [
         span('w b', 'pve, the host'), '',
@@ -27,7 +28,8 @@ export function buildPve() {
         '- VM 102 is the Docker VM. The terminal website runs in there, so ' + span('a2', 'qm stop 102') + ' stops the site too',
         '- backups: every night at 03:00 to PBS (VM 103), synced offsite afterwards. ' + cmd('pvesh get /cluster/backup'),
         '- updates: Ansible, every Monday from the homelab. Never by hand. Well, almost never.',
-        '- the disks: ' + cmd('zpool status') + ', two brands in one mirror', '',
+        '- the disks: ' + cmd('zpool status') + ', two brands in one mirror',
+        '- one file out of a VM backup, without restoring the whole VM: ' + cmd('proxmox-file-restore --help'), '',
         span('a', 'You came all the way down. This is where the guides on my site live in real life.') + span('m', ' exit twice, then ') + cmd('contact') + span('m', '.'),
       ]),
       '.bash_history': file(['qm list', 'zpool status', 'apt update && apt dist-upgrade', 'pveversion', '# never install docker on the host. that is what VM 102 is for', 'exit']),
