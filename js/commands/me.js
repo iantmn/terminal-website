@@ -5,7 +5,7 @@ import { print, printLines, span, esc, cmd, pad, kv, sleep, ask, state, inrow, c
 import { refreshFeed, feedReady } from '../feed.js';
 import { C, def, completes } from '../registry.js';
 import { found } from '../shell.js';
-import { DESK } from '../desk.js';
+import { DESK, DESK_NOTES } from '../desk.js';
 import { aboutLines, fmtExp, fmtEdu, skillLines, fmtPost, cvLines, contactLines, findPost, postChoices } from '../render.js';
 
 function parseUA() {
@@ -139,8 +139,11 @@ def('tldr', 'me', 'me in thirty seconds (or tldr <command>)', args => {
     span('m', 'The long versions: ') + [cmd('about'), cmd('experience'), cmd('skills'), cmd('cv')].join(span('m', ', ')) + span('m', '. Interested? ') + cmd('contact'),
   ]);
 }, { usage: '[command]', flags: [['command', 'the short version of a command, like tldr grep']] });
-def(['desk', 'photo'], 'me', 'where the homelab lives (a drawing)', () => printLines([...DESK(), '',
-  span('m', 'A drawing, not a photo (yet). Everything in it is real: ') + cmd('netmap') + span('m', ' shows how it connects, ') + cmd('neofetch') + span('m', ' on pve what is inside.')]));
+def(['desk', 'photo'], 'me', 'where the homelab lives (a drawing)', () => {
+  // one block, so it can scale down as a whole on a narrow screen instead of wrapping
+  print(`<div class="desk">${DESK().join('\n')}</div>`);
+  printLines(['', ...DESK_NOTES(), span('m', 'How it all connects: ') + cmd('netmap')]);
+});
 // interview: five questions, and after each one what Ian would answer. His answers come from the site itself
 const section = title => ABOUT.sections.find(([t]) => t === title)?.[1] || [];
 const INTERVIEW = [

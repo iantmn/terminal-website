@@ -82,7 +82,7 @@ export function buildRoot(FS) {
       urandom: file(SYSFILES['/dev/urandom']),
       zero: file(() => [esc('\\0'.repeat(32)), span('m', '(nothing but zeros. like a monday before coffee.)')]),
       brain: file(() => [span('m', 'block device. Check it with ') + cmd('fsck') + span('m', '.')]),
-      desk: file(() => [...DESK(), '', span('m', 'a drawing, from the device everything else runs on. ') + cmd('desk')]),
+      desk: file(() => [`<div class="desk">${DESK().join('\n')}</div>`, span('m', 'a drawing. The notes that go with it: ') + cmd('desk')]),
       tty: file(() => [span('m', "that's you, typing.")]),
     }),
     etc: dir({

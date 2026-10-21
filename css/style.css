@@ -115,6 +115,13 @@ body[data-theme="light"] .qr .qr-dark, body[data-theme="github"] .qr .qr-dark { 
 .htop-key { cursor:pointer; }
 .inv { background:var(--fg); color:var(--bg); }
 .share-card { display:block; max-width:100%; height:auto; margin:.4em 0; border-radius:6px; }
+/* desk: 78 characters wide; on a narrow screen the whole drawing gets smaller instead of wrapping */
+.desk { white-space:pre; font-size:min(1em, calc((100vw - 44px) / 47)); line-height:1.35; }
+.desk-blink { animation:desk-blink 1.1s steps(2, jump-none) infinite; }
+.desk .desk-blink:nth-child(odd) { animation-duration:.7s; }
+.desk-steam { animation:desk-steam 2.4s ease-in-out infinite; }
+@keyframes desk-blink { 50% { opacity:.25; } }
+@keyframes desk-steam { 0%, 100% { opacity:.9; } 50% { opacity:.2; } }
 .beat { display:inline-block; width:.6ch; height:1em; margin-right:.3ch; border-radius:2px; vertical-align:-.15em; background:var(--accent); }
 .beat.down { background:var(--err); }
 .watchdog-note { white-space:normal; border:1px solid var(--warn); border-radius:4px; padding:.8em 1em; margin:.6em 0; }
