@@ -102,9 +102,10 @@ export async function labSsh(args) {
   return pveSession();
 }
 
-async function pveSession() {
+// cwd: after a reload, the folder you were in
+export async function pveSession(cwd = null) {
   unlock('pve');
-  await remoteShell({ host: 'pve', user: 'root', home: ['root'], root: true, banner: [
+  await remoteShell({ host: 'pve', user: 'root', home: ['root'], root: true, start: cwd && (() => { if (!resolve('/' + cwd.join('/')).error) state.cwd = cwd; }), banner: cwd ? [span('m', 'Connection restored after the reload.')] : [
     'Linux pve 6.8.12-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.8.12-1 x86_64', '',
     span('m', 'The programs included with the Debian GNU/Linux system are free software.'),
     span('m', `Last login: ${new Date(Date.now() - 6 * 864e5).toString().slice(0, 24)} from 10.20.0.20`), '',

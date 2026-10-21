@@ -37,6 +37,7 @@ const FILES = [
   'js/pager.js',
   'js/registry.js',
   'js/render.js',
+  'js/session.js',
   'js/shell.js',
   'js/sound.js',
   'js/themes.js',

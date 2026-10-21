@@ -8,6 +8,7 @@ import { recordVisit } from './visits.js';
 import { startGlitch, defaultTheme } from './themes.js';
 import { powerScreen, boot } from './boot.js';
 import { run } from './input.js';
+import { resumeSession } from './session.js';
 // command modules only register themselves; the order sets the order within each help section
 import './commands/system.js';
 import './commands/me.js';
@@ -40,6 +41,8 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') addEventListe
 
 powerScreen().then(boot).then(() => {
   runLinked();
+  // a reload keeps the folder, /tmp and the machine you were on
+  resumeSession();
   // a new hash typed in the address bar runs too
   addEventListener('hashchange', runLinked);
 });

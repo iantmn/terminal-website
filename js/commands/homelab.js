@@ -5,7 +5,8 @@ import { execChain } from '../shell.js';
 import { remember, resetHistoryCursor, expandHistory } from '../input.js';
 import { boot } from '../boot.js';
 import { bootSound } from '../sound.js';
-import { addTree } from '../filesystem.js';
+import { addTree, resolve } from '../filesystem.js';
+import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
 import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS } from './labstate.js';
 
@@ -274,14 +275,16 @@ export const LAB = {
 HOSTS.homelab = LAB;
 
 // ---- a shell on another machine, until exit, logout or Ctrl+D (or until the site goes down under it) ----
-export async function remoteShell({ host, user, home, root = false, banner }) {
+export async function remoteShell({ host, user, home, root = false, banner, start = null }) {
   const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot }, savedHome = [...HOME];
   state.host = host; state.user = user; state.asRoot = root;
   HOME.splice(0, HOME.length, ...home); state.cwd = [...HOME];
   resetHistoryCursor();
   printLines(banner);
   try {
-    for (;;) {
+    // a session after a reload: back in the folder you were in, or one machine further
+    if (start) await start();
+    while (!restart) {
       state.busy = false; inrow.style.visibility = '';
       let line = await ask(promptHTML());
       // Ctrl+D logs out, Ctrl+C just gives a new prompt
@@ -310,14 +313,20 @@ export async function remoteShell({ host, user, home, root = false, banner }) {
 }
 
 // ---- the homelab: ssh in, and when the site went down under you, the fresh start ----
-export async function labSession() {
+// resume: after a reload, { host, cwd } of where you were (the homelab, or pve behind it)
+export async function labSession(resume = null) {
   unlock('homelab');
-  await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], banner: ['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), ''] });
+  const back = resume && span('m', 'Connection restored after the reload.');
+  await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], start: resume && (async () => {
+    if (resume.host === 'pve') return (await import('./pve.js')).pveSession(resume.cwd);
+    if (resume.cwd && !resolve('/' + resume.cwd.join('/')).error) state.cwd = resume.cwd;
+  }), banner: back ? [back] : ['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), ''] });
   if (!restart) return;
-  // the site came back as a fresh start
+  // the site came back as a fresh start: a new container, so an empty /tmp too
   const { what, down, seconds } = restart;
   restart = null;
   state.asRoot = false;
+  forgetSession();
   await boot();
   unlock('outage');
   const note = (icon, title, body, aside) => print(`<div class="watchdog-note"><div class="big">${icon} ${title}</div><div>${body}</div><div class="m">${aside}</div></div>`);

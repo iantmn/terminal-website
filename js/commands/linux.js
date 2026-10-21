@@ -6,6 +6,7 @@ import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrol
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { HOSTS, all } from './labstate.js';
+import { forgetSession } from '../session.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped, vars, envVars } from '../shell.js';
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
@@ -219,7 +220,10 @@ def('ssh', 'more', 'log in to another machine', async args => {
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
 def('reboot', null, 'restart the system', async args => {
   if (onLab()) return (await machines()).vmDown('reboot', true, state.host === 'pve' ? 'host' : 'vm');
-  unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot();
+  unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200);
+  // a real reboot: /tmp is a tmpfs and the shell forgets its variables
+  forgetSession();
+  await boot();
 });
 // a container has no system to shut down: PID 1 is nginx. The Docker VM it runs on can
 def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args, raw) => {

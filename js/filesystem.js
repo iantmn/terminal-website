@@ -176,4 +176,19 @@ export function glob(pattern) {
   });
   return paths.length ? paths.map(p => dirOnly ? p + '/' : p) : null;
 }
+// /tmp as plain data, for the session after a reload, and empty again after a reboot
+const tmpRoot = () => ROOT.children.tmp;
+const dump = node => node.type === 'dir' ? { d: Object.fromEntries(Object.entries(node.children).filter(([, c]) => c.mine).map(([n, c]) => [n, dump(c)])), m: +node.mtime } : { t: node.text, m: +node.mtime };
+export const exportTmp = () => dump(tmpRoot()).d;
+export function importTmp(data) {
+  const load = (into, items) => {
+    for (const [n, x] of Object.entries(items || {})) {
+      if (typeof n !== 'string' || !n || n.includes('/') || into.children[n]) continue;
+      if (x && typeof x.d === 'object') { const d = tmpDir(); d.mtime = new Date(x.m || Date.now()); into.children[n] = d; load(d, x.d); }
+      else if (x && typeof x.t === 'string') { const f = tmpFile(x.t); f.mtime = new Date(x.m || Date.now()); into.children[n] = f; }
+    }
+  };
+  load(tmpRoot(), data);
+}
+export function clearTmp() { const t = tmpRoot(); for (const [n, c] of Object.entries(t.children)) if (c.mine) delete t.children[n]; }
 export const isMine = p => { const r = resolve(p); return !r.error && !!r.node.mine; };
