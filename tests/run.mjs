@@ -1,6 +1,7 @@
 // the tests in a headless browser: node tests/run.mjs
 // needs Playwright: npm install --no-save playwright@1.49.1 && npx playwright install chromium
 // (or CHANNEL=msedge / CHANNEL=chrome to use a browser that is installed already)
+// BROWSER=chromium|firefox|webkit picks the engine, DEVICE=phone a phone (Pixel 7 in Chromium, iPhone 14 in WebKit)
 // Every test prints a line as it finishes; on GitHub Actions each suite is a collapsible group, failures are
 // annotations, and a table goes into the job summary
 import { createServer } from 'node:http';
@@ -63,12 +64,19 @@ await new Promise(r => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
 // 3. both suites in the page; every result comes back through report() the moment it is known
-const { chromium } = await import('playwright');
-const browser = await chromium.launch(process.env.CHANNEL ? { channel: process.env.CHANNEL } : {});
+const playwright = await import('playwright');
+const engine = process.env.BROWSER || 'chromium', phone = process.env.DEVICE === 'phone';
+if (phone && engine === 'firefox') { console.error('Firefox has no phone emulation in Playwright; use chromium or webkit'); process.exit(2); }
+const browser = await playwright[engine].launch(process.env.CHANNEL ? { channel: process.env.CHANNEL } : {});
+// every page: a desktop or a phone, never the service worker (the tests want what is on disk), Dutch time
+const device = phone ? playwright.devices[engine === 'webkit' ? 'iPhone 14' : 'Pixel 7'] : { viewport: { width: 1280, height: 900 } };
+const pageOpts = { ...device, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' };
+const label = `${engine}${phone ? ', phone' : ''}`;
+console.log(bold(`Browser: ${label}`) + dim(` (${browser.version()})`));
 const pageErrors = [];
 let current = null;
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' });
+  const page = await browser.newPage(pageOpts);
   page.on('pageerror', e => pageErrors.push(e.message));
   await page.exposeFunction('report', r => current?.add(r));
   await page.goto(url);
@@ -128,8 +136,16 @@ try {
     ['2026-10-23T10:00:00+02:00', 'a Friday: deploy refuses', async p => (await p.evaluate(async () => { const { run } = await import('/js/input.js'); await run('deploy'); return document.getElementById('out').innerText; })).includes('on a Friday')],
     ["2026-04-27T10:00:00+02:00", "King's Day: the boot turns the theme orange", async p => (await p.evaluate(() => document.body.dataset.theme)) === 'oranje'],
     ['2026-10-21T14:00:00+02:00', 'an afternoon is no night owl', async p => !(await p.evaluate(() => document.getElementById('out').innerText)).includes('Night owl')],
+    // cron runs during the visit: Monday 09:00 has the standup and the coffee; and Ian sends a wall within ten minutes
+    ['2026-10-19T08:59:50+02:00', 'cron at 09:00 on a Monday: standup and coffee, then a wall from Ian', async p => {
+      await p.clock.fastForward(15000); await p.waitForTimeout(300);
+      const at9 = await p.evaluate(() => document.getElementById('out').innerText);
+      await p.clock.fastForward('10:00'); await p.waitForTimeout(300);
+      const later = await p.evaluate(() => document.getElementById('out').innerText);
+      return at9.includes('CRON (ian) /usr/bin/standup --monday') && at9.includes('/usr/bin/coffee --refill') && later.includes('Broadcast message from ian@iantiemann');
+    }],
   ]) {
-    const c = await browser.newContext({ serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' });
+    const c = await browser.newContext(pageOpts);
     await c.clock.install({ time: new Date(time) });
     const p = await c.newPage();
     await p.goto(url); await p.keyboard.press('m');
@@ -141,7 +157,7 @@ try {
 
   // every achievement, in a browser of its own that has never seen the site: on Halloween, at three at night
   current = suite('Every achievement can be unlocked');
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' });
+  const ctx = await browser.newContext(pageOpts);
   await ctx.clock.install({ time: new Date('2026-10-31T03:00:00+01:00') });
   const fresh = await ctx.newPage();
   fresh.on('pageerror', e => pageErrors.push('(achievements) ' + e.message));
@@ -174,7 +190,7 @@ const rows = suites.map(s => ({ name: s.name, passed: s.results.filter(r => r.ok
 const total = rows.reduce((a, r) => ({ passed: a.passed + r.passed, failed: a.failed + r.failed, ms: a.ms + r.ms }), { passed: 0, failed: 0, ms: 0 });
 const secs = ms => (ms / 1000).toFixed(1) + ' s';
 const w = Math.max(...rows.map(r => r.name.length), 5);
-console.log('\n' + bold('Summary'));
+console.log('\n' + bold('Summary') + dim(` (${label})`));
 for (const r of [...rows, { name: 'Total', ...total }]) {
   console.log(`  ${r.name.padEnd(w)}  ${green(String(r.passed).padStart(4) + ' passed')}  ${(r.failed ? red : dim)(String(r.failed).padStart(3) + ' failed')}  ${dim(secs(r.ms).padStart(7))}`);
 }
@@ -186,7 +202,7 @@ if (failures.length) {
 
 if (process.env.GITHUB_STEP_SUMMARY) {
   const md = [
-    `## ${failures.length ? '❌' : '✅'} Tests: ${total.passed} passed, ${total.failed} failed (${secs(total.ms)})`, '',
+    `## ${failures.length ? '❌' : '✅'} Tests in ${label}: ${total.passed} passed, ${total.failed} failed (${secs(total.ms)})`, '',
     '| Suite | Passed | Failed | Time |', '|---|---:|---:|---:|',
     ...rows.map(r => `| ${r.name} | ${r.passed} | ${r.failed} | ${secs(r.ms)} |`),
     `| **Total** | **${total.passed}** | **${total.failed}** | **${secs(total.ms)}** |`, '',
