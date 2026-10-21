@@ -268,17 +268,22 @@ export const SLOW = [
   ['please sudo apt install -y htop', o => o.includes('Setting up htop')],
 ];
 
-export async function runAll(list, rounds = 3) {
-  const fails = [];
+// every command of the list, checked on its output. results has one entry per run, passed or not, with how long it took
+export async function runAll(list, rounds = 3, onResult = () => {}) {
+  const fails = [], results = [];
   for (let round = 1; round <= rounds; round++) {
     await run('cd ~');
     for (const [c, check] of list) {
+      const t = performance.now();
       let o;
       try { o = await out(c); } catch (e) { o = 'THROW ' + e.message; }
       let ok = false;
       try { ok = check(o); } catch {}
-      if (!ok || /^error:|is not defined|undefined|NaN|\[object/m.test(o)) fails.push({ round, c, o: o.slice(0, 400) });
+      ok = ok && !/^error:|is not defined|undefined|NaN|\[object/m.test(o);
+      results.push({ round, c, ok, ms: Math.round(performance.now() - t) });
+      onResult({ name: c, ok, ms: results.at(-1).ms, info: ok ? '' : o.slice(0, 400) });
+      if (!ok) fails.push({ round, c, o: o.slice(0, 400) });
     }
   }
-  return { tests: list.length, rounds, fails };
+  return { tests: list.length, rounds, fails, results };
 }

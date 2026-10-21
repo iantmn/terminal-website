@@ -20,7 +20,7 @@ jobs:
           node-version: 22
       - name: Install Playwright and Chromium
         run: |
-          npm install --no-save playwright@1.48.2
+          npm install --no-save playwright@1.49.1
           npx playwright install --with-deps chromium
       - name: Every command, flag and feature, in a headless browser
         run: node tests/run.mjs

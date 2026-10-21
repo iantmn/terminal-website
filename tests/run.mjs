@@ -1,19 +1,51 @@
 // the tests in a headless browser: node tests/run.mjs
-// needs Playwright: npm install --no-save playwright@1.48.2 && npx playwright install chromium
+// needs Playwright: npm install --no-save playwright@1.49.1 && npx playwright install chromium
 // (or CHANNEL=msedge / CHANNEL=chrome to use a browser that is installed already)
+// Every test prints a line as it finishes; on GitHub Actions each suite is a collapsible group, failures are
+// annotations, and a table goes into the job summary
 import { createServer } from 'node:http';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, appendFile } from 'node:fs/promises';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
-const problems = [];
+const CI = !!process.env.GITHUB_ACTIONS;
+const color = process.stdout.isTTY || CI;
+const paint = (code, s) => color ? `\x1b[${code}m${s}\x1b[0m` : s;
+const green = s => paint(32, s), red = s => paint(31, s), dim = s => paint(2, s), bold = s => paint(1, s);
+// one line of GitHub's workflow commands may not hold a raw newline or %
+const escCmd = s => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+
+const suites = [];
+// a suite: a name, its results as they come in, and how long it took
+function suite(name) {
+  const s = { name, results: [], start: Date.now(), ms: 0 };
+  suites.push(s);
+  console.log(CI ? `::group::${name}` : '\n' + bold(name));
+  return {
+    add(r) {
+      s.results.push(r);
+      const time = r.ms !== undefined ? dim(` (${r.ms} ms)`) : '';
+      console.log(`  ${r.ok ? green('✔') : red('✖')} ${r.name}${time}`);
+      if (!r.ok && r.info) console.log(dim('      ' + String(r.info).replace(/\n/g, '\n      ')));
+    },
+    end() {
+      s.ms = Date.now() - s.start;
+      if (CI) console.log('::endgroup::');
+      for (const r of s.results.filter(x => !x.ok)) if (CI) console.log(`::error title=${escCmd(name + ': ' + r.name)}::${escCmd(r.info || 'failed')}`);
+    },
+  };
+}
 
 // 1. sw.js caches every module, or the site breaks offline the first time someone runs that command
-const sw = await readFile(join(root, 'sw.js'), 'utf8');
-for (const dir of ['js', 'js/commands']) for (const f of await readdir(join(root, dir))) {
-  if (f.endsWith('.js') && !sw.includes(`'${dir}/${f}'`)) problems.push(`sw.js does not cache ${dir}/${f}`);
+{
+  const t = suite('Service worker caches every module');
+  const sw = await readFile(join(root, 'sw.js'), 'utf8');
+  for (const dir of ['js', 'js/commands']) for (const f of (await readdir(join(root, dir))).sort()) {
+    if (f.endsWith('.js')) t.add({ name: `${dir}/${f}`, ok: sw.includes(`'${dir}/${f}'`), info: 'missing from FILES in sw.js' });
+  }
+  t.end();
 }
 
 // 2. the site, served like GitHub Pages would, without caching
@@ -30,32 +62,64 @@ const server = createServer(async (req, res) => {
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
-// 3. both suites in the page
+// 3. both suites in the page; every result comes back through report() the moment it is known
 const { chromium } = await import('playwright');
 const browser = await chromium.launch(process.env.CHANNEL ? { channel: process.env.CHANNEL } : {});
+const pageErrors = [];
+let current = null;
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' });
-  page.on('pageerror', e => problems.push('page error: ' + e.message));
+  page.on('pageerror', e => pageErrors.push(e.message));
+  await page.exposeFunction('report', r => current?.add(r));
   await page.goto(url);
   // the power screen wants a key; m starts without sound
   await page.keyboard.press('m');
   await page.waitForFunction(() => document.getElementById('out')?.innerText.includes('Welcome'), null, { timeout: 30000 });
   await page.waitForFunction(() => import('/js/core.js').then(m => !m.state.busy), null, { timeout: 30000 });
 
-  const flags = await page.evaluate(async () => { const f = await import('/tests/flags.js'); return f.runAll([...f.T, ...f.SLOW], 1); });
-  for (const x of flags.fails) problems.push(`flag test: ${x.c}\n    ${x.o.replace(/\n/g, '\n    ')}`);
-  console.log(`flags: ${flags.tests - flags.fails.length}/${flags.tests} passed`);
+  current = suite('Commands and flags');
+  await page.evaluate(async () => { const f = await import('/tests/flags.js'); await f.runAll([...f.T, ...f.SLOW], 1, r => window.report(r)); });
+  current.end();
 
-  const features = await page.evaluate(async () => (await import('/tests/features.js')).runFeatures());
-  for (const x of features.filter(r => !r.ok)) problems.push(`feature: ${x.name}${x.info ? '\n    ' + x.info : ''}`);
-  console.log(`features: ${features.filter(r => r.ok).length}/${features.length} passed`);
+  current = suite('Interactive features');
+  await page.evaluate(async () => { const f = await import('/tests/features.js'); await f.runFeatures(r => window.report(r)); });
+  current.end();
 } finally {
   await browser.close();
   server.close();
 }
-
-if (problems.length) {
-  console.error('\n' + problems.join('\n'));
-  process.exit(1);
+if (pageErrors.length) {
+  const t = suite('Errors in the page');
+  pageErrors.forEach(e => t.add({ name: e, ok: false }));
+  t.end();
 }
-console.log('all good');
+
+// 4. the summary
+const rows = suites.map(s => ({ name: s.name, passed: s.results.filter(r => r.ok).length, failed: s.results.filter(r => !r.ok).length, ms: s.ms }));
+const total = rows.reduce((a, r) => ({ passed: a.passed + r.passed, failed: a.failed + r.failed, ms: a.ms + r.ms }), { passed: 0, failed: 0, ms: 0 });
+const secs = ms => (ms / 1000).toFixed(1) + ' s';
+const w = Math.max(...rows.map(r => r.name.length), 5);
+console.log('\n' + bold('Summary'));
+for (const r of [...rows, { name: 'Total', ...total }]) {
+  console.log(`  ${r.name.padEnd(w)}  ${green(String(r.passed).padStart(4) + ' passed')}  ${(r.failed ? red : dim)(String(r.failed).padStart(3) + ' failed')}  ${dim(secs(r.ms).padStart(7))}`);
+}
+const failures = suites.flatMap(s => s.results.filter(r => !r.ok).map(r => ({ suite: s.name, ...r })));
+if (failures.length) {
+  console.log('\n' + red(bold(`${failures.length} failed:`)));
+  failures.forEach(f => console.log(red(`  ✖ ${f.suite}: ${f.name}`)));
+} else console.log('\n' + green(bold('All good.')));
+
+if (process.env.GITHUB_STEP_SUMMARY) {
+  const md = [
+    `## ${failures.length ? '❌' : '✅'} Tests: ${total.passed} passed, ${total.failed} failed (${secs(total.ms)})`, '',
+    '| Suite | Passed | Failed | Time |', '|---|---:|---:|---:|',
+    ...rows.map(r => `| ${r.name} | ${r.passed} | ${r.failed} | ${secs(r.ms)} |`),
+    `| **Total** | **${total.passed}** | **${total.failed}** | **${secs(total.ms)}** |`, '',
+    ...(failures.length ? ['### Failed', '', ...failures.flatMap(f => [`- **${f.suite}**: \`${f.name.replace(/`/g, "'")}\``, ...(f.info ? ['  ```', ...String(f.info).split('\n').map(l => '  ' + l), '  ```'] : [])])] : []),
+    '<details><summary>Every test</summary>', '',
+    ...suites.flatMap(s => [`**${s.name}**`, '', ...s.results.map(r => `- ${r.ok ? '✅' : '❌'} \`${r.name.replace(/`/g, "'")}\`${r.ms !== undefined ? ` ${r.ms} ms` : ''}`), '']),
+    '</details>', '',
+  ].join('\n');
+  await appendFile(process.env.GITHUB_STEP_SUMMARY, md);
+}
+process.exit(failures.length ? 1 : 0);

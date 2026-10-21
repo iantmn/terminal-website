@@ -34,12 +34,12 @@ A new command is a `def(names, group, description, run, { usage, flags })` call 
 Every command and flag, and the interactive parts (keys, pager, the homelab), are checked in a headless browser. GitHub Actions runs them on every push (`.github/workflows/test-and-deploy.yml`), and deploys `main` to GitHub Pages only when they pass (Settings > Pages > Source: GitHub Actions). Locally:
 
 ```bash
-npm install --no-save playwright@1.48.2
+npm install --no-save playwright@1.49.1
 npx playwright install chromium
 node tests/run.mjs
 ```
 
-With Chrome or Edge installed, `CHANNEL=msedge node tests/run.mjs` skips the browser download. The suites also run from the browser console: `import('/tests/flags.js').then(m => m.runAll(m.T, 1))`.
+With Chrome or Edge installed, `CHANNEL=chrome node tests/run.mjs` (or `msedge`) skips the browser download. The suites also run from the browser console: `import('/tests/flags.js').then(m => m.runAll(m.T, 1))`.
 
 ## Guestbook
 

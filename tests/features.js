@@ -12,9 +12,9 @@ const out = async c => { const b = n(); await run(c); return since(b + 1); };
 // wait until the terminal is idle again (input row visible, nothing asking)
 const idle = async (max = 15000) => { const t = Date.now(); while ((state.busy || state.asking) && Date.now() - t < max) await wait(50); return !state.busy; };
 
-export async function runFeatures() {
+export async function runFeatures(onResult = () => {}) {
   const results = [];
-  const check = async (name, fn) => { let ok = false, info = ''; try { const r = await fn(); ok = r === true || (r && r.ok); info = r && r.info || ''; } catch (e) { info = 'THROW ' + e.message; } results.push({ name, ok, info }); };
+  const check = async (name, fn) => { const t = performance.now(); let ok = false, info = ''; try { const r = await fn(); ok = r === true || (r && r.ok); info = r && r.info || ''; } catch (e) { info = 'THROW ' + e.message; } results.push({ name, ok, info, ms: Math.round(performance.now() - t) }); onResult(results.at(-1)); };
 
   await run('cd ~'); await run('clear');
 
