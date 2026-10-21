@@ -272,14 +272,14 @@ export const T = [
   ['wc -l about.txt cv.txt', o => / total$/.test(o) && lines(o).length === 3],
   ['head nope', o => o.includes('No such file')],
   // the network map, the dashboards, mtr
-  ['desk', o => o.includes('ASRock B550M Pro4') && o.includes('All systems operational') && o.includes('A drawing')],
-  ['cat /dev/desk', o => o.includes('router.lan') && o.includes('pve')],
+  ['desk', o => o.includes('three-node Proxmox cluster') && o.includes('All systems operational') && o.includes('pve3')],
+  ['cat /dev/desk', o => o.includes('router.lan') && o.includes('pve2')],
   ['grafana', o => o.includes('homelab CPU') && o.includes('/var/lib/docker') && /[▁▂▃▄▅▆▇█]{20}/.test(o)],
   ['mtr -r -c 3 iantiemann.nl', o => o.includes('Loss%') && o.includes('router.lan') && lines(o).length === 10],
   ['netmap', o => o.includes('pve') && o.includes('10.20.0.20') && o.includes('you are here') && o.includes('wg0')],
   // command not found, but helpful
   ['nmap', o => o.includes('can be installed with') && o.includes('sudo apt install nmap')],
-  ['qm list', o => o.includes('Proxmox host')],
+  ['qm list', o => o.includes('Proxmox cluster')],
   ['lss', o => o.includes('did you mean ls')],
   // cp and mv into /tmp
   ['cp about.txt /tmp/ && head -n 1 /tmp/about.txt', o => o.includes('Ian Tiemann')],

@@ -13,8 +13,8 @@ import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
 // the homelab or the main machine: commands about the system answer for the one you are on
 const onLab = () => state.host !== 'iantiemann';
-// the data of the machine you are on: the Docker VM or the Proxmox host
-// the homelab and the Proxmox host load on the first ssh or docker: most visitors never get there.
+// the data of the machine you are on: the Docker VM or pve1
+// the homelab and the Proxmox cluster load on the first ssh or docker: most visitors never get there.
 // Once you are on one of them it is loaded and has put its data in HOSTS, so here() can stay synchronous
 const here = () => HOSTS[state.host];
 let lab = null;
@@ -197,11 +197,14 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install pa
 def('ssh', 'more', 'log in to another machine', async args => {
   const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
   if (state.host === 'homelab') return (await machines()).labSsh(args);
-  if (state.host === 'pve') return print(span('m', 'This is as deep as it goes. ') + span('a2', 'exit') + span('m', ' goes back up.'));
+  // on pve1 the other nodes are one cluster away: what they run is visible from here
+  if (state.host === 'pve1') return /pve[23]|10\.20\.0\.1[12]/.test(target)
+    ? print(span('m', `${esc(target.replace(/^.*@/, ''))} is part of this cluster: everything it runs shows up here. `) + cmd('pvesh get /cluster/resources') + span('m', ', ') + cmd('pvecm status'))
+    : print(span('m', 'This is as deep as it goes. ') + span('a2', 'exit') + span('m', ' goes back up.'));
   // with a key, the user is the one the key belongs to
   const [user, host] = target.includes('@') ? target.split('@') : [o.l || (o.i ? 'ian' : state.user), target];
   if (!host) return print(span('e', 'usage: ssh [-i key] [user@]host'));
-  if (/^(pve|pve\.lan|10\.20\.0\.10)$/i.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port 22: Connection timed out`) + span('m', '  (the Proxmox host only answers ssh from the homelab)'));
+  if (/^(pve[123]?|pve[123]?\.lan|10\.20\.0\.1[0-2])$/i.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port 22: Connection timed out`) + span('m', '  (the Proxmox cluster only answers ssh from the homelab)'));
   if (!/^(homelab|10\.42\.0\.1|10\.20\.0\.20)$/.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port ${esc(o.p || 22)}: Connection refused`));
   const denied = () => { saw('lab-denied'); print(span('e', `${esc(user)}@homelab: Permission denied (publickey).`)); };
   if (!o.i) return denied();
@@ -220,7 +223,7 @@ def('ssh', 'more', 'log in to another machine', async args => {
   return (await machines()).labSession();
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
 def('reboot', null, 'restart the system', async args => {
-  if (onLab()) return (await machines()).vmDown('reboot', true, state.host === 'pve' ? 'host' : 'vm');
+  if (onLab()) return (await machines()).vmDown('reboot', true, state.host === 'pve1' ? 'host' : 'vm');
   unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200);
   // a real reboot: /tmp is a tmpfs and the shell forgets its variables
   forgetSession();
@@ -229,7 +232,7 @@ def('reboot', null, 'restart the system', async args => {
 // a container has no system to shut down: PID 1 is nginx. The Docker VM it runs on can
 def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args, raw) => {
   const name = raw.trim().split(/\s+/)[0];
-  if (onLab()) return (await machines()).vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)), state.host === 'pve' ? 'host' : 'vm');
+  if (onLab()) return (await machines()).vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)), state.host === 'pve1' ? 'host' : 'vm');
   state.failed = true;
   printLines([
     span('e', 'System has not been booted with systemd as init system (PID 1). Can\'t operate.'),
@@ -343,7 +346,7 @@ const killed = new Set();
 const procs = () => onLab() ? here().procs() : MAIN_PROCS.filter(p => !killed.has(p.pid));
 // kill one process: what it says, and whether it is gone. kill and htop both ask this
 function killProc(p) {
-  if (state.host === 'pve') return { msg: span('m', 'Root on the hypervisor, killing processes. Every VM is one of them. Let\'s not. ') + cmd('qm list') + span('m', ' is the polite way.') };
+  if (state.host === 'pve1') return { msg: span('m', 'Root on the hypervisor, killing processes. Every VM is one of them. Let\'s not. ') + cmd('qm list') + span('m', ' is the polite way.') };
   if (p.user === 'root') return { msg: span('e', `kill: (${p.pid}) - Operation not permitted`) };
   if (p.cmd === 'coffee.service') { unlock('kill'); return { msg: span('w', 'Terminated: coffee.service') + span('m', ' - and it respawned (Restart=always). Some things are not negotiable.') }; }
   if (p.user === 'guest') return { msg: span('m', 'You tried to kill the terminal you are using. Bold. Try ') + cmd('exit') + span('m', ' instead.') };
@@ -549,7 +552,7 @@ def('htop', null, 'processes, interactive: pick one and kill it', args => {
   return new Promise(resolve => {
     const box = print('');
     let sel = 0, sort = 0, note = '', timer;
-    const cores = state.host === 'pve' ? 8 : state.host === 'homelab' ? 4 : Math.min(navigator.hardwareConcurrency || 4, 8);
+    const cores = state.host === 'pve1' ? 12 : state.host === 'homelab' ? 4 : Math.min(navigator.hardwareConcurrency || 4, 8);
     const bar = (pct, w) => span('a', '|'.repeat(Math.round(Math.min(pct, 100) / 100 * w))) + ' '.repeat(w - Math.round(Math.min(pct, 100) / 100 * w));
     const rows = () => procs().map(p => ({ ...p, cpu: jitter(p.cpu) })).sort(SORTS[sort][1]);
     let shown = rows();
@@ -1063,7 +1066,7 @@ completes('docker', args => {
   if (args[0] === 'compose') return args.length === 1 ? ['up', 'down', 'ps', 'logs', 'restart', 'start', 'stop'] : ['-d', '-p', '-f'];
   return all().map(c => c.name);
 });
-completes('ssh', args => args.at(-1) === '-i' ? null : { iantiemann: ['homelab', '-i'], homelab: ['pve', 'root@pve', '-i'] }[state.host] || []);
+completes('ssh', args => args.at(-1) === '-i' ? null : { iantiemann: ['homelab', '-i'], homelab: ['pve1', 'root@pve1', '-i'] }[state.host] || []);
 completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);
 completes('dig', () => ['+short', 'iantiemann.nl']);
 completes('crontab', args => args.at(-1) === '-u' ? Object.keys(CRONTABS) : null);

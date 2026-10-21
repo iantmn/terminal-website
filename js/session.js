@@ -26,7 +26,7 @@ export async function resumeSession() {
   importTmp(s.tmp);
   if (s.vars && typeof s.vars === 'object') for (const [k, v] of Object.entries(s.vars)) if (/^[A-Za-z_]\w*$/.test(k) && typeof v === 'string') vars[k] = v;
   const cwd = Array.isArray(s.cwd) && s.cwd.every(x => typeof x === 'string') ? s.cwd : null;
-  if (s.host !== 'homelab' && s.host !== 'pve') {
+  if (s.host !== 'homelab' && s.host !== 'pve1') {
     if (cwd && !resolve('/' + cwd.join('/')).error) { state.cwd = cwd; renderPrompt(); }
     return;
   }

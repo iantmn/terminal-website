@@ -62,7 +62,7 @@ function noteFound(c) {
 const BASE_COMMANDS = ['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'ssh', 'netmap', 'grafana', 'mtr'];
 const HOST_COMMANDS = {
   homelab: [new Set([...BASE_COMMANDS, 'docker', 'wg', 'ansible', 'ansible-playbook', 'nmap']), 'A lean install.'],
-  pve: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool', 'proxmox-file-restore', 'scp', 'vzdump', 'cp', 'rm', 'mkdir', 'touch']), 'The hypervisor: everything runs on this, so tread lightly.'],
+  pve1: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool', 'proxmox-file-restore', 'scp', 'vzdump', 'pvecm', 'pvesr', 'ha-manager', 'cp', 'rm', 'mkdir', 'touch']), 'The hypervisor: everything runs on this, so tread lightly.'],
 };
 function invoke(c, name, args, line) {
   const remote = HOST_COMMANDS[state.host];
@@ -71,7 +71,7 @@ function invoke(c, name, args, line) {
     if (c.name === 'help') return printLines([span('w b', state.host), '  ' + [...only].sort().map(n => cmd(n)).join('  '), '', span('m', about + ' ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')]);
     if (!only.has(c.name)) return notFound(name);
   }
-  // qm and friends only exist on the Proxmox host
+  // qm and friends only exist on the Proxmox nodes
   if (c.hosts && !c.hosts.includes(state.host)) return notFound(name);
   noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
@@ -150,8 +150,8 @@ const PACKAGES = { nmap: 'nmap', wget: 'wget', tmux: 'tmux', screen: 'screen', n
   gcc: 'gcc', 'g++': 'g++', mtr: 'mtr-tiny', nc: 'netcat-openbsd', telnet: 'telnet', ifconfig: 'net-tools', iftop: 'iftop', ncdu: 'ncdu', jq: 'jq', rg: 'ripgrep',
   fzf: 'fzf', zip: 'zip', unzip: 'unzip', rsync: 'rsync', tcpdump: 'tcpdump', iperf3: 'iperf3', ansible: 'ansible', terraform: 'terraform', kubectl: 'kubectl', btop: 'btop', neovim: 'neovim', php: 'php', ruby: 'ruby', perl: 'perl' };
 // which machine has which command (the ones that are not everywhere)
-const ONLY_ON = { docker: 'homelab', wg: 'homelab', ansible: 'homelab', 'ansible-playbook': 'homelab', qm: 'pve', pct: 'pve', pvesh: 'pve', pvesm: 'pve', pveversion: 'pve', zpool: 'pve' };
-const WHERE = { homelab: 'the homelab (the Docker VM)', pve: 'the Proxmox host' };
+const ONLY_ON = { docker: 'homelab', wg: 'homelab', ansible: 'homelab', 'ansible-playbook': 'homelab', qm: 'pve1', pct: 'pve1', pvesh: 'pve1', pvesm: 'pve1', pveversion: 'pve1', zpool: 'pve1', pvecm: 'pve1', pvesr: 'pve1', 'ha-manager': 'pve1', vzdump: 'pve1' };
+const WHERE = { homelab: 'the homelab (the Docker VM)', pve1: 'the Proxmox cluster' };
 // the commands on this machine: everything found on the container, the installed ones behind ssh
 export const commandsHere = () => { const h = HOST_COMMANDS[state.host]; return h ? [...h[0], 'exit', 'logout'] : commandNames(); };
 function notFound(name) {
@@ -160,7 +160,7 @@ function notFound(name) {
   const say = (...m) => print(span('e', `${here === 'iantiemann' ? 'command not found: ' + esc(name) : esc(name) + ': command not found'}`) + span('m', ' ' + m.join('')));
   // it exists, just not here
   if (there && there !== here) {
-    if (here === 'pve' && n === 'docker') return say('- Docker runs in VM 102, not on the host. Keep the host boring: exit, and it is on the homelab.');
+    if (here === 'pve1' && n === 'docker') return say('- Docker runs in VM 102, not on the host. Keep the host boring: exit, and it is on the homelab.');
     if (here === 'iantiemann') return say(`- ${esc(n)} lives on ${WHERE[there]}. This terminal is a container.`);
     return say(`- ${esc(n)} is on ${WHERE[there]}, not on ${here}.`);
   }

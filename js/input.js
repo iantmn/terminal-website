@@ -8,7 +8,7 @@ import { execChain, commandsHere } from './shell.js';
 
 export const hist = store.get('hist', []);
 // the homelab has a history of its own; everything below works on the one of the machine you are on
-const HIST = { iantiemann: ['hist', hist], homelab: ['labHist', store.get('labHist', [])], pve: ['pveHist', store.get('pveHist', [])] };
+const HIST = { iantiemann: ['hist', hist], homelab: ['labHist', store.get('labHist', [])], pve1: ['pveHist', store.get('pveHist', [])] };
 export const activeHist = () => (HIST[state.host] || HIST.iantiemann)[1];
 export const histKey = () => (HIST[state.host] || HIST.iantiemann)[0];
 let hIdx = hist.length;

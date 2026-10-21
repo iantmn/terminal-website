@@ -20,7 +20,7 @@ const MONITORS = [
     { name: 'n8n', type: 'HTTP', ms: 21, on: 'vm', down: container('automation-n8n-1') },
     { name: 'Postgres', type: 'TCP', ms: 2, on: 'vm', down: container('automation-postgres-1') },
   ]],
-  ['Proxmox host', [
+  ['Proxmox cluster', [
     { name: 'Proxmox VE', type: 'HTTP', ms: 4, on: 'host', down: () => null },
     { name: 'Proxmox Backup Server', type: 'HTTP', ms: 6, on: 'host', down: guest(103) },
     { name: 'Home Assistant', type: 'HTTP', ms: 15, on: 'host', down: guest(101) },

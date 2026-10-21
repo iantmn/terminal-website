@@ -9,22 +9,28 @@ export function buildLab() {
   return dir({
     etc: dir({
       hostname: file(['homelab']),
-      'os-release': file(['PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"', 'NAME="Debian GNU/Linux"', 'VERSION_ID="12"', 'ID=debian', '# a VM on the Proxmox host, Docker lives in here and not on the host']),
+      'os-release': file(['PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"', 'NAME="Debian GNU/Linux"', 'VERSION_ID="12"', 'ID=debian', '# a VM on the Proxmox cluster, Docker lives in here and not on the host']),
       motd: file(['The programs included with the Debian GNU/Linux system are free software.', 'Back up before you touch anything. Then back up again.']),
-      hosts: file(['127.0.0.1    localhost', '10.20.0.1    router.lan router', '10.20.0.10   pve.lan pve', '10.20.0.20   homelab.lan homelab', '10.20.0.30   pbs.lan pbs']),
+      hosts: file(['127.0.0.1    localhost', '10.20.0.1    router.lan router', '10.20.0.10   pve1.lan pve1', '10.20.0.11   pve2.lan pve2', '10.20.0.12   pve3.lan pve3', '10.20.0.20   homelab.lan homelab', '10.20.0.30   pbs.lan pbs']),
     }),
     home: dir({
       ian: dir({
         '.ssh': dir({
           authorized_keys: labFile(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK7q3vRw0mXbQ2fN8sYp1Lc4Hj6Td9Ue5Ga2Zo3Wn7Rk ian@laptop (id_homelab)']),
-          known_hosts: labFile(['pve,10.20.0.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDp4Fq8Lr2Xw9Kc1Vm6Ns3Bt7Hy0Ja5Ge4Uo2Zi8Qe1Ps']),
+          known_hosts: labFile(['pve1,10.20.0.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDp4Fq8Lr2Xw9Kc1Vm6Ns3Bt7Hy0Ja5Ge4Uo2Zi8Qe1Ps', 'pve2,10.20.0.11 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHk2Nr7Ls1Qw8Bc4Xm9Pt5Gy3Vj0Fa6De2Uo7Zi1Kq3Rs', 'pve3,10.20.0.12 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJw5Ts2Mr8Lk1Pv7Bx4Nc9Gh3Qd6Fy0Ea2Ui5Zo8Ws1Lp']),
           ansible_pve: labFile(['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW', '(no passphrase: Ansible runs it at six in the morning, when nobody is awake to type one)', '-----END OPENSSH PRIVATE KEY-----'], { mode: () => '-rw-------' }),
           'ansible_pve.pub': labFile(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMv2Wq7Xr4Lp9Ns1Kb6Hc3Tj8Yd0Fg5Ue2Zm7Qo4Ra ansible@homelab']),
         }, { own: 'ian', mode: () => 'drwx------' }),
         ansible: dir({
           'inventory.ini': labFile(() => (saw('pve-key'), [
             '[proxmox]',
-            'pve ansible_host=10.20.0.10 ansible_user=root ansible_ssh_private_key_file=~/.ssh/ansible_pve',
+            'pve1 ansible_host=10.20.0.10',
+            'pve2 ansible_host=10.20.0.11',
+            'pve3 ansible_host=10.20.0.12',
+            '',
+            '[proxmox:vars]',
+            'ansible_user=root',
+            'ansible_ssh_private_key_file=~/.ssh/ansible_pve',
             '',
             '[docker]',
             'homelab ansible_connection=local',
@@ -34,7 +40,7 @@ export function buildLab() {
           ].map(esc))),
           'site.yml': labFile([
             '# every Monday at 06:00 from cron: the host and this VM, up to date and the same as yesterday',
-            '- name: Proxmox host',
+            '- name: Proxmox cluster',
             '  hosts: proxmox',
             '  roles: [common, proxmox]',
             '',
@@ -52,11 +58,11 @@ export function buildLab() {
         'README.md': labFile(() => [
           span('w b', '# homelab'), '',
           'You made it in. Hardly anyone gets this far.', '',
-          'This is the Docker VM, one of a few VMs on a Proxmox host (Docker stays off the host). It is where the',
+          'This is the Docker VM, one of the VMs on a three-node Proxmox cluster (Docker stays off the nodes). It is where the',
           'guides on my site start: monitoring, logging, backups, reverse proxies.', '',
           'Look around: ' + cmd('ls stacks') + ', ' + cmd('cat stacks/terminal/docker-compose.yml') + ', ' + cmd('docker ps') + '.',
           'The terminal you came from runs in ' + span('a2', '~/stacks/terminal') + '. Please be gentle with it.',
-          'Ansible keeps this VM and the Proxmox host under it up to date: ' + span('a2', '~/ansible') + '.', '',
+          'Ansible keeps this VM and the three Proxmox nodes under it up to date: ' + span('a2', '~/ansible') + '.', '',
           span('a', 'Anyone who digs this deep is someone I would like to meet.') + span('m', ' Type exit, then ') + cmd('contact') + span('m', '.'),
         ], { own: 'ian' }),
         stacks: dir({
@@ -214,16 +220,16 @@ export function buildLab() {
           }, { own: 'ian' }),
         }, { own: 'ian' }),
         'backups.log': labFile([
-          '# the Proxmox host backs this VM up to Proxmox Backup Server every night',
+          '# the cluster backs this VM up to Proxmox Backup Server every night',
           '03:00:01 vzdump: backup of VM 102 (homelab) started, mode snapshot',
           '03:04:12 vzdump: guest-agent froze the filesystem, consistent snapshot',
           '03:20:45 pbs: sync to offsite storage completed, encrypted',
           '03:20:46 pbs: last restore test: 9 days ago, ok',
         ]),
         notes: dir({
-          'todo.md': labFile(() => (saw('restore-start'), ['[ ] label every cable', '[ ] upgrade the Proxmox host to the next release', '[x] offsite backups (there is a guide for that)', '[ ] stop adding services', '[ ] see line 4',
+          'todo.md': labFile(() => (saw('restore-start'), ['[ ] label every cable', '[ ] upgrade the Proxmox cluster to the next release, one node at a time', '[x] offsite backups (there is a guide for that)', '[ ] stop adding services', '[ ] see line 4',
             '[ ] stacks/monitoring/prometheus.yml is gone: rm in the wrong tab, last night at 22:14. Prometheus still runs on what it',
-            '    loaded, so do NOT restart it before the file is back. The nightly VM backups on the Proxmox host have it.'].map(esc))),
+            '    loaded, so do NOT restart it before the file is back. The nightly VM backups have it; restoring one file works from pve1.'].map(esc))),
           'ideas.md': labFile(['- a terminal version of my website        (done)', '- a typing test for sysadmins            (done)', '- a homelab you can ssh into             (you are in it)', '- a rubber duck that does code review']),
         }, { own: 'ian' }),
         '.bash_history': labFile(['docker compose pull && docker compose up -d', 'docker system df', 'docker image prune -af', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'cd ~/stacks/monitoring', 'rm prometheus.yml', span('m', '# wrong tab. that was not /tmp'), 'exit']),

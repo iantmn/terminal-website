@@ -1,7 +1,7 @@
 // netmap: the whole network at a glance, live from what runs; nmap on the homelab scans it like the real one
 import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, scrollDown } from '../core.js';
 import { def, completes } from '../registry.js';
-import { running, up, ALERT, INCIDENTS } from './labstate.js';
+import { running, up, ALERT, INCIDENTS, VMS, CTS, NODES } from './labstate.js';
 
 const dot = ok => ok ? span('a', '●') : span('e', '●');
 const site = () => running.has('terminal-traefik-1') && running.has('terminal-terminal-1');
@@ -13,18 +13,24 @@ const GUESTS = [
   { id: 200, ip: '10.20.0.53', name: 'adguard', what: 'AdGuard Home (LXC)', ports: [[53, 'domain', 'AdGuard Home DNS'], [80, 'http', 'AdGuard Home']] },
   { id: 201, ip: '10.20.0.40', name: 'unifi', what: 'UniFi controller (LXC)', ports: [[8443, 'https', 'UniFi Network']] },
 ];
-const here = name => (state.host === 'homelab' && name === 'homelab') || (state.host === 'pve' && name === 'pve') ? span('w', '  ← you are here') : '';
+const here = name => (state.host === 'homelab' && name === 'homelab') || (state.host === 'pve1' && name === 'pve1') ? span('w', '  ← you are here') : '';
 
 def(['netmap', 'lsnet'], 'more', 'the whole network, as a map', () => {
   const vm = g => up.has(g.id);
   const lab = up.has(102);
-  const guestLine = (g, last) => `   ${last ? '└' : '├'}─ ${dot(vm(g))} ${g.id < 200 ? 'VM' : 'CT'} ${g.id} ${cmd(g.name === 'homelab' ? 'ssh homelab' : 'ping ' + g.ip, pad(g.name, 14))} ${span('m', pad(g.ip, 12) + ' ' + g.what)}${here(g.name)}`;
+  // the guests under the node they run on (it moves when HA moves it)
+  const nodeOf = g => [...VMS, ...CTS].find(x => x.id === g.id)?.node;
+  const guestLine = (g, last, lastNode) => `      ${lastNode ? ' ' : '│'}  ${last ? '└' : '├'}─ ${dot(vm(g))} ${g.id < 200 ? 'VM' : 'CT'} ${g.id} ${cmd(g.name === 'homelab' ? 'ssh homelab' : 'ping ' + g.ip, pad(g.name, 14))} ${span('m', pad(g.ip, 12) + ' ' + g.what)}${here(g.name)}`;
+  const nodes = NODES.flatMap(([n, ip], i) => {
+    const last = i === NODES.length - 1, gs = GUESTS.filter(g => nodeOf(g) === n);
+    return [`   ${last ? '└' : '├'}─ ${dot(true)} ${cmd(n === 'pve1' ? 'ssh pve1' : 'ping ' + n, n)}       ${span('m', `${ip}  Proxmox node, 12 cores, 64 GB`)}${here(n)}`, ...gs.map((g, j) => guestLine(g, j === gs.length - 1, last))];
+  });
   printLines([
     span('w b', 'the network') + span('m', '  (green is up, red is down; names are links)'), '',
     `${dot(true)} internet`,
     `└─ ${dot(true)} ${cmd('ping router.lan', 'router.lan')} ${span('m', '10.20.0.1   the router, 10.20.0.0/24')}`,
-    `   └─ ${dot(true)} ${cmd('ssh pve', 'pve')}        ${span('m', '10.20.0.10  the Proxmox host')}${here('pve')}`,
-    ...GUESTS.map((g, i) => guestLine(g, i === GUESTS.length - 1).replace(/^ {3}/, '      ')),
+    `   ${span('m', 'the Proxmox cluster')}`,
+    ...nodes,
     '',
     `${dot(lab)} ${span('a2', 'homelab')} ${span('m', 'docker networks')}`,
     `├─ ${span('m', 'terminal_default 172.18.0.0/16')}`,
@@ -46,7 +52,7 @@ def('nmap', null, 'scan the network', async args => {
   const t0 = Date.now();
   print(`Starting Nmap 7.93 ( https://nmap.org ) at ${new Date().toISOString().slice(0, 16).replace('T', ' ')} CET`);
   const hosts = [{ ip: '10.20.0.1', name: 'router.lan', ok: true, ports: [[53, 'domain', 'dnsmasq'], [80, 'http', 'router web interface'], [443, 'https', 'router web interface']] },
-    { ip: '10.20.0.10', name: 'pve.lan', ok: true, ports: [[22, 'ssh', 'OpenSSH 9.2p1 Debian'], [3128, 'http-proxy', 'SPICE proxy'], [8006, 'https', 'Proxmox Virtual Environment']] },
+    ...NODES.map(([n, ip]) => ({ ip, name: n + '.lan', ok: true, ports: [[22, 'ssh', 'OpenSSH 9.2p1 Debian'], [3128, 'http-proxy', 'SPICE proxy'], [5405, 'udp', 'corosync'], [8006, 'https', 'Proxmox Virtual Environment']] })),
     ...GUESTS.map(g => ({ ip: g.ip, name: g.name + '.lan', ok: up.has(g.id), ports: g.ports }))]
     .filter(h => !target || target.endsWith('/24') || h.ip === target || h.name.startsWith(target));
   if (!hosts.length) { state.failed = true; return print(span('e', `Failed to resolve "${esc(target)}".`)); }
@@ -56,11 +62,11 @@ def('nmap', null, 'scan the network', async args => {
     print(`Nmap scan report for ${esc(h.name)} (${h.ip})`);
     print(`Host is up (0.000${Math.floor(Math.random() * 9) + 1}s latency).`);
     if (o.sn || o.s) continue;
-    printLines([span('w b', 'PORT      STATE SERVICE     VERSION'), ...h.ports.map(([p, s, v]) => esc(`${pad(p + (s === 'udp' ? '/udp' : '/tcp'), 9)} open  ${pad(s === 'udp' ? 'wireguard' : s, 11)} ${v}`)), '']);
+    printLines([span('w b', 'PORT      STATE SERVICE     VERSION'), ...h.ports.map(([p, s, v]) => esc(`${pad(p + (s === 'udp' ? '/udp' : '/tcp'), 9)} open  ${pad(s === 'udp' ? (p === 5405 ? 'corosync' : 'wireguard') : s, 11)} ${v}`)), '']);
   }
-  print(`Nmap done: ${hosts.length === 7 ? 256 : hosts.length} IP address${hosts.length === 1 ? '' : 'es'} (${live.length} host${live.length === 1 ? '' : 's'} up) scanned in ${((Date.now() - t0) / 1000).toFixed(2)} seconds`);
+  print(`Nmap done: ${hosts.length === 9 ? 256 : hosts.length} IP address${hosts.length === 1 ? '' : 'es'} (${live.length} host${live.length === 1 ? '' : 's'} up) scanned in ${((Date.now() - t0) / 1000).toFixed(2)} seconds`);
 }, { hosts: ['homelab'], usage: '[-sn] <network|host>', flags: [['10.20.0.0/24', 'every address of the home network'], ['-sn', 'a ping scan: only which hosts are up']] });
-completes('nmap', args => args.length ? null : ['10.20.0.0/24', '-sn', 'pve.lan']);
+completes('nmap', args => args.length ? null : ['10.20.0.0/24', '-sn', 'pve1.lan', 'pve2.lan', 'pve3.lan']);
 
 // the route from this terminal to anywhere: the Docker VM, the router, and then Ian's career (traceroute and mtr agree)
 export const routeTo = host => [['homelab', '172.18.0.1'], ['router.lan', '10.20.0.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [host, '192.0.2.42']];
@@ -84,7 +90,7 @@ def(['grafana', 'dashboard'], 'more', 'the homelab dashboards, in sparklines', (
   const panels = [
     ['homelab CPU', series(1, 8 + stacks * 4, 10, (v, m) => vmDown(m) ? null : v), v => v.toFixed(0) + '%', 100],
     ['homelab memory', series(2, 9.4, 0.6, (v, m) => vmDown(m) ? null : v), v => v.toFixed(1) + ' GiB', 16],
-    ['pve CPU', series(3, 7, 6, (v, m) => downIn(m, ['host']) ? null : v), v => v.toFixed(0) + '%', 100],
+    ['cluster CPU', series(3, 7, 6, (v, m) => downIn(m, ['host']) ? null : v), v => v.toFixed(0) + '%', 100],
     ['/var/lib/docker', series(4, 41, 0.4, (v, m) => ALERT.full && m >= now - 4 ? Math.min(100, 41 + (m - now + 5) * 15) : v), v => v.toFixed(0) + '%', 100],
     ['site requests/min', series(5, 40, 30, (v, m) => downIn(m, ['stack', 'vm', 'guest', 'host']) ? 0 : Math.max(0, v)), v => v.toFixed(0), null],
     ['WAN in', series(6, 18, 14, v => Math.max(0, v)), v => v.toFixed(1) + ' Mbit/s', null],

@@ -131,13 +131,13 @@ export const SOLUTIONS = {
   ghost: () => cmd('cat /dev/null'),
   pve: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve'); await answer('exit'); await answer('exit');
+    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('exit'); await answer('exit');
     await p; await idle();
   },
   restore: async () => {
     const yesterday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve');
+    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
     await answer(`proxmox-file-restore extract vm/102/${yesterday}T01:04:01Z /drive-scsi0.img.fidx/part/1/home/ian/stacks/monitoring/prometheus.yml /tmp/prometheus.yml`);
     await answer('scp /tmp/prometheus.yml homelab:stacks/monitoring/');
     await answer('exit'); await answer('exit'); await p; await idle();
@@ -152,7 +152,7 @@ export const SOLUTIONS = {
   },
   threetwoone: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve');
+    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
     await answer('vzdump 102'); await answer('exit'); await answer('exit'); await p; await idle();
   },
   shipit: async () => {

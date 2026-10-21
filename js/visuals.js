@@ -41,31 +41,31 @@ export function neofetch() {
     '               ',
     '               ',
   ];
-  // the homelab is a Debian VM for Docker, on a Proxmox host
-  const info = state.host === 'pve' ? [
-    span('u', 'root') + '@' + span('u', 'pve'),
-    span('m', '--------'),
+  // the homelab is a Debian VM for Docker, on a three-node Proxmox cluster
+  const info = state.host === 'pve1' ? [
+    span('u', 'root') + '@' + span('u', 'pve1'),
+    span('m', '---------'),
     span('a2', 'OS') + ': Proxmox VE 8.2.4 (Debian GNU/Linux 12) x86_64',
-    span('a2', 'Host') + ': ASRock B550M Pro4',
+    span('a2', 'Cluster') + ': homelab, node 1 of 3, quorate',
     span('a2', 'Kernel') + ': 6.8.12-1-pve',
     span('a2', 'Uptime') + ': 112 days, 7 hours',
-    span('a2', 'Guests') + ': 5 VMs, 3 containers',
+    span('a2', 'Guests') + ': 8 in the cluster, 2 on this node',
     span('a2', 'Shell') + ': bash 5.2.15',
-    span('a2', 'CPU') + ': AMD Ryzen 7 5700G (16) @ 4.6GHz',
+    span('a2', 'CPU') + ': 12 cores',
     span('a2', 'Memory') + ': 31.2GiB / 62.7GiB',
-    span('a2', 'Storage') + ': rpool, a ZFS mirror of two 1TB NVMe disks',
+    span('a2', 'Storage') + ': local ZFS, replicated to the other nodes',
     ['--fg','--accent','--accent2','--link','--warn','--err'].map(v => `<span style="color:var(${v})">███</span>`).join(''),
   ] : state.host === 'homelab' ? [
     span('u', 'ian') + '@' + span('u', 'homelab'),
     span('m', '-------------'),
     span('a2', 'OS') + ': Debian GNU/Linux 12 (bookworm) x86_64',
-    span('a2', 'Host') + ': KVM/QEMU Standard PC (Q35 + ICH9, 2009), on Proxmox',
+    span('a2', 'Host') + ': KVM/QEMU Standard PC (Q35 + ICH9, 2009), on pve1',
     span('a2', 'Kernel') + ': 6.1.0-25-amd64',
     span('a2', 'Uptime') + ': 47 days, 3 hours',
     span('a2', 'Packages') + ': 912 (dpkg), 9 containers',
     span('a2', 'Shell') + ': bash 5.2.15',
-    span('a2', 'CPU') + ': AMD Ryzen 7 5700G (4 of the host\'s 16 threads)',
-    span('a2', 'Memory') + ': 9.4GiB / 16.0GiB',
+    span('a2', 'CPU') + ': 4 vCPUs, of the 12 cores of pve1',
+    span('a2', 'Memory') + ': 9.4GiB / 16.0GiB (of the 64 GB of pve1)',
     ['--fg','--accent','--accent2','--link','--warn','--err'].map(v => `<span style="color:var(${v})">███</span>`).join(''),
   ] : [
     span('u', 'guest') + '@' + span('u', 'iantiemann'),

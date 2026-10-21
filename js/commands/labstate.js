@@ -1,4 +1,4 @@
-// what is running on the homelab and the Proxmox host, for this visit. Small on purpose: status reads it
+// what is running on the homelab and the Proxmox cluster, for this visit. Small on purpose: status reads it
 // without loading the machines themselves, which only load on the first ssh (homelab.js, pve.js)
 export const STACKS = { terminal: ['traefik', 'terminal'], monitoring: ['prometheus', 'grafana', 'loki', 'alloy'], automation: ['n8n', 'postgres'], whoami: ['whoami'] };
 // the stacks that exist as containers; whoami is a compose file that was never started, until you do
@@ -41,18 +41,20 @@ export const PROMETHEUS_YML = [
 // ---- the live incident: once per visit, the Docker disk fills up and Grafana falls over ----
 export const ALERT = { fired: false, full: false, resolved: false };
 
-// ---- the guests on the Proxmox host ----
+// ---- the guests on the Proxmox cluster, and the node each one runs on ----
+// the cluster: three nodes, 12 cores and 64 GB each. You log in on pve1
+export const NODES = [['pve1', '10.20.0.10'], ['pve2', '10.20.0.11'], ['pve3', '10.20.0.12']];
 export const VMS = [
-  { id: 101, name: 'homeassistant', mem: 4096, disk: 32, pid: 2101, cores: 2, note: 'The lights still work. The automations do not.' },
-  { id: 102, name: 'homelab', mem: 16384, disk: 64, pid: 2204, cores: 4, data: 500 },
-  { id: 103, name: 'pbs', mem: 4096, disk: 32, pid: 2307, cores: 2, note: 'Tonight\'s backup will have nowhere to go. Start it again before 03:00.' },
-  { id: 104, name: 'win11-sandbox', mem: 8192, disk: 80, pid: 0, cores: 4, note: 'It wants to install updates first.' },
-  { id: 9000, name: 'debian12-cloudinit', mem: 2048, disk: 8, pid: 0, cores: 2, template: true },
+  { id: 101, node: 'pve2', name: 'homeassistant', mem: 4096, disk: 32, pid: 2101, cores: 2, note: 'The lights still work. The automations do not.' },
+  { id: 102, node: 'pve1', name: 'homelab', mem: 16384, disk: 64, pid: 2204, cores: 4, data: 500 },
+  { id: 103, node: 'pve3', name: 'pbs', mem: 4096, disk: 32, pid: 2307, cores: 2, note: 'Tonight\'s backup will have nowhere to go. Start it again before 03:00.' },
+  { id: 104, node: 'pve2', name: 'win11-sandbox', mem: 8192, disk: 80, pid: 0, cores: 4, note: 'It wants to install updates first.' },
+  { id: 9000, node: 'pve1', name: 'debian12-cloudinit', mem: 2048, disk: 8, pid: 0, cores: 2, template: true },
 ];
 export const CTS = [
-  { id: 200, name: 'adguard', mem: 512 },
-  { id: 201, name: 'unifi', mem: 2048 },
-  { id: 202, name: 'minecraft', mem: 4096, stopped: true },
+  { id: 200, node: 'pve3', name: 'adguard', mem: 512 },
+  { id: 201, node: 'pve2', name: 'unifi', mem: 2048 },
+  { id: 202, node: 'pve3', name: 'minecraft', mem: 4096, stopped: true },
 ];
 export const stoppedSince = {};
 export const up = new Set([...VMS.filter(v => v.pid).map(v => v.id), ...CTS.filter(c => !c.stopped).map(c => c.id)]);

@@ -8,7 +8,7 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS } from './labstate.js';
 
 addTree('homelab', buildLab());
 
@@ -30,7 +30,7 @@ const siteDown = () => !running.has('terminal-traefik-1') || !running.has('termi
 
 // ---- the outage: connection lost, the watchdog, a fresh start ----
 // down is null when the watchdog brings the stack back, or { kind, reboot, where } when more went down:
-// kind 'vm' (shutdown on the Docker VM), 'guest' (qm stop 102 on the host) or 'host' (the Proxmox host itself)
+// kind 'vm' (shutdown on the Docker VM), 'guest' (qm stop 102 on pve1) or 'host' (pve1, the node itself)
 let restart = null;
 export const restarting = () => !!restart;
 export async function outage(what, down = null) {
@@ -41,7 +41,7 @@ export async function outage(what, down = null) {
   const el = document.createElement('div');
   el.id = 'outage';
   el.setAttribute('role', 'alert');
-  const lost = !down ? '' : down.kind === 'host' ? ', the whole Proxmox host went down' : ', the whole Docker VM went down';
+  const lost = !down ? '' : down.kind === 'host' ? ', pve1 went down' : ', the whole Docker VM went down';
   el.innerHTML = `<div class="box"><div class="big e">Connection lost</div><div>terminal.iantiemann.nl stopped answering.</div>`
     + `<div class="m">ERR_CONNECTION_REFUSED · after <b>${esc(what)}</b> on ${esc(where)}${lost}</div><pre class="log m"></pre></div>`;
   document.body.appendChild(el);
@@ -50,15 +50,15 @@ export async function outage(what, down = null) {
   const now = () => new Date().toTimeString().slice(0, 8);
   // down for roughly 5 to 10 seconds in all: long enough to notice, short enough not to wait for
   if (down?.kind === 'host') {
-    await line(`${now()} pve: stopping all guests`, 500);
-    await line(`${now()} pve: ${down.reboot ? 'rebooting' : 'powered off'}`, 600);
-    if (!down.reboot) {
-      await line(`${now()} Uptime Kuma: 14 monitors are DOWN, notifying Ian`, 700);
-      await line(`${now()} Ian walked to the closet and pressed the power button`, 800 + Math.random() * 1500);
-    }
-    await line(`${now()} pve: Proxmox VE 8.2 is up, starting the guests with onboot=1`, 900);
-    await line(`${now()} pve: VM 102 (homelab) started, docker.service started`, 600);
+    // one node of three: the other two keep the quorum, and HA starts its guests on the replicas
+    await line(`${now()} pve1: stopping all guests`, 500);
+    await line(`${now()} pve1: ${down.reboot ? 'rebooting' : 'powered off'}`, 600);
+    await line(`${now()} corosync: pve1 left, quorum kept by pve2 and pve3 (2 of 3 votes)`, 700);
+    await line(`${now()} pve-ha-crm: node pve1 is gone, recovering its guests`, 800 + Math.random() * 1200);
+    await line(`${now()} pve2: VM 102 (homelab) started from the replica, docker.service started`, 900);
     await line('restart: unless-stopped, the stacks come back on their own', 300);
+    // and that is where it stays: HA moved it
+    for (const g of [...VMS, ...CTS]) if (g.node === 'pve1' && g.pid !== 0 && !g.template) g.node = 'pve2';
   } else if (down) {
     // the watchdog lives on the VM too, so this time Proxmox has to bring it back
     await line('Waiting for Proxmox ...', 600);
@@ -84,14 +84,14 @@ export async function outage(what, down = null) {
   INCIDENTS.push({ what, kind: down?.kind || 'stack', at: downAt, seconds: restart.seconds });
 }
 
-// shutdown, halt, poweroff or reboot on the Docker VM or the Proxmox host: this site runs on both, so it goes down too
+// shutdown, halt, poweroff or reboot on the Docker VM or on pve1: this site runs on both, so it goes down too
 export async function vmDown(what, reboot = false, kind = 'vm') {
-  const host = kind === 'host' ? 'pve' : 'homelab';
+  const host = kind === 'host' ? 'pve1' : 'homelab';
   printLines(['', span('w', `Broadcast message from ${state.user}@${host} on pts/0 (${new Date().toString().slice(0, 24)}):`), '',
     span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
   await pause(700);
   print(span('m', `Connection to ${host} closed by remote host.`));
-  await outage(what, { kind, reboot, where: kind === 'host' ? 'pve' : 'the homelab' });
+  await outage(what, { kind, reboot, where: kind === 'host' ? 'pve1' : 'the homelab' });
 }
 
 // ---- the live alert: some time after you log in to the homelab, Grafana goes down on a full disk ----
@@ -289,7 +289,7 @@ const cannotStart = c => ALERT.full
 LOGS['printer-fix'] = ['Searching for printer ...', 'Error: printer not found', 'Exited with code 1'];
 const UNITS = [
   ['docker.service', 'Docker Application Container Engine', 902], ['containerd.service', 'containerd container runtime', 911],
-  ['qemu-guest-agent.service', 'QEMU Guest Agent (talks to the Proxmox host)', 640],
+  ['qemu-guest-agent.service', 'QEMU Guest Agent (talks to pve1, the node it runs on)', 640],
   ['ssh.service', 'OpenBSD Secure Shell server', 412], ['cron.service', 'Regular background program processing daemon', 1302],
   ['unattended-upgrades.service', 'Unattended Upgrades Shutdown', null], ['wg-quick@wg0.service', 'WireGuard via wg-quick(8) for wg0', null],
 ];
@@ -297,7 +297,7 @@ export const LAB = {
   procs: () => [...SYSTEM_PROCS, ...Object.entries(CONTAINER_PROCS).filter(([name]) => running.has(name)).map(([, p]) => ({ user: 'root', ...p }))].sort((a, b) => a.pid - b.pid),
   units: UNITS,
   journal: [
-    ['qemu-ga', 640, 'info: guest-fsfreeze called (the nightly backup from the Proxmox host)'],
+    ['qemu-ga', 640, 'info: guest-fsfreeze called (the nightly backup from the cluster)'],
     ['qemu-ga', 640, 'info: guest-fsfreeze-thaw called, backup done'],
     ['dockerd', 902, 'Container terminal-terminal-1 health status: healthy'],
     ['grafana', 1388, 'alert resolved: certificate renewed'],
@@ -346,10 +346,10 @@ export const LAB = {
       ['* * * * *', '/home/ian/stacks/terminal/watchdog.sh', 'brings the site back when it stops answering'],
       ['30 4 * * 0', 'docker image prune -af', 'old images out'],
       ['0 5 1 * *', 'cd ~/stacks && for s in */; do (cd $s && docker compose pull -q); done', 'fresh images, monthly'],
-      ['0 6 * * 1', 'cd ~/ansible && ansible-playbook site.yml', 'updates for this VM and the Proxmox host under it'],
+      ['0 6 * * 1', 'cd ~/ansible && ansible-playbook site.yml', 'updates for this VM and the three Proxmox nodes'],
     ],
     root: [
-      ['0 4 * * 0', '/sbin/fstrim -av', 'gives freed space back to the Proxmox host'],
+      ['0 4 * * 0', '/sbin/fstrim -av', 'gives freed space back to the ZFS pool of pve1'],
       ['0 2 * * *', 'docker system df > /var/log/docker-usage.log', ''],
       ['15 4 * * 0', 'apt update && apt -y full-upgrade', ''],
     ],
@@ -403,7 +403,7 @@ export async function labSession(resume = null) {
   armAlert();
   const back = resume && span('m', 'Connection restored after the reload.');
   await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], start: resume && (async () => {
-    if (resume.host === 'pve') return (await import('./pve.js')).pveSession(resume.cwd);
+    if (resume.host === 'pve1') return (await import('./pve.js')).pveSession(resume.cwd);
     if (resume.cwd && !resolve('/' + resume.cwd.join('/')).error) state.cwd = resume.cwd;
   }), banner: back ? [back] : ['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), ''] });
   disarmAlert();
@@ -417,9 +417,9 @@ export async function labSession(resume = null) {
   unlock('outage');
   const note = (icon, title, body, aside) => print(`<div class="watchdog-note"><div class="big">${icon} ${title}</div><div>${body}</div><div class="m">${aside}</div></div>`);
   const after = `It was down for ${seconds} seconds after <b>${esc(what)}</b> on ${esc(down?.where || 'the homelab')}`;
-  if (down?.kind === 'host') return note(down.reboot ? '🖥️' : '🔌', down.reboot ? 'The Proxmox host rebooted' : 'Ian pressed the power button',
-    `${after}: the host went down, with every VM on it, this site included. ${down.reboot ? 'It came back by itself' : 'Somebody had to walk to the closet'}, the guests started on boot and Docker brought the stacks back.`,
-    'Root on the hypervisor, and you used it to turn everything off. Respect.');
+  if (down?.kind === 'host') return note('🖥️', `HA moved this site to pve2`,
+    `${after}: pve1 went down, and VM 102 with it. pve2 and pve3 kept the quorum, HA started the VM on pve2 from its replica, and Docker brought the stacks back. It stays on pve2 now: ${cmd('pvesh get /cluster/resources')}`,
+    'Root on a cluster node, and you used it to pull the plug. That is exactly what the other two are for.');
   if (down) return note('🖥️', `Proxmox ${down.reboot ? 'rebooted' : 'started'} the Docker VM again`,
     `${after}: the VM went down and took this site with it. ${down.reboot ? 'It came back up' : 'HA started VM 102 again'}, and Docker brought the stacks back.`,
     down.kind === 'guest' ? 'Stopping the VM you came in through. Bold.' : 'You turned off the machine you were standing on. Bold.');
