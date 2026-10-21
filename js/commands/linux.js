@@ -45,8 +45,11 @@ def('sudo', null, 'run a command as root', (args, raw) => {
 def('rm', null, 'remove files', async args => {
   // what you made in /tmp really goes
   const [o, paths] = getopt(args);
-  if (paths.length && paths.every(isMine)) {
+  // what is not there: an error, or nothing at all with -f
+  const missing = p => resolve(p).error === 'missing';
+  if (paths.length && paths.every(p => isMine(p) || missing(p))) {
     for (const p of paths) {
+      if (missing(p)) { if (!(o.f || o.force)) { state.failed = true; print(span('e', `rm: cannot remove '${esc(p)}': No such file or directory`)); } continue; }
       const err = removeNode(p, { recursive: o.r || o.R || o.recursive });
       if (err) { state.failed = true; print(span('e', `rm: cannot remove '${esc(p)}': ${err}`)); }
     }

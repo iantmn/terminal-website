@@ -2,7 +2,8 @@
 import { unlock, track } from '../achievements.js';
 import { PROFILE, SITE, POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
-import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode } from '../filesystem.js';
+import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode, writeFile, isMine } from '../filesystem.js';
+import { htmlToText } from '../shell.js';
 import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
 import { pager } from '../pager.js';
@@ -244,9 +245,45 @@ for (const [tool, { what, run }] of Object.entries(MAKE)) {
     }
   }, { usage: '<path>...', flags: tool === 'mkdir' ? [['-p, --parents', 'make the folders above it too']] : [] });
 }
-def(['mv', 'cp', 'ln'], 'more', 'move, copy or link files (read-only here)', (args, raw) => {
-  const tool = raw.trim().split(/\s+/)[0];
-  print(span('e', `${esc(tool)}: cannot modify '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`) + TMP_NOTE);
+// cp and mv: into /tmp, the one writable place. cp copies anything you may read (as text); mv only moves what you
+// made, because taking the original away from a read-only place is exactly what read-only forbids
+// copying is reading: the same achievements as cat, and a locked file stays locked (its answer is a Permission denied)
+const textOf = node => { const l = htmlToText(node.read()); return /Permission denied/.test(l[0] || '') ? null : l.length ? l.join('\n') + '\n' : ''; };
+const baseName = p => p.replace(/\/+$/, '').split('/').pop();
+const within = (inner, outer) => outer.length <= inner.length && outer.every((s, i) => s === inner[i]);
+// null when it worked, else [the path it is about, the reason]
+function copy(src, dest, recursive) {
+  const r = resolve(src);
+  if (r.error) return [src, r.error === 'denied' ? 'Permission denied' : 'No such file or directory'];
+  const d = resolve(dest), into = !d.error && d.node.type === 'dir';
+  const target = into ? dest.replace(/\/+$/, '') + '/' + baseName(src) : dest;
+  if (r.node.type !== 'dir') {
+    const text = textOf(r.node);
+    if (text === null) return [src, 'Permission denied'];
+    const err = writeFile(target, text);
+    return err && [target, err];
+  }
+  if (!recursive) return [src, '-r not specified; omitting directory'];
+  if (into && within(d.segs, r.segs)) return [src, `cannot copy a directory into itself, '${dest}'`];
+  const err = makeDir(target, true);
+  if (err) return [target, err];
+  for (const n of Object.keys(r.node.children)) { const e = copy(src.replace(/\/+$/, '') + '/' + n, target, true); if (e) return e; }
+  return null;
+}
+def(['cp', 'mv'], 'more', 'copy or move files (into /tmp)', (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0].toLowerCase();
+  const [o, paths] = getopt(args);
+  if (paths.length < 2) { state.failed = true; return print(span('e', `${tool}: missing destination file operand`) + span('m', `  (${tool} &lt;file&gt; /tmp/)`)); }
+  const dest = paths.pop();
+  for (const src of paths) {
+    if (tool === 'mv' && !resolve(src).error && !isMine(src)) { state.failed = true; print(span('e', `mv: cannot move '${esc(src)}': Read-only file system`) + span('m', '  (cp copies it to /tmp instead)')); continue; }
+    const e = copy(src, dest, tool === 'mv' || o.r || o.R || o.recursive);
+    if (e) { state.failed = true; print(span('e', `${tool}: ${e[1].startsWith('-r') || e[1].startsWith('cannot') ? '' : `cannot ${e[0] === src ? (e[1] === 'Permission denied' ? 'open' : 'stat') : 'create'} '${esc(e[0])}': `}${esc(e[1])}`) + (e[1] === 'Read-only file system' ? TMP_NOTE : '')); continue; }
+    if (tool === 'mv') removeNode(src, { recursive: true });
+  }
+}, { usage: '[-r] <source>... <destination>', flags: [['-r, --recursive', 'cp: folders and everything in them'], ['destination', 'in /tmp: a new name, or a folder to put them in']] });
+def('ln', 'more', 'link files (read-only here)', args => {
+  print(span('e', `ln: failed to create link '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`) + TMP_NOTE);
 });
 
 // Tab completion: my pages and the words of post titles; anything that looks like a path completes as a path

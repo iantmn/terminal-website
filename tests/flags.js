@@ -231,7 +231,7 @@ export const T = [
   ['docker ps -aq', o => lines(o).length === 9], ['docker', o => o.includes('usage')],
   ['git status', o => o.includes('working tree clean')], ['git log --oneline', o => lines(o).length === 5], ['git log', o => o.includes('commit 7r345ur')], ['git log --graph', o => o.includes('Merge branch')],
   ['ssh -p 2222 example.com', o => o.includes('port 2222')], ['ssh', o => o.includes('usage')], ['ssh homelab', o => o.includes('Permission denied (publickey)')], ['ssh -i key.pem ian@homelab', o => o.includes('ian@homelab')],
-  ['rm file', o => o.includes('read-only')],
+  ['rm about.txt', o => o.includes('read-only')], ['rm nope', o => o.includes('No such file')], ['rm -f nope', o => o === ''],
   // cal
   ['cal', o => o.includes('Mo Tu We')], ['cal -3', o => count(o, /Mo Tu We/g) === 3],
   ['cal -y', o => count(o, /Mo Tu We/g) === 12], ['cal 2024', o => count(o, /Mo Tu We/g) === 12 && o.includes('2024')],
@@ -271,6 +271,15 @@ export const T = [
   ['tail -n 1 about.txt cv.txt', o => o.includes('==> about.txt <==') && o.includes('==> cv.txt <==')],
   ['wc -l about.txt cv.txt', o => / total$/.test(o) && lines(o).length === 3],
   ['head nope', o => o.includes('No such file')],
+  // cp and mv into /tmp
+  ['cp about.txt /tmp/ && head -n 1 /tmp/about.txt', o => o.includes('Ian Tiemann')],
+  ['cp experience /tmp/', o => o.includes('-r not specified')],
+  ['cp -r experience /tmp/ && ls /tmp/experience | wc -l', o => +o >= 3],
+  ['mv /tmp/about.txt /tmp/me.txt && ls /tmp', o => o.includes('me.txt') && !o.includes('about.txt')],
+  ['mv about.txt /tmp/', o => o.includes('Read-only file system')],
+  ['cp about.txt notes.txt', o => o.includes('Read-only file system')],
+  ['cp diary.txt /tmp/', o => o.includes('Permission denied') || o === ''],
+  ['rm -r /tmp/experience /tmp/me.txt; rm -f /tmp/diary.txt; ls /tmp', o => o === 'ian-was-here.tmp'],
 ];
 
 // the slow ones: they sleep between lines
