@@ -1,6 +1,6 @@
 // the homelab: the shell after ssh, its docker stacks, and what happens when you stop the one this site runs in
 import { unlock } from '../achievements.js';
-import { print, printLines, span, esc, cmd, pad, ask, state, inrow, promptHTML, HOME, getopt } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, ask, state, inrow, promptHTML, HOME, getopt, store } from '../core.js';
 import { execChain } from '../shell.js';
 import { remember, resetHistoryCursor, expandHistory } from '../input.js';
 import { boot } from '../boot.js';
@@ -8,7 +8,7 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS, NODES, CLUSTER, onlineNodes, up } from './labstate.js';
 
 addTree('homelab', buildLab());
 
@@ -35,13 +35,14 @@ let restart = null;
 export const restarting = () => !!restart;
 export async function outage(what, down = null) {
   const downAt = Date.now(), where = down?.where || 'the homelab';
+  state.dropped = true;
   bootSound('down');
   // not cancellable on purpose: with the site gone, Ctrl+C has nothing left to stop
   await pause(900);
   const el = document.createElement('div');
   el.id = 'outage';
   el.setAttribute('role', 'alert');
-  const lost = !down ? '' : down.kind === 'host' ? ', pve1 went down' : ', the whole Docker VM went down';
+  const lost = !down ? '' : down.kind === 'cluster' ? ', the whole cluster went down' : down.kind === 'host' ? `, ${down.node || 'pve1'} went down` : ', the whole Docker VM went down';
   el.innerHTML = `<div class="box"><div class="big e">Connection lost</div><div>terminal.iantiemann.nl stopped answering.</div>`
     + `<div class="m">ERR_CONNECTION_REFUSED · after <b>${esc(what)}</b> on ${esc(where)}${lost}</div><pre class="log m"></pre></div>`;
   document.body.appendChild(el);
@@ -49,16 +50,23 @@ export async function outage(what, down = null) {
   const line = async (text, ms) => { await pause(ms); log.textContent += text + '\n'; };
   const now = () => new Date().toTimeString().slice(0, 8);
   // down for roughly 5 to 10 seconds in all: long enough to notice, short enough not to wait for
-  if (down?.kind === 'host') {
-    // one node of three: the other two keep the quorum, and HA starts its guests on the replicas
-    await line(`${now()} pve1: stopping all guests`, 500);
-    await line(`${now()} pve1: ${down.reboot ? 'rebooting' : 'powered off'}`, 600);
-    await line(`${now()} corosync: pve1 left, quorum kept by pve2 and pve3 (2 of 3 votes)`, 700);
-    await line(`${now()} pve-ha-crm: node pve1 is gone, recovering its guests`, 800 + Math.random() * 1200);
-    await line(`${now()} pve2: VM 102 (homelab) started from the replica, docker.service started`, 900);
+  if (down?.kind === 'cluster') {
+    // no quorum, no HA: nothing comes back by itself, and nobody tells Ian (Uptime Kuma ran on the cluster too)
+    for (const e of down.events) await line(`${now()} ${e}`, 600);
+    await line(`${now()} nothing is left to run the site. Or to tell Ian: Uptime Kuma ran on the cluster too`, 900);
+    await line(`${now()} ${down.wol ? 'Ian notices the site is gone and sends three magic packets from his phone' : 'Ian notices the site is gone, grabs his coffee and walks to the cluster. Three buttons this time'}`, 1200 + Math.random() * 800);
+    await line(`${now()} pve1, pve2 and pve3 are up: 3 of 3 votes, quorate again`, 1200);
+    await line(`${now()} the guests start on boot, VM 102 (homelab) on ${VMS.find(v => v.id === 102).node}, docker.service started`, 800);
     await line('restart: unless-stopped, the stacks come back on their own', 300);
-    // and that is where it stays: HA moved it
-    for (const g of [...VMS, ...CTS]) if (g.node === 'pve1' && g.pid !== 0 && !g.template) g.node = 'pve2';
+  } else if (down?.kind === 'host') {
+    // one node of three: the other two keep the quorum, and HA starts its guests on the replicas
+    const n = down.node || 'pve1';
+    await line(`${now()} ${n}: stopping all guests`, 500);
+    await line(`${now()} ${n}: ${down.reboot ? 'rebooting' : 'powered off'}`, 600);
+    await line(`${now()} corosync: ${n} left, ${onlineNodes().join(' and ')} keep the quorum (2 of 3 votes)`, 700);
+    await line(`${now()} pve-ha-crm: node ${n} is gone, recovering its guests`, 800 + Math.random() * 1200);
+    await line(`${now()} ${down.to}: VM 102 (homelab) started from the replica, docker.service started`, 900);
+    await line('restart: unless-stopped, the stacks come back on their own', 300);
   } else if (down) {
     // the watchdog lives on the VM too, so this time Proxmox has to bring it back
     await line('Waiting for Proxmox ...', 600);
@@ -86,7 +94,8 @@ export async function outage(what, down = null) {
 
 // shutdown, halt, poweroff or reboot on the Docker VM or on pve1: this site runs on both, so it goes down too
 export async function vmDown(what, reboot = false, kind = 'vm') {
-  const host = kind === 'host' ? 'pve1' : 'homelab';
+  if (kind === 'host') return nodeDown('pve1', { what, reboot, self: true });
+  const host = 'homelab';
   printLines(['', span('w', `Broadcast message from ${state.user}@${host} on pts/0 (${new Date().toString().slice(0, 24)}):`), '',
     span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
   await pause(700);
@@ -358,6 +367,87 @@ export const LAB = {
 
 HOSTS.homelab = LAB;
 
+// a remote shell ends when the machine it is on goes off under it
+let kicked = null;
+
+// ---- the cluster: a node goes off. While two of three keep the quorum, HA moves its guests and Ian gets it
+// running again (the first time on foot, after that with Wake-on-LAN). With one node left there is no quorum:
+// its HA watchdog fences it, and the whole cluster is down until Ian brings it back ----
+const ha = g => !g.template && (CTS.includes(g) ? !g.stopped : g.pid !== 0);
+const macOf = n => `b4:2e:99:0a:14:${10 + NODES.findIndex(x => x[0] === n)}`;
+let storyRun = 0;
+const nodeBack = n => { CLUSTER.down.delete(n); delete CLUSTER.since[n]; };
+export async function nodeDown(n, { what, reboot = false, self = false }) {
+  if (self) {
+    printLines(['', span('w', `Broadcast message from ${state.user}@${n} on pts/0 (${new Date().toString().slice(0, 24)}):`), '', span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
+    await pause(700);
+  }
+  const vm102 = VMS.find(v => v.id === 102), has102 = vm102.node === n;
+  const others = onlineNodes().filter(x => x !== n);
+  // a reboot: HA moves the site first if it is on there; the node is back by itself
+  if (reboot) {
+    if (has102) return outage(what, { kind: 'host', node: n, to: (vm102.node = others[0]), reboot: true, where: n });
+    if (self) kicked = n;
+    print(span('m', `${n} is rebooting.`));
+    setTimeout(() => print(span('m', `${n} rebooted and rejoined the cluster: 3 of 3 votes.`)), 6000);
+    return;
+  }
+  CLUSTER.down.add(n); CLUSTER.since[n] = Date.now();
+  const left = onlineNodes();
+  if (left.length >= 2) {
+    // two of three: quorum. HA starts what ran on the node on the others, VM 102 on the first of them
+    const guests = [...VMS, ...CTS].filter(g => g.node === n && ha(g));
+    guests.forEach((g, i) => { g.node = g.id === 102 ? left[0] : left[i % left.length]; });
+    const run = ++storyRun;
+    if (has102) return outage(what, { kind: 'host', node: n, to: vm102.node, where: n });
+    if (self) kicked = n;
+    printLines([span('m', `corosync: ${n} left, ${left.join(' and ')} keep the quorum (2 of 3 votes)`),
+      ...guests.map(g => span('m', `pve-ha-crm: ${VMS.includes(g) ? 'VM' : 'CT'} ${g.id} (${g.name}) started on ${g.node}`))]);
+    nodeStory(n, run);
+    return;
+  }
+  // one node left: no quorum. It runs HA guests, so its watchdog fences it, and with it goes everything
+  storyRun++;
+  const alone = left[0];
+  const events = [`${n}: powered off`, `corosync: ${alone} is alone with 1 of 3 votes, quorum lost`, `${alone}: the HA watchdog fences the node, and every guest goes down with it`];
+  NODES.forEach(([x]) => { CLUSTER.down.add(x); CLUSTER.since[x] ??= Date.now(); });
+  const wol = CLUSTER.wol;
+  await outage(what, { kind: 'cluster', events, wol, where: state.host === 'pve1' ? 'pve1' : 'the homelab' });
+  // by the end of the outage Ian has them all back, and what starts on boot runs again
+  NODES.forEach(([x]) => nodeBack(x));
+  [...VMS, ...CTS].filter(ha).forEach(g => up.add(g.id));
+}
+// Ian's side of it: told, the walk (or the magic packet), the logs. Never inside the output of a pipe, and cancelled
+// when something bigger happens in the meantime
+async function nodeStory(n, run) {
+  const say = async (ms, html) => {
+    await pause(ms);
+    if (run !== storyRun) throw new Error('cancelled');
+    const cap = state.capture; state.capture = null;
+    print(html);
+    state.capture = cap;
+  };
+  try {
+    if (!CLUSTER.wol) {
+      await say(1500, span('w', `📟 Uptime Kuma → Ian: ${n} is not running.`));
+      await say(2500, span('m', '☕ Ian grabs his coffee and walks to the cluster.'));
+      await say(3500, span('a', `🔌 Ian presses the power button of ${n}. It boots and rejoins the cluster: 3 of 3 votes.`));
+      nodeBack(n);
+      await say(2500, span('m', `🔍 Ian reads the logs to see why ${n} went down: a shutdown, by root, from the homelab. That was you. He is not happy with you.`));
+      await say(2500, span('m', '🛠️ Ian sets up Wake-on-LAN on all three nodes. He is not walking to that closet again.'));
+      CLUSTER.wol = true; store.set('wol', true);
+      unlock('closet');
+    } else {
+      await say(1500, span('w', `📟 Uptime Kuma → Ian: ${n} is not running. Again.`));
+      await say(2500, span('m', `📱 Ian sends a magic packet from his phone: wakeonlan ${macOf(n)}`));
+      await say(2500, span('a', `⚡ ${n} wakes up and rejoins the cluster: 3 of 3 votes. Ian did not even put his coffee down.`));
+      nodeBack(n);
+      await say(2000, span('m', '🔍 The logs say root, from the homelab, again. Ian: "testing Wake-on-LAN, are we?"'));
+      unlock('wol');
+    }
+  } catch {}
+}
+
 // ---- a shell on another machine, until exit, logout or Ctrl+D (or until the site goes down under it) ----
 export async function remoteShell({ host, user, home, root = false, banner, start = null }) {
   const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot }, savedHome = [...HOME];
@@ -368,7 +458,7 @@ export async function remoteShell({ host, user, home, root = false, banner, star
   try {
     // a session after a reload: back in the folder you were in, or one machine further
     if (start) await start();
-    while (!restart) {
+    while (!restart && kicked !== host) {
       state.busy = false; inrow.style.visibility = '';
       let line = await ask(promptHTML());
       // Ctrl+D logs out, Ctrl+C just gives a new prompt
@@ -386,13 +476,14 @@ export async function remoteShell({ host, user, home, root = false, banner, star
       state.busy = true; state.cancelled = false; inrow.style.visibility = 'hidden';
       try { await execChain(line); }
       catch (e) { if (e.message === 'SIGINT') print(span('e', '^C')); else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
-      if (restart) break;
+      if (restart || kicked === host) break;
     }
   } finally {
     HOME.splice(0, HOME.length, ...savedHome);
     Object.assign(state, saved);
     resetHistoryCursor();
   }
+  if (kicked === host) { kicked = null; print(span('m', `Connection to ${host} closed by remote host.`)); return; }
   if (!restart) { print('logout'); print(span('m', `Connection to ${host} closed.`)); }
 }
 
@@ -411,15 +502,27 @@ export async function labSession(resume = null) {
   // the site came back as a fresh start: a new container, so an empty /tmp too
   const { what, down, seconds } = restart;
   restart = null;
+  state.dropped = false;
   state.asRoot = false;
   forgetSession();
   await boot();
   unlock('outage');
   const note = (icon, title, body, aside) => print(`<div class="watchdog-note"><div class="big">${icon} ${title}</div><div>${body}</div><div class="m">${aside}</div></div>`);
   const after = `It was down for ${seconds} seconds after <b>${esc(what)}</b> on ${esc(down?.where || 'the homelab')}`;
-  if (down?.kind === 'host') return note('🖥️', `HA moved this site to pve2`,
-    `${after}: pve1 went down, and VM 102 with it. pve2 and pve3 kept the quorum, HA started the VM on pve2 from its replica, and Docker brought the stacks back. It stays on pve2 now: ${cmd('pvesh get /cluster/resources')}`,
-    'Root on a cluster node, and you used it to pull the plug. That is exactly what the other two are for.');
+  if (down?.kind === 'cluster') {
+    note('🌑', 'Lights out: the whole cluster went down',
+      `${after}: with one node left there was no quorum, and its HA watchdog took it down too. Nothing could come back by itself, and Uptime Kuma, which would have told Ian, ran on the cluster as well. ${down.wol ? 'Wake-on-LAN saved him the walk this time.' : 'Ian walked to the closet and pressed three buttons.'}`,
+      'A cluster survives one node going down. Not three. You found that out the hard way, so nobody else has to.');
+    return unlock('blackout');
+  }
+  if (down?.kind === 'host') {
+    note('🖥️', `HA moved this site to ${down.to}`,
+      `${after}: ${down.node} went down, and VM 102 with it. The other two kept the quorum, HA started the VM on ${down.to} from its replica, and Docker brought the stacks back. It stays on ${down.to} now: ${cmd('pvesh get /cluster/resources')}`,
+      'Root on a cluster node, and you used it to pull the plug. That is exactly what the other two are for.');
+    // the node itself is still off: somebody has to do something about that
+    if (!down.reboot) nodeStory(down.node, storyRun);
+    return;
+  }
   if (down) return note('🖥️', `Proxmox ${down.reboot ? 'rebooted' : 'started'} the Docker VM again`,
     `${after}: the VM went down and took this site with it. ${down.reboot ? 'It came back up' : 'HA started VM 102 again'}, and Docker brought the stacks back.`,
     down.kind === 'guest' ? 'Stopping the VM you came in through. Bold.' : 'You turned off the machine you were standing on. Bold.');

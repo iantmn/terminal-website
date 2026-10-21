@@ -1,5 +1,6 @@
 // what is running on the homelab and the Proxmox cluster, for this visit. Small on purpose: status reads it
 // without loading the machines themselves, which only load on the first ssh (homelab.js, pve.js)
+import { store } from '../core.js';
 export const STACKS = { terminal: ['traefik', 'terminal'], monitoring: ['prometheus', 'grafana', 'loki', 'alloy'], automation: ['n8n', 'postgres'], whoami: ['whoami'] };
 // the stacks that exist as containers; whoami is a compose file that was never started, until you do
 export const DEPLOYED = new Set(['terminal', 'monitoring', 'automation']);
@@ -44,6 +45,9 @@ export const ALERT = { fired: false, full: false, resolved: false };
 // ---- the guests on the Proxmox cluster, and the node each one runs on ----
 // the cluster: three nodes, 12 cores and 64 GB each. You log in on pve1
 export const NODES = [['pve1', '10.20.0.10'], ['pve2', '10.20.0.11'], ['pve3', '10.20.0.12']];
+// which nodes are powered off and since when; and Wake-on-LAN, which Ian sets up after his first walk to the closet
+export const CLUSTER = { down: new Set(), since: {}, wol: store.get('wol', false) };
+export const onlineNodes = () => NODES.map(([n]) => n).filter(n => !CLUSTER.down.has(n));
 export const VMS = [
   { id: 101, node: 'pve2', name: 'homeassistant', mem: 4096, disk: 32, pid: 2101, cores: 2, note: 'The lights still work. The automations do not.' },
   { id: 102, node: 'pve1', name: 'homelab', mem: 16384, disk: 64, pid: 2204, cores: 4, data: 500 },

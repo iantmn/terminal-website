@@ -70,6 +70,9 @@ export const ACH = {
   firefighter: ['Firefighter',              'Stay on the homelab for a while. Things break when you are around.', 'When the alert fires: docker image prune -af frees the full disk, then docker start monitoring-grafana-1.'],
   threetwoone: ['3-2-1',                    'A backup only counts when there are three. Make one yourself, the right way.', 'On pve1: vzdump 102 (snapshot mode, to pbs). The sync job takes it offsite.'],
   shipit:   ['Shipped it',                 'One stack on the homelab was set up and never started. Finish the job.', 'On the homelab: cd ~/stacks/whoami, then docker compose up -d.'],
+  closet:   ['Coffee run',                 'Turn off a cluster node, and see who has to fix it.', 'poweroff on pve1. Ian walks to the closet, and afterwards sets up Wake-on-LAN.'],
+  wol:      ['Magic packet',               'Do it again, now that Ian prepared for it.', 'poweroff on a node a second time: Ian wakes it with Wake-on-LAN.'],
+  blackout: ['Lights out',                 'A cluster survives one node going down. Not three.', 'On pve1: pvesh create /nodes/pve2/status --command shutdown, then the same for pve3. If VM 102 (this site) runs on one of them, shut that one down last.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);
@@ -98,5 +101,5 @@ export function track(key, value, goal, ach) {
   if (set.size >= goal) unlock(ach);
 }
 // classics have no hint, secrets have a hint but never a solution: those you find yourself
-export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage', 'pve', 'restore', 'firefighter'];
+export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage', 'pve', 'restore', 'firefighter', 'closet', 'wol', 'blackout'];
 export const noSolution = id => !ACH[id][1] || SECRET_ACH.includes(id);

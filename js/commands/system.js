@@ -7,7 +7,7 @@ import { hist, activeHist, histKey } from '../input.js';
 import { C, def, completes } from '../registry.js';
 import { aliases, found, commandNames, helpLines, vars } from '../shell.js';
 import { MANUALS } from '../manuals.js';
-import { ALERT } from './labstate.js';
+import { ALERT, CLUSTER } from './labstate.js';
 import { pager } from '../pager.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
 import { startGlitch, THEMES, defaultTheme } from '../themes.js';
@@ -217,6 +217,7 @@ def('reset-achievements', 'system', 'forget all achievements', async () => {
   ['ach', 'read', 'rooms', 'found', 'seen'].forEach(k => store.set(k, []));
   seen.clear();
   found.clear();
+  store.del('wol'); CLUSTER.wol = false;
   resetDiary();
   print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
 });

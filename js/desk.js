@@ -3,7 +3,7 @@
 // coffee steams. Only hardware the rest of the site mentions
 import { span, esc } from './core.js';
 import { hist } from './input.js';
-import { all, running, up, PRINTER, VMS, CTS, NODES } from './commands/labstate.js';
+import { all, running, up, PRINTER, VMS, CTS, NODES, CLUSTER } from './commands/labstate.js';
 
 const W = 78, H = 24;
 function canvas() {
@@ -81,11 +81,13 @@ export function DESK() {
   NODES.forEach(([n], i) => {
     const y = 15 + i * 2;
     put(42, y, ['|                            |', i === NODES.length - 1 ? "'----------------------------'" : '|----------------------------|']);
-    put(44, y, n, 'a2');
-    const guests = [...VMS, ...CTS].filter(g => g.node === n && !g.template);
+    const off = CLUSTER.down.has(n);
+    put(44, y, n, off ? 'm' : 'a2');
+    const guests = off ? [] : [...VMS, ...CTS].filter(g => g.node === n && !g.template);
     // green runs, grey is off on purpose (the sandbox, Minecraft), red should run and does not
     guests.forEach((g, j) => put(50 + j * 2, y, '*', up.has(g.id) ? 'a' : g.pid === 0 || g.stopped ? 'm' : 'e'));
-    put(64, y, '(o)', 'a');
+    if (off) put(50, y, 'powered off', 'e');
+    put(64, y, '(o)', off ? 'm' : 'a');
   });
   put(24, 16, '~~~~~~~~~~~~~~~~~~', 'm');
   put(26, 17, 'the cable', 'm');

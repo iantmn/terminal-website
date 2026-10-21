@@ -20,6 +20,8 @@ export const state = {
   failed: false,
   // the exit status of the last command, for $?; code is set by a command that wants a specific one (127: not found)
   status: 0, code: null,
+  // the connection is gone (the site went down under you): the rest of a command line does not run anymore
+  dropped: false,
   // set by Ctrl+C, the next sleep() then throws
   cancelled: false,
   // a command is running and the input row is hidden

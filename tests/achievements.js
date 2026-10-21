@@ -160,6 +160,29 @@ export const SOLUTIONS = {
     await answer('works-on-my-machine'); await answer('cd ~/stacks/whoami'); await answer('docker compose up -d');
     await answer('exit'); await p; await idle();
   },
+  // poweroff on pve1, with the site on it: the outage, and after the boot Ian's walk to the closet (and Wake-on-LAN)
+  closet: async () => {
+    const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('poweroff');
+    await p; await idle();
+    await until(() => unlocked.has('closet'), 30000);
+  },
+  // the second time: VM 102 is on pve2 by now, so you are only thrown back to the homelab, and Ian wakes pve1 from his phone
+  wol: async () => {
+    const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('poweroff');
+    await until(() => unlocked.has('wol'), 30000);
+    await answer('exit'); await p; await idle();
+  },
+  // the two other nodes, the one with VM 102 last: pve1 is alone, has no quorum, and fences itself
+  blackout: async () => {
+    const { VMS } = await import('/js/commands/labstate.js');
+    const site = VMS.find(v => v.id === 102).node, order = ['pve2', 'pve3'].sort((a, b) => (a === site) - (b === site));
+    const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
+    for (const n of order) await answer(`pvesh create /nodes/${n}/status --command shutdown`);
+    await p; await idle();
+  },
   student: () => all('learn restart; pwd; ls; cd experience; cat netw-it-specialist.md; cd ..; skills -a | grep linux; ls; help ls'),
   completionist: async () => {},
 };

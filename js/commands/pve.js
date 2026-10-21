@@ -5,8 +5,8 @@ import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, charsPerL
 import { resolve, addTree, writeFile } from '../filesystem.js';
 import { buildPve } from '../fs/pve.js';
 import { def, completes } from '../registry.js';
-import { remoteShell, outage } from './homelab.js';
-import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML, MY_BACKUPS, NODES } from './labstate.js';
+import { remoteShell, outage, nodeDown } from './homelab.js';
+import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML, MY_BACKUPS, NODES, CLUSTER, onlineNodes } from './labstate.js';
 
 // the node this shell is on, and what runs on it
 const LOCAL = 'pve1';
@@ -100,6 +100,8 @@ export async function labSsh(args) {
   if (/^(iantiemann|172\.18\.0\.3)$/i.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port 22: Connection refused`) + span('m', '  (the terminal is a container, it runs no sshd. exit takes you back)'));
   if (OTHER_NODES.test(host)) { saw('pve-denied'); state.failed = true; return print(span('e', `${esc(user)}@${esc(host.replace(/\..*/, ''))}: Permission denied (publickey).`) + span('m', '  (the way into the cluster is pve1; from there it sees all three nodes)')); }
   if (!PVE_NAMES.test(host)) return print(span('e', `ssh: Could not resolve hostname ${esc(host)}: Name or service not known`));
+  // a node that is off does not answer at all
+  if (CLUSTER.down.has('pve1')) { state.failed = true; return print(span('e', `ssh: connect to host ${esc(host)} port 22: No route to host`) + span('m', '  (pve1 is powered off)')); }
   const denied = () => { saw('pve-denied'); state.failed = true; print(span('e', `${esc(user)}@pve1: Permission denied (publickey).`)); };
   if (!o.i) return denied();
   const r = resolve(o.i);
@@ -204,13 +206,13 @@ def('pct', null, 'manage the containers (LXC) of this node', async args => {
 }, { ...ONLY_PVE, usage: '<list|status|start|stop|enter> [vmid]', flags: [['list', 'the containers of this node'], ['status, start, stop vmid', 'what it says'], ['enter vmid', 'a shell inside it']] });
 
 // pvesh: the API of the whole cluster, from any node
-const nodeRow = ([n]) => { const guests = [...VMS, ...CTS].filter(g => g.node === n && up.has(g.id)); return [n, 'online', `${(2.1 + guests.reduce((s, g) => s + (g.cores || 1) * (g.id === 102 ? 1.9 : 0.8), 0) + (Date.now() / 6e4 % 7) * 0.13).toFixed(2)}%`, 12, '62.70 GiB', `${(6 + guests.reduce((s, g) => s + g.mem, 0) / 1024).toFixed(2)} GiB`, `${PVE.bootedDaysAgo - NODES.findIndex(x => x[0] === n) * 9}d`]; };
+const nodeRow = ([n]) => { if (CLUSTER.down.has(n)) return [n, 'offline', '', 12, '62.70 GiB', '', '']; const guests = [...VMS, ...CTS].filter(g => g.node === n && up.has(g.id)); return [n, 'online', `${(2.1 + guests.reduce((s, g) => s + (g.cores || 1) * (g.id === 102 ? 1.9 : 0.8), 0) + (Date.now() / 6e4 % 7) * 0.13).toFixed(2)}%`, 12, '62.70 GiB', `${(6 + guests.reduce((s, g) => s + g.mem, 0) / 1024).toFixed(2)} GiB`, `${PVE.bootedDaysAgo - NODES.findIndex(x => x[0] === n) * 9}d`]; };
 const API = {
   '/version': () => table(['key', 'value'], [['release', '8.2'], ['repoid', 'faa83925c9641325'], ['version', '8.2.4']]),
   '/nodes': () => table(['node', 'status', 'cpu', 'maxcpu', 'maxmem', 'mem', 'uptime'], NODES.map(nodeRow)),
-  '/cluster/status': () => table(['type', 'name', 'ip', 'online', 'quorate'], [['cluster', 'homelab', '', '', 1], ...NODES.map(([n, ip]) => ['node', n, ip, 1, ''])]),
+  '/cluster/status': () => table(['type', 'name', 'ip', 'online', 'quorate'], [['cluster', 'homelab', '', '', 1], ...NODES.map(([n, ip]) => ['node', n, ip, CLUSTER.down.has(n) ? 0 : 1, ''])]),
   '/cluster/resources': () => table(['id', 'type', 'node', 'status', 'name', 'ip'], [
-    ...NODES.map(([n, ip]) => [`node/${n}`, 'node', n, 'online', n, ip]),
+    ...NODES.map(([n, ip]) => [`node/${n}`, 'node', n, CLUSTER.down.has(n) ? 'offline' : 'online', n, ip]),
     ...VMS.map(v => [`qemu/${v.id}`, 'qemu', v.node, up.has(v.id) ? 'running' : 'stopped', v.name, GUEST_IPS[v.id] || '']),
     ...CTS.map(c => [`lxc/${c.id}`, 'lxc', c.node, up.has(c.id) ? 'running' : 'stopped', c.name, GUEST_IPS[c.id] || '']),
     ['storage/pbs', 'storage', '', 'available', 'pbs', ''],
@@ -230,9 +232,19 @@ def('pvesh', null, 'the Proxmox API of the whole cluster', async args => {
   if (verb === 'ls') return printLines((p === '/' ? ['access', 'cluster', 'nodes', 'pools', 'storage', 'version'] : p === '/nodes' ? NODES.map(([n]) => n) : Object.keys(API).filter(k => k.startsWith(p + '/')).map(k => k.slice(p.length + 1).split('/')[0])).filter((x, i, a) => a.indexOf(x) === i).map(n => 'Dr--- ' + esc(n)));
   // create /nodes/<node>/qemu|lxc/<id>/status/start|stop|shutdown|reboot: a guest anywhere in the cluster
   if (verb === 'create') {
+    // a whole node: --command shutdown or reboot. The real call, POST /nodes/<node>/status
+    const whole = p.match(/^\/nodes\/(pve[123])\/status$/);
+    if (whole) {
+      const [, n] = whole, c = args[args.indexOf('--command') + 1];
+      if (!args.includes('--command') || !['shutdown', 'reboot'].includes(c)) { state.failed = true; return print(span('e', "400 Parameter verification failed. command: value must be 'shutdown' or 'reboot'") + span('m', `  (pvesh create /nodes/${n}/status --command shutdown)`)); }
+      if (CLUSTER.down.has(n)) { state.failed = true; return print(span('e', `595 No route to host: ${n} is offline`)); }
+      print(esc(`UPID:${n}:0000${(n.charCodeAt(3) * 4111).toString(16).toUpperCase()}:srv${c}::root@pam:`));
+      return nodeDown(n, { what: `pvesh create /nodes/${n}/status --command ${c}`, reboot: c === 'reboot', self: n === LOCAL });
+    }
     const m = p.match(/^\/nodes\/(pve[123])\/(qemu|lxc)\/(\d+)\/status\/(start|stop|shutdown|reboot)$/);
     if (!m) { state.failed = true; return print(span('e', `No 'create' handler defined for '${esc(p)}'`) + span('m', '  (try /nodes/<node>/qemu/<vmid>/status/stop)')); }
     const [, node, kind, id, sub] = m, g = (kind === 'qemu' ? VMS : CTS).find(x => String(x.id) === id);
+    if (CLUSTER.down.has(node)) { state.failed = true; return print(span('e', `595 No route to host: ${node} is offline`)); }
     if (!g || g.node !== node) { state.failed = true; return print(span('e', `500 Configuration file 'nodes/${node}/${kind === 'qemu' ? 'qemu-server' : 'lxc'}/${id}.conf' does not exist`) + (g ? span('m', `  (${id} runs on ${g.node})`) : '')); }
     print(esc(`UPID:${node}:000${(+id * 37).toString(16).toUpperCase()}:${kind === 'qemu' ? 'qm' : 'vz'}${sub}:${id}:root@pam:`));
     return guestAction(g, kind, sub);
@@ -240,24 +252,24 @@ def('pvesh', null, 'the Proxmox API of the whole cluster', async args => {
   if (verb !== 'get') return printLines([span('m', esc('USAGE: pvesh get|create|ls <api_path>')), span('m', 'Paths that answer here: ') + Object.keys(API).filter(k => !/\/(pve[23])\//.test(k)).map(k => cmd('pvesh get ' + k, k)).join(span('m', ', '))]);
   if (!API[p]) { state.failed = true; return print(span('e', `No 'get' handler defined for '${esc(p)}'`)); }
   printLines(API[p]());
-}, { ...ONLY_PVE, usage: '<get|create|ls> <path>', flags: [['get /cluster/resources', 'every node, VM, container and storage'], ['get /nodes', 'the three nodes'], ['create /nodes/<node>/qemu/<vmid>/status/stop', 'stop a VM on any node (start, shutdown, reboot too)'], ['ls /', 'what is under a path']] });
+}, { ...ONLY_PVE, usage: '<get|create|ls> <path>', flags: [['get /cluster/resources', 'every node, VM, container and storage'], ['get /nodes', 'the three nodes'], ['create /nodes/<node>/qemu/<vmid>/status/stop', 'stop a VM on any node (start, shutdown, reboot too)'], ['create /nodes/<node>/status --command shutdown', 'shut down a whole node (or reboot it)'], ['ls /', 'what is under a path']] });
 
 // ---- the cluster: quorum, replication, HA ----
 const REPLICATION = VMS.filter(v => v.pid || v.id === 104).map(v => ({ id: `${v.id}-0`, guest: v.id, source: v.node, target: NODES.map(n => n[0]).find(n => n !== v.node && n !== (v.node === 'pve1' ? 'pve3' : 'pve1')) || 'pve1' }));
 def('pvecm', null, 'the cluster: its nodes and quorum', args => {
   const sub = args[0] || 'status';
-  if (sub === 'nodes') return printLines([span('w b', 'Membership information'), span('m', '~~~~~~~~~~~~~~~~~~~~~~'), span('w b', '    Nodeid      Votes Name'), ...NODES.map(([n], i) => esc(`         ${i + 1}          1 ${n}${n === LOCAL ? ' (local)' : ''}`))]);
+  if (sub === 'nodes') return printLines([span('w b', 'Membership information'), span('m', '~~~~~~~~~~~~~~~~~~~~~~'), span('w b', '    Nodeid      Votes Name'), ...NODES.map(([n], i) => [n, i]).filter(([n]) => !CLUSTER.down.has(n)).map(([n, i]) => esc(`         ${i + 1}          1 ${n}${n === LOCAL ? ' (local)' : ''}`))]);
   if (sub !== 'status') { state.failed = true; return print(span('e', `unknown command 'pvecm ${esc(sub)}'`) + span('m', '  (status or nodes)')); }
   printLines([
     span('w b', 'Cluster information'), span('m', '-------------------'),
     'Name:             homelab', 'Config Version:   3', 'Transport:        knet', '',
     span('w b', 'Quorum information'), span('m', '------------------'),
-    `Date:             ${new Date().toString().slice(0, 24)}`, 'Nodes:            3', 'Node ID:          0x00000001', 'Quorate:          ' + span('a', 'Yes'), '',
+    `Date:             ${new Date().toString().slice(0, 24)}`, `Nodes:            ${onlineNodes().length}`, 'Node ID:          0x00000001', 'Quorate:          ' + span('a', 'Yes'), '',
     span('w b', 'Votequorum information'), span('m', '----------------------'),
-    'Expected votes:   3', 'Total votes:      3', 'Quorum:           2', '',
+    'Expected votes:   3', `Total votes:      ${onlineNodes().length}`, 'Quorum:           2', '',
     span('w b', 'Membership information'), span('m', '----------------------'),
-    ...NODES.map(([n, ip], i) => esc(`    0x0000000${i + 1}          1 ${ip}${n === LOCAL ? ' (local)' : ''}`)),
-    '', span('m', 'Three votes, two needed: one node can go down and the other two still decide.'),
+    ...NODES.map(([n, ip], i) => [n, ip, i]).filter(([n]) => !CLUSTER.down.has(n)).map(([n, ip, i]) => esc(`    0x0000000${i + 1}          1 ${ip}${n === LOCAL ? ' (local)' : ''}`)),
+    '', CLUSTER.down.size ? span('w', `${[...CLUSTER.down].join(', ')} is off: two of three votes, still quorate. One more and there is no quorum.`) : span('m', 'Three votes, two needed: one node can go down and the other two still decide.'),
   ]);
 }, { ...ONLY_PVE, usage: '[status|nodes]', flags: [['status', 'quorum, votes and members'], ['nodes', 'the nodes and their votes']] });
 
@@ -272,7 +284,7 @@ def('pvesr', null, 'storage replication between the nodes', args => {
 def('ha-manager', null, 'high availability: who runs what, and what happens when a node dies', args => {
   if ((args[0] || 'status') !== 'status') return print(span('m', 'ha-manager status shows the HA state of the cluster.'));
   printLines(['quorum OK', 'master pve2 (active, ' + new Date().toString().slice(0, 24) + ')',
-    ...NODES.map(([n]) => `lrm ${n} (active, ${new Date().toString().slice(0, 24)})`),
+    ...NODES.map(([n]) => CLUSTER.down.has(n) ? `lrm ${n} (old timestamp - dead?, ${new Date(CLUSTER.since[n]).toString().slice(0, 24)})` : `lrm ${n} (active, ${new Date().toString().slice(0, 24)})`),
     ...[...VMS.filter(v => v.pid), ...CTS.filter(c => !c.stopped)].map(g => `service ${VMS.includes(g) ? 'vm' : 'ct'}:${g.id} (${g.node}, ${up.has(g.id) ? 'started' : 'stopped'})`)].map(esc));
 }, { ...ONLY_PVE, usage: '[status]', flags: [['status', 'the HA manager, every node and every HA guest']] });
 

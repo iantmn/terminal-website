@@ -330,6 +330,7 @@ async function execPipeline(line) {
 
 export async function execChain(raw, depth = 0) {
   for (const part of splitOutside(raw, ['&&', ';'])) {
+    if (state.dropped) break;
     if (part.op === '&&' && state.failed) continue;
     state.failed = false; state.code = null;
     const aliased = expandAlias(part.text);

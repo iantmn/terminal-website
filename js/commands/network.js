@@ -1,7 +1,7 @@
 // netmap: the whole network at a glance, live from what runs; nmap on the homelab scans it like the real one
 import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, scrollDown } from '../core.js';
 import { def, completes } from '../registry.js';
-import { running, up, ALERT, INCIDENTS, VMS, CTS, NODES } from './labstate.js';
+import { running, up, ALERT, INCIDENTS, VMS, CTS, NODES, CLUSTER } from './labstate.js';
 
 const dot = ok => ok ? span('a', '●') : span('e', '●');
 const site = () => running.has('terminal-traefik-1') && running.has('terminal-terminal-1');
@@ -23,7 +23,7 @@ def(['netmap', 'lsnet'], 'more', 'the whole network, as a map', () => {
   const guestLine = (g, last, lastNode) => `      ${lastNode ? ' ' : '│'}  ${last ? '└' : '├'}─ ${dot(vm(g))} ${g.id < 200 ? 'VM' : 'CT'} ${g.id} ${cmd(g.name === 'homelab' ? 'ssh homelab' : 'ping ' + g.ip, pad(g.name, 14))} ${span('m', pad(g.ip, 12) + ' ' + g.what)}${here(g.name)}`;
   const nodes = NODES.flatMap(([n, ip], i) => {
     const last = i === NODES.length - 1, gs = GUESTS.filter(g => nodeOf(g) === n);
-    return [`   ${last ? '└' : '├'}─ ${dot(true)} ${cmd(n === 'pve1' ? 'ssh pve1' : 'ping ' + n, n)}       ${span('m', `${ip}  Proxmox node, 12 cores, 64 GB`)}${here(n)}`, ...gs.map((g, j) => guestLine(g, j === gs.length - 1, last))];
+    return [`   ${last ? '└' : '├'}─ ${dot(!CLUSTER.down.has(n))} ${cmd(n === 'pve1' ? 'ssh pve1' : 'ping ' + n, n)}       ${span('m', `${ip}  Proxmox node, 12 cores, 64 GB`)}${here(n)}`, ...gs.map((g, j) => guestLine(g, j === gs.length - 1, last))];
   });
   printLines([
     span('w b', 'the network') + span('m', '  (green is up, red is down; names are links)'), '',
@@ -84,15 +84,15 @@ def(['grafana', 'dashboard'], 'more', 'the homelab dashboards, in sparklines', (
   const now = minuteNow(), N = 30;
   // was the site, the Docker VM or the host down in that minute?
   const downIn = (m, kinds) => INCIDENTS.some(i => kinds.includes(i.kind) && m >= Math.floor(i.at / 6e4) && m <= Math.floor((i.at + i.seconds * 1000) / 6e4));
-  const vmDown = m => downIn(m, ['vm', 'guest', 'host']) || (m === now && !up.has(102));
+  const vmDown = m => downIn(m, ['vm', 'guest', 'host', 'cluster']) || (m === now && !up.has(102));
   const series = (salt, base, amp, fn = v => v) => Array.from({ length: N }, (_, i) => { const m = now - N + 1 + i; return fn(base + amp * (Math.sin(m / 5 + salt) * 0.5 + noise(m, salt) - 0.25), m); });
   const stacks = ['terminal', 'monitoring', 'automation'].filter(s => [...running].some(r => r.startsWith(s))).length;
   const panels = [
     ['homelab CPU', series(1, 8 + stacks * 4, 10, (v, m) => vmDown(m) ? null : v), v => v.toFixed(0) + '%', 100],
     ['homelab memory', series(2, 9.4, 0.6, (v, m) => vmDown(m) ? null : v), v => v.toFixed(1) + ' GiB', 16],
-    ['cluster CPU', series(3, 7, 6, (v, m) => downIn(m, ['host']) ? null : v), v => v.toFixed(0) + '%', 100],
+    ['cluster CPU', series(3, 7, 6, (v, m) => downIn(m, ['cluster']) ? null : v), v => v.toFixed(0) + '%', 100],
     ['/var/lib/docker', series(4, 41, 0.4, (v, m) => ALERT.full && m >= now - 4 ? Math.min(100, 41 + (m - now + 5) * 15) : v), v => v.toFixed(0) + '%', 100],
-    ['site requests/min', series(5, 40, 30, (v, m) => downIn(m, ['stack', 'vm', 'guest', 'host']) ? 0 : Math.max(0, v)), v => v.toFixed(0), null],
+    ['site requests/min', series(5, 40, 30, (v, m) => downIn(m, ['stack', 'vm', 'guest', 'host', 'cluster']) ? 0 : Math.max(0, v)), v => v.toFixed(0), null],
     ['WAN in', series(6, 18, 14, v => Math.max(0, v)), v => v.toFixed(1) + ' Mbit/s', null],
   ];
   const w = Math.max(...panels.map(p => p[0].length));
