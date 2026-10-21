@@ -124,11 +124,12 @@ export async function pveSession(cwd = null) {
 // ---- the Proxmox tools ----
 const ONLY_PVE = { hosts: ['pve1'] };
 const table = (cols, rows) => {
-  // pvesh draws boxes
+  // pvesh draws tables. In ASCII: box-drawing characters come from a fallback font in the browser, and do not line up
   const w = cols.map((c, i) => Math.max(c.length, ...rows.map(r => String(r[i]).length)));
-  const line = (l, m, r, ch = '─') => l + w.map(n => ch.repeat(n + 2)).join(m) + r;
-  return [line('┌', '┬', '┐'), '│' + cols.map((c, i) => ' ' + span('w b', esc(pad(c, w[i]))) + ' ').join('│') + '│', line('╞', '╪', '╡', '═'),
-    ...rows.map(r => '│' + r.map((v, i) => ' ' + esc(pad(String(v), w[i])) + ' ').join('│') + '│'), line('└', '┴', '┘')];
+  const line = (ch = '-') => span('m', '+' + w.map(n => ch.repeat(n + 2)).join('+') + '+');
+  const bar = span('m', '|');
+  return [line(), bar + cols.map((c, i) => ' ' + span('w b', esc(pad(c, w[i]))) + ' ').join(bar) + bar, line('='),
+    ...rows.map(r => bar + r.map((v, i) => ' ' + esc(pad(String(v), w[i])) + ' ').join(bar) + bar), line()];
 };
 const guest = id => VMS.find(v => String(v.id) === String(id));
 
@@ -203,7 +204,7 @@ def('pct', null, 'manage the containers (LXC) of this node', async args => {
 }, { ...ONLY_PVE, usage: '<list|status|start|stop|enter> [vmid]', flags: [['list', 'the containers of this node'], ['status, start, stop vmid', 'what it says'], ['enter vmid', 'a shell inside it']] });
 
 // pvesh: the API of the whole cluster, from any node
-const nodeRow = ([n]) => { const guests = [...VMS, ...CTS].filter(g => g.node === n && up.has(g.id)); return [n, 'online', `${(3 + guests.length * 2.4).toFixed(2)}%`, 12, '62.70 GiB', `${(6 + guests.reduce((s, g) => s + g.mem, 0) / 1024).toFixed(2)} GiB`, `${PVE.bootedDaysAgo - NODES.findIndex(x => x[0] === n) * 9}d`]; };
+const nodeRow = ([n]) => { const guests = [...VMS, ...CTS].filter(g => g.node === n && up.has(g.id)); return [n, 'online', `${(2.1 + guests.reduce((s, g) => s + (g.cores || 1) * (g.id === 102 ? 1.9 : 0.8), 0) + (Date.now() / 6e4 % 7) * 0.13).toFixed(2)}%`, 12, '62.70 GiB', `${(6 + guests.reduce((s, g) => s + g.mem, 0) / 1024).toFixed(2)} GiB`, `${PVE.bootedDaysAgo - NODES.findIndex(x => x[0] === n) * 9}d`]; };
 const API = {
   '/version': () => table(['key', 'value'], [['release', '8.2'], ['repoid', 'faa83925c9641325'], ['version', '8.2.4']]),
   '/nodes': () => table(['node', 'status', 'cpu', 'maxcpu', 'maxmem', 'mem', 'uptime'], NODES.map(nodeRow)),
