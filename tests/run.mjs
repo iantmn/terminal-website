@@ -84,6 +84,14 @@ try {
     for (const m of ['commands/python.js', 'commands/qr.js', 'commands/guestbook.js', 'commands/homelab.js', 'commands/pve.js', 'fs/homelab.js', 'fs/pve.js']) {
       t.add({ name: `js/${m} waits until it is needed`, ok: !loaded.includes('/js/' + m), info: 'loaded at startup' });
     }
+    // modulepreload in index.html: exactly the modules that load at the start, so none waits for the one importing it
+    const preloaded = await page.evaluate(() => [...document.querySelectorAll('link[rel=modulepreload]')].map(l => new URL(l.href).pathname));
+    const eager = loaded.filter(p => p.startsWith('/js/') && p !== '/js/main.js');
+    for (const p of eager) t.add({ name: `${p.slice(1)} is preloaded`, ok: preloaded.includes(p), info: 'loads at startup, but has no <link rel="modulepreload"> in index.html' });
+    for (const p of preloaded.filter(p => !eager.includes(p))) t.add({ name: `${p.slice(1)} is preloaded, but not used at startup`, ok: false, info: 'remove its modulepreload from index.html' });
+    // how long until every module is in: a budget, so it cannot get slow without anyone noticing
+    const ms = await page.evaluate(() => Math.round(Math.max(...performance.getEntriesByType('resource').filter(e => new URL(e.name).pathname.startsWith('/js/')).map(e => e.responseEnd))));
+    t.add({ name: `every module loaded after ${ms} ms (budget 2000 ms)`, ok: ms < 2000, info: 'startup got slower' });
     t.end();
   }
 
