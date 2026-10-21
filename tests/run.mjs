@@ -107,6 +107,38 @@ try {
   await page.evaluate(async () => { const f = await import('/tests/features.js'); await f.runFeatures(r => window.report(r)); });
   current.end();
 
+  // the special days: every date with its message, the moving ones included; then two whole boots on a fake clock
+  current = suite('Special days');
+  const DAYS = [
+    ['2026-01-01', 'Happy New Year'], ['2026-01-28', 'Data Privacy Day'], ['2026-02-14', "Valentine's Day"], ['2028-02-29', 'Leap day'],
+    ['2026-03-12', 'World Wide Web turns 37'], ['2026-03-14', 'Pi Day'], ['2026-03-31', 'World Backup Day'], ['2026-03-29', 'clocks went forward'],
+    ['2026-04-01', 'April Fools'], ['2026-04-04', 'Error 404 Day'], ['2026-04-27', "King's Day"], ['2026-05-07', 'World Password Day'],
+    ['2026-05-17', 'World Internet Day'], ['2026-07-31', 'SysAdmin Day'], ['2026-08-25', 'birthday, Linux! 35 years'], ['2026-09-13', "Programmers' Day"],
+    ['2026-09-19', 'Talk Like a Pirate Day'], ['2026-10-01', 'International Coffee Day'], ['2026-10-04', 'World Animal Day'], ['2026-10-25', 'clocks went back'],
+    ['2026-10-31', 'Halloween'], ['2026-11-12', 'World Usability Day'], ['2026-11-23', "Ian's birthday"], ['2026-11-30', 'Computer Security Day'],
+    ['2026-12-25', 'Merry Christmas'], ['2026-12-31', "New Year's Eve"],
+    // not special: a weekday message, and a moving day that is not there that week
+    ['2026-10-19', 'Monday'], ['2026-10-23', 'Friday'], ['2026-05-14', 'Thursday'], ['2026-07-24', 'Friday'],
+  ];
+  for (const [date, want] of DAYS) {
+    const msg = await page.evaluate(d => import('/js/days.js').then(m => { const [y, mo, da] = d.split('-').map(Number); return m.dayMessage(new Date(y, mo - 1, da, 12)).msg.replace(/<[^>]+>/g, ''); }), date);
+    current.add({ name: `${date}: ${want}`, ok: msg.includes(want), info: msg });
+  }
+  for (const [time, name, check] of [
+    ['2026-10-23T10:00:00+02:00', 'a Friday: deploy refuses', async p => (await p.evaluate(async () => { const { run } = await import('/js/input.js'); await run('deploy'); return document.getElementById('out').innerText; })).includes('on a Friday')],
+    ["2026-04-27T10:00:00+02:00", "King's Day: the boot turns the theme orange", async p => (await p.evaluate(() => document.body.dataset.theme)) === 'oranje'],
+    ['2026-10-21T14:00:00+02:00', 'an afternoon is no night owl', async p => !(await p.evaluate(() => document.getElementById('out').innerText)).includes('Night owl')],
+  ]) {
+    const c = await browser.newContext({ serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' });
+    await c.clock.install({ time: new Date(time) });
+    const p = await c.newPage();
+    await p.goto(url); await p.keyboard.press('m');
+    await p.waitForFunction(() => document.getElementById('out')?.innerText.includes('Welcome'), null, { timeout: 30000 });
+    current.add({ name, ok: await check(p), info: 'on ' + time });
+    await c.close();
+  }
+  current.end();
+
   // every achievement, in a browser of its own that has never seen the site: on Halloween, at three at night
   current = suite('Every achievement can be unlocked');
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' });
