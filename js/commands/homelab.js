@@ -442,7 +442,9 @@ async function nodeStory(n, run) {
       await say(2500, span('m', `📱 Ian sends a magic packet from his phone: wakeonlan ${macOf(n)}`));
       await say(2500, span('a', `⚡ ${n} wakes up and rejoins the cluster: 3 of 3 votes. Ian did not even put his coffee down.`));
       nodeBack(n);
-      await say(2000, span('m', '🔍 The logs say root, from the homelab, again. Ian: "testing Wake-on-LAN, are we?"'));
+      await say(2000, span('m', '🔍 Ian reads the logs: root, from the homelab, again.'));
+      // and he says so, to every terminal on the machine you are on
+      await say(1500, ['', span('w b', esc(`Broadcast message from ian@${state.host} (pts/1) (${new Date().toString().slice(0, 24)}):`)), '', span('w', 'testing Wake-on-LAN, are we?'), ''].join('\n'));
       unlock('wol');
     }
   } catch {}
