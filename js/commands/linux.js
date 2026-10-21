@@ -5,7 +5,7 @@ import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
-import { HOSTS } from './labstate.js';
+import { HOSTS, all } from './labstate.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped, vars, envVars } from '../shell.js';
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
@@ -923,7 +923,13 @@ completes('kill', () => procs().filter(p => p.user !== 'root').map(p => p.cmd.sp
 completes('systemctl', args => args.length ? units().map(([n]) => n.replace(/\.service$/, '')) : ['status', 'is-active', 'start', 'stop', 'restart', '--failed']);
 completes('journalctl', args => args.at(-1) === '-u' ? [...new Set((onLab() ? here().journal : JOURNAL).map(j => j[0]))] : null);
 completes('git', args => args.length ? null : ['log', 'status', 'blame']);
-completes('docker', args => args.length ? null : ['ps']);
+completes('docker', args => {
+  if (state.host !== 'homelab') return args.length ? null : ['ps'];
+  if (!args.length) return ['ps', 'logs', 'start', 'stop', 'restart', 'compose'];
+  if (args[0] === 'compose') return args.length === 1 ? ['up', 'down', 'ps', 'logs', 'restart', 'start', 'stop'] : ['-d', '-p', '-f'];
+  return all().map(c => c.name);
+});
+completes('ssh', args => args.at(-1) === '-i' ? null : { iantiemann: ['homelab', '-i'], homelab: ['pve', 'root@pve', '-i'] }[state.host] || []);
 completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);
 completes('dig', () => ['+short', 'iantiemann.nl']);
 completes('crontab', args => args.at(-1) === '-u' ? Object.keys(CRONTABS) : null);

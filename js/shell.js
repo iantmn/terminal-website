@@ -69,10 +69,10 @@ function invoke(c, name, args, line) {
   if (remote) {
     const [only, about] = remote;
     if (c.name === 'help') return printLines([span('w b', state.host), '  ' + [...only].sort().map(n => cmd(n)).join('  '), '', span('m', about + ' ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')]);
-    if (!only.has(c.name)) return print(span('e', `${esc(name)}: command not found`) + span('m', ` (${state.host} has less installed, try help. exit goes back)`));
+    if (!only.has(c.name)) return notFound(name);
   }
   // qm and friends only exist on the Proxmox host
-  if (c.hosts && !c.hosts.includes(state.host)) return print(span('e', `command not found: ${esc(name)}`));
+  if (c.hosts && !c.hosts.includes(state.host)) return notFound(name);
   noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
   if (wantsHelp(c, own)) return printLines(helpLines(c, name));
@@ -144,6 +144,36 @@ function expandGlobs(line) {
   });
 }
 
+// ---- command not found, but helpful: where the command does exist, the package it comes in, or the typo ----
+// tools a Debian box would offer to install: command -> package
+const PACKAGES = { nmap: 'nmap', wget: 'wget', tmux: 'tmux', screen: 'screen', node: 'nodejs', npx: 'npm', java: 'default-jre', go: 'golang-go', rustc: 'rustc', cargo: 'cargo',
+  gcc: 'gcc', 'g++': 'g++', mtr: 'mtr-tiny', nc: 'netcat-openbsd', telnet: 'telnet', ifconfig: 'net-tools', iftop: 'iftop', ncdu: 'ncdu', jq: 'jq', rg: 'ripgrep',
+  fzf: 'fzf', zip: 'zip', unzip: 'unzip', rsync: 'rsync', tcpdump: 'tcpdump', iperf3: 'iperf3', ansible: 'ansible', terraform: 'terraform', kubectl: 'kubectl', btop: 'btop', neovim: 'neovim', php: 'php', ruby: 'ruby', perl: 'perl' };
+// which machine has which command (the ones that are not everywhere)
+const ONLY_ON = { docker: 'homelab', wg: 'homelab', ansible: 'homelab', 'ansible-playbook': 'homelab', qm: 'pve', pct: 'pve', pvesh: 'pve', pvesm: 'pve', pveversion: 'pve', zpool: 'pve' };
+const WHERE = { homelab: 'the homelab (the Docker VM)', pve: 'the Proxmox host' };
+// the commands on this machine: everything found on the container, the installed ones behind ssh
+export const commandsHere = () => { const h = HOST_COMMANDS[state.host]; return h ? [...h[0], 'exit', 'logout'] : commandNames(); };
+function notFound(name) {
+  state.failed = true; state.code = 127;
+  const n = name.toLowerCase(), here = state.host, there = ONLY_ON[n];
+  const say = (...m) => print(span('e', `${here === 'iantiemann' ? 'command not found: ' + esc(name) : esc(name) + ': command not found'}`) + span('m', ' ' + m.join('')));
+  // it exists, just not here
+  if (there && there !== here) {
+    if (here === 'pve' && n === 'docker') return say('- Docker runs in VM 102, not on the host. Keep the host boring: exit, and it is on the homelab.');
+    if (here === 'iantiemann') return say(`- ${esc(n)} lives on ${WHERE[there]}. This terminal is a container.`);
+    return say(`- ${esc(n)} is on ${WHERE[there]}, not on ${here}.`);
+  }
+  if (PACKAGES[n]) {
+    return printLines([span('e', `Command '${esc(n)}' not found, but can be installed with:`), '', span('a2', `sudo apt install ${PACKAGES[n]}`),
+      ...(here === 'iantiemann' ? [span('m', 'Here that is ') + cmd(`please sudo apt install ${PACKAGES[n]}`) + span('m', ', and nothing really gets installed.')] : [])]);
+  }
+  // a typo: the closest command on this machine
+  const best = commandsHere().filter(x => C[x]?.group || here !== 'iantiemann').map(x => [x, lev(n, x)]).sort((a, b) => a[1] - b[1])[0];
+  if (best && best[1] <= 2) return say('- did you mean ', cmd(best[0]), span('m', '?'));
+  return say(here === 'iantiemann' ? '- type ' + cmd('help') : `(${here} has less installed, try ${cmd('help')}. exit goes back)`);
+}
+
 export const aliases = store.get('aliases', {});
 const expandAlias = line => {
   const name = line.split(/\s+/)[0];
@@ -155,12 +185,7 @@ async function execOne(line) {
   if (!name) return;
   let c = C[name.toLowerCase()];
   if (!c && name.includes('/')) { const r = resolve(name); if (!r.error && r.node.exec) c = C[r.node.exec]; }
-  if (!c) {
-    state.failed = true; state.code = 127;
-    const visible = Object.values(C).filter(x => x.group && !x.alias).map(x => x.name);
-    const best = visible.map(n => [n, lev(name.toLowerCase(), n)]).sort((a, b) => a[1] - b[1])[0];
-    return print(span('e', `command not found: ${esc(name)}`) + (best && best[1] <= 2 ? span('m', ' - did you mean ') + cmd(best[0]) + span('m', '?') : span('m', ' - type ') + cmd('help')));
-  }
+  if (!c) return notFound(name);
   return invoke(c, name, args, line);
 }
 

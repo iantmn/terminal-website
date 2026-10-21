@@ -106,6 +106,10 @@ export async function runFeatures(onResult = () => {}) {
   await check('pipe into a command as arguments', async () => (await out('echo hello | rot13')).includes('uryyb'));
   await check('the day message is in /etc/motd', async () => { const { dayMessage } = await import('/js/days.js'); const m = dayMessage().msg.replace(/<[^>]+>/g, ''); return (await out('cat /etc/motd')).includes(m); });
   await check('reboot keeps the prompt hidden until the boot is done', async () => { const p = run('reboot'); let early = false; const t = Date.now(); while (Date.now() - t < 3000) { await wait(100); if (!state.busy && !outEl.innerText.includes('Welcome!')) early = true; } await p; await idle(); return { ok: !early && outEl.innerText.includes('Welcome!') && !state.busy, info: 'prompt showed early: ' + early }; });
+  await check('Tab on a flag shows what it does', async () => {
+    const b = n(); kb.value = 'ls --a'; key('Tab'); const shown = since(b); kb.value = ''; key('a'); kb.value = '';
+    return { ok: shown.includes('--all') && shown.includes('show hidden files'), info: shown.split('\n').slice(-2).join(' | ') };
+  });
   // ---- /tmp, find, less, status, tldr, learn, the smart hint and the machines behind ssh ----
   await check('/tmp: >, >>, cat and rm', async () => {
     await run('echo one > /tmp/t.txt'); await run('echo two >> /tmp/t.txt');

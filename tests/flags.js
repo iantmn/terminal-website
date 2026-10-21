@@ -271,6 +271,10 @@ export const T = [
   ['tail -n 1 about.txt cv.txt', o => o.includes('==> about.txt <==') && o.includes('==> cv.txt <==')],
   ['wc -l about.txt cv.txt', o => / total$/.test(o) && lines(o).length === 3],
   ['head nope', o => o.includes('No such file')],
+  // command not found, but helpful
+  ['nmap', o => o.includes('can be installed with') && o.includes('sudo apt install nmap')],
+  ['qm list', o => o.includes('Proxmox host')],
+  ['lss', o => o.includes('did you mean ls')],
   // cp and mv into /tmp
   ['cp about.txt /tmp/ && head -n 1 /tmp/about.txt', o => o.includes('Ian Tiemann')],
   ['cp experience /tmp/', o => o.includes('-r not specified')],

@@ -4,7 +4,7 @@ import { lesson } from './commands/learn.js';
 import { term, out, kb, ps, inrow, store, state, esc, span, cmd, print, promptHTML, renderPrompt, scrollDown, focusInput } from './core.js';
 import { resolve } from './filesystem.js';
 import { C } from './registry.js';
-import { execChain, commandNames } from './shell.js';
+import { execChain, commandsHere } from './shell.js';
 
 export const hist = store.get('hist', []);
 // the homelab has a history of its own; everything below works on the one of the machine you are on
@@ -85,14 +85,18 @@ function complete(back = false) {
   }
   cycle = null;
   const val = kb.value, parts = val.split(/\s+/);
-  if (parts.length === 1) return applyCompletion(val, parts[0], commandNames().filter(n => n.startsWith(parts[0])), ' ');
+  if (parts.length === 1) return applyCompletion(val, parts[0], commandsHere().filter(n => n.startsWith(parts[0])), ' ');
   const word = parts.at(-1);
   // a command can complete its own arguments (theme names, man pages, post numbers); the rest completes paths
   const c = C[parts[0].toLowerCase()];
   // -<Tab> offers the command's flags, the same ones its --help lists
   if (c && word.startsWith('-')) {
-    const flags = [...(c.flags || []).flatMap(([f]) => f.split(/,\s*/).map(x => x.trim().split(' ')[0])), '--help', '--version'];
-    return applyCompletion(val, word, flags.filter(f => f.startsWith('-') && f.startsWith(word)), ' ');
+    // every spelling of a flag, with the line --help gives it, shown next to it like zsh and fish do
+    const desc = {};
+    for (const [f, d] of [...(c.flags || []), ['--help', 'show this help'], ['--version', 'show the version']]) {
+      for (const x of f.split(/,\s*/).map(x => x.trim().split(' ')[0])) if (x.startsWith('-') && !(x in desc)) desc[x] = d;
+    }
+    return applyCompletion(val, word, Object.keys(desc).filter(f => f.startsWith(word)), ' ', desc);
   }
   const own = c && c.complete && !/[/~.]/.test(word[0] || '') ? c.complete(parts.slice(1, -1), word) : null;
   if (own) return applyCompletion(val, word, own.map(String).filter(o => o.startsWith(word)), ' ');
@@ -106,7 +110,7 @@ function complete(back = false) {
     .map(([n, node]) => dirPart + n + (node.type === 'dir' ? '/' : ''));
   applyCompletion(val, word, opts, '');
 }
-function applyCompletion(val, word, opts, suffix) {
+function applyCompletion(val, word, opts, suffix, desc = null) {
   if (!opts.length) return;
   opts = [...new Set(opts)].sort((a, b) => a.localeCompare(b));
   const head = val.slice(0, val.length - word.length);
@@ -116,7 +120,9 @@ function applyCompletion(val, word, opts, suffix) {
   if (pre.length > word.length) kb.value = head + pre;
   print(promptHTML() + esc(kb.value));
   const label = o => o.slice(o.lastIndexOf('/', o.length - 2) + 1);
-  const list = print(opts.map(o => `<span class="opt">${esc(label(o))}</span>`).join('  '));
+  // with descriptions: one per line, the description after it
+  const w = Math.max(...opts.map(o => label(o).length));
+  const list = print(desc ? opts.map(o => `<span class="opt">${esc(label(o))}</span>${' '.repeat(w - label(o).length + 2)}${span('m', esc(desc[o] || ''))}`).join('\n') : opts.map(o => `<span class="opt">${esc(label(o))}</span>`).join('  '));
   cycle = { opts, head, suffix, idx: -1, current: kb.value, items: [...list.querySelectorAll('.opt')] };
 }
 
