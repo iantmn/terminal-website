@@ -24,7 +24,8 @@ That serves it on http://localhost:8080. Without Docker, `python3 -m http.server
 - `js/core.js`, `shell.js`, `input.js`: printing, parsing and running command lines, the keyboard
 - `js/days.js`: the message of the day, for special days and every day of the week
 - `js/visits.js`: your visits, for `last` and `finger`
-- `js/filesystem.js`, `achievements.js`, `themes.js`, `sound.js`, `visuals.js`, `boot.js`, `pager.js` (less): the rest
+- `js/filesystem.js`: paths, `ls` and the writable `/tmp`; the trees themselves are in `js/fs/` (`home.js` is ~, `system.js` the rest of /, `homelab.js` and `pve.js` the machines behind ssh)
+- `js/achievements.js`, `themes.js`, `sound.js`, `visuals.js`, `boot.js`, `pager.js` (less): the rest
 - `sw.js`, `manifest.webmanifest`, `icons/`: offline and installable. A new module in `js/` goes in the list in `sw.js` too
 
 A new command is a `def(names, group, description, run, { usage, flags })` call in one of the command files. Every command gets `-h`/`--help` and `--version` from that, and `completes(name, fn)` adds Tab completion for its arguments.

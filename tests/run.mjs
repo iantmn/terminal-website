@@ -42,7 +42,7 @@ function suite(name) {
 {
   const t = suite('Service worker caches every module');
   const sw = await readFile(join(root, 'sw.js'), 'utf8');
-  for (const dir of ['js', 'js/commands']) for (const f of (await readdir(join(root, dir))).sort()) {
+  for (const dir of ['js', 'js/commands', 'js/fs']) for (const f of (await readdir(join(root, dir))).sort()) {
     if (f.endsWith('.js')) t.add({ name: `${dir}/${f}`, ok: sw.includes(`'${dir}/${f}'`), info: 'missing from FILES in sw.js' });
   }
   t.end();
