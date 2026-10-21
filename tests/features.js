@@ -152,6 +152,12 @@ export async function runFeatures(onResult = () => {}) {
     const img = [...outEl.querySelectorAll('img.share-card')].pop(), link = [...outEl.querySelectorAll('a[download]')].pop();
     return { ok: !!img && img.src.startsWith('data:image/png') && img.naturalWidth === 1200 && link?.download === 'iantiemann-achievements.png', info: img ? `${img.naturalWidth}x${img.naturalHeight}` : 'no image' };
   });
+  await check('interview: five answers and a score', async () => {
+    const b = n(), p = run('interview');
+    for (const a of ['2', '2', '2', '2', '1']) { const t = Date.now(); while (!state.asking && Date.now() - t < 3000) await wait(20); kb.value = a; key('Enter'); await wait(60); }
+    await p; await idle();
+    return { ok: since(b).includes('We agree on 5 of 5'), info: since(b).split('\n').slice(-2)[0] };
+  });
   await check('mtr counts up live, q stops it', async () => {
     const p = run('mtr homelab'); await wait(2300);
     const box = [...outEl.querySelectorAll('.ln')].pop().innerText;

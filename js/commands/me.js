@@ -1,7 +1,7 @@
 // about Ian: experience, education, skills, posts
 import { unlock } from '../achievements.js';
 import { ABOUT, EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE, SKILLS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, kv, sleep, state, charsPerLine } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, kv, sleep, ask, state, inrow, charsPerLine } from '../core.js';
 import { refreshFeed, feedReady } from '../feed.js';
 import { C, def, completes } from '../registry.js';
 import { found } from '../shell.js';
@@ -138,6 +138,45 @@ def('tldr', 'me', 'me in thirty seconds (or tldr <command>)', args => {
     span('m', 'The long versions: ') + [cmd('about'), cmd('experience'), cmd('skills'), cmd('cv')].join(span('m', ', ')) + span('m', '. Interested? ') + cmd('contact'),
   ]);
 }, { usage: '[command]', flags: [['command', 'the short version of a command, like tldr grep']] });
+// interview: five questions, and after each one what Ian would answer. His answers come from the site itself
+const section = title => ABOUT.sections.find(([t]) => t === title)?.[1] || [];
+const INTERVIEW = [
+  ['A client wants a new feature by next week. What do you do first?',
+    ['Start building, the deadline is tight', 'Find out what problem it has to solve, and for whom', 'Explain why it cannot be done'], 1,
+    () => section('How I work')[0]],
+  ['The developers, the designers and the client all want something different.',
+    ['Go with whoever is the loudest', 'Get them together and translate between them', 'Write a very long email'], 1,
+    () => section('How I work')[1]],
+  ['Production goes down at three in the morning.',
+    ['Restart everything and hope', 'Read the logs, then fix the cause', 'Blame DNS'], 1,
+    () => 'Read the logs first, then fix what caused it, then write down how to stop it happening again. (And yes, sometimes it really is DNS.)'],
+  ['Everyone is talking about a new technology.',
+    ['Roll it out to every client tomorrow', 'Try it at home first, write it down, then decide', 'Ignore it until it goes away'], 1,
+    () => 'Try it in the homelab first and write down what I learn: that is where the guides on my site come from.'],
+  ['Where do you want to be in five years?',
+    ['Leading a team, R&D or IT', 'Exactly where I am now', 'On a beach, far from any pager'], 0,
+    () => section('Where I want to go')[0]],
+];
+def('interview', 'me', 'five questions, and how Ian would answer them', async () => {
+  if (state.capture) return print(span('e', 'interview: that needs answers, not a pipe'));
+  printLines([span('w b', '🎤 INTERVIEW') + span('m', ' - five questions. Type a number, q to stop. There are no wrong answers, only mine.'), '']);
+  let same = 0;
+  for (const [i, [q, opts, ian, why]] of INTERVIEW.entries()) {
+    printLines([span('a2', `${i + 1}/${INTERVIEW.length}`) + ' ' + esc(q), ...opts.map((o, j) => `      ${span('a', j + 1 + ')')} ${esc(o)}`)]);
+    state.busy = false; inrow.style.visibility = '';
+    let pick = null;
+    while (pick === null) {
+      const a = await ask(span('w', `answer 1-${opts.length} > `));
+      if (!a || /^q/i.test(a)) return print(span('m', 'Interview over, early. Fair enough: ') + cmd('contact') + span('m', ' works any time.'));
+      const n = parseInt(a, 10) - 1;
+      if (opts[n]) pick = n;
+    }
+    if (pick === ian) same++;
+    printLines([(pick === ian ? span('a', '  Same as me. ') : span('m', `  I would pick ${ian + 1}. `)) + span('m', esc(why())), ...(i === 3 ? ['  ' + cmd('articles')] : []), '']);
+  }
+  printLines([span('w b', `We agree on ${same} of ${INTERVIEW.length}.`) + span('m', same >= 4 ? ' We should talk.' : same >= 2 ? ' Interesting. We should talk about the rest.' : ' Now I am curious why. Tell me.'),
+    span('m', 'The real interview is a message away: ') + cmd('contact')]);
+}, { usage: '', flags: [['1-3', 'your answer'], ['q', 'stop early']] });
 def(['talk', 'hire', 'chat'], null, '', () => {
   unlock('talk');
   printLines([
