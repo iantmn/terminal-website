@@ -830,7 +830,7 @@ const CRONTABS = {
   ],
   root: [
     ['0 3 * * *', '/usr/sbin/backup --offsite --encrypt', '3-2-1, every night'],
-    ['*/5 * * * *', '/usr/bin/check-dns', 'just in case'],
+    ['*/15 * * * *', '/usr/bin/check-dns', 'just in case'],
     ['15 4 * * 0', '/usr/bin/apt update && apt upgrade -y', ''],
     ['0 0 * * *', '/usr/sbin/logrotate /etc/logrotate.conf', ''],
   ],
@@ -895,7 +895,6 @@ const WALLS = [
 ];
 // the minute the page loaded counts as done, so only what comes due during the visit runs
 let lastMinute = Math.floor(Date.now() / 6e4), wallAt = Date.now() + (4 + Math.random() * 5) * 6e4, wallN = Math.floor(Math.random() * WALLS.length);
-const told = new Set();
 // only between commands, never in the middle of one, a game or the pager
 setInterval(() => {
   if (state.busy || state.asking || state.host !== 'iantiemann' || document.getElementById('pager')) return;
@@ -903,9 +902,7 @@ setInterval(() => {
   if (minute !== lastMinute) {
     lastMinute = minute;
     for (const [user, rows] of Object.entries(CRONTABS)) for (const [spec, command] of rows) {
-      // the quiet ones that run every few minutes say so once per visit
-      if (!CRON_SAYS[command] || !cronDue(spec, d) || (/check-dns/.test(command) && told.has(command))) continue;
-      told.add(command);
+      if (!CRON_SAYS[command] || !cronDue(spec, d)) continue;
       print(span('m', `[${d.toTimeString().slice(0, 5)}] CRON (${user}) ${esc(command)}  `) + span('a2', esc(CRON_SAYS[command])));
     }
   }

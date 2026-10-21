@@ -95,7 +95,7 @@ export function buildRoot(FS) {
         '# m  h  dom mon dow  user  command',
         '45 6   *   *   1-5  ian   /usr/bin/coffee --brew --strong',
         '0  3   *   *   *    root  /usr/sbin/backup --offsite --encrypt',
-        '*/5 *  *   *   *    root  /usr/bin/check-dns',
+        '*/15 * *   *   *    root  /usr/bin/check-dns',
         '0  17  *   *   5    root  /usr/bin/deploy --never',
       ]),
       fstab: file(['# <device>    <mount>       <type>  <options>', '/dev/brain    /             ext4    defaults,curious  0 1', '/dev/coffee   /mnt/mug      tmpfs   rw,hot            0 0', 'tmpfs         /dev/ideas    tmpfs   size=640K         0 0']),
