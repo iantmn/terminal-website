@@ -1,11 +1,13 @@
 // help, settings and the shell built-ins
 import { unlock, unlocked, ACH_IDS, ACH, noSolution, SECRET_ACH, SEASONAL_ACH, seen } from '../achievements.js';
 import { SITE, PROFILE } from '../content.js';
-import { print, printLines, span, esc, cmd, link, pad, h2, rot13, sleep, ask, store, state, out, inrow, getopt, toHash } from '../core.js';
+import { print, printLines, span, esc, cmd, link, pad, rot13, sleep, ask, store, state, out, inrow, getopt, toHash, charsPerLine } from '../core.js';
 import { resetDiary } from '../filesystem.js';
 import { hist, activeHist, histKey } from '../input.js';
 import { C, def, completes } from '../registry.js';
-import { aliases, found, commandNames, helpLines } from '../shell.js';
+import { aliases, found, commandNames, helpLines, vars } from '../shell.js';
+import { MANUALS } from '../manuals.js';
+import { pager } from '../pager.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
 import { startGlitch, THEMES, defaultTheme } from '../themes.js';
 import { banner, neofetch } from '../visuals.js';
@@ -328,8 +330,13 @@ def('install', 'system', 'install this terminal as an app', async () => {
   print(span('m', 'Your browser does not offer it right now. In Chrome or Edge it is the install icon in the address bar; in Firefox, pin the tab. After one visit it works offline either way.'));
 });
 def('mail', 'more', 'send me an email', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
-def(['man', 'apropos'], 'system', 'manual for a command', (args, raw) => {
-  const [o, rest] = getopt(args);
+// man pages: section names in bold, text wrapped and indented seven spaces, like groff does it
+const sect = t => span('w b', t);
+const wrap = (text, w) => text.split(' ').reduce((lines, word) => { const l = lines.at(-1); if (l && (l + ' ' + word).length <= w) lines[lines.length - 1] = l + ' ' + word; else lines.push(word); return lines; }, []);
+// like the real man: in a pager, unless it goes into a pipe or the pager is cat (man -P cat, MANPAGER=cat)
+const showPage = (page, name, o) => state.capture || (o.P ?? vars.MANPAGER ?? vars.PAGER) === 'cat' ? printLines(page) : pager(page, `Manual page ${name}`);
+def(['man', 'apropos'], 'system', 'manual for a command', async (args, raw) => {
+  const [o, rest] = getopt(args, ['P']);
   // man -k (or apropos) searches names and descriptions
   if (o.k || /^\s*apropos\b/.test(raw)) {
     const q = (rest[0] || '').toLowerCase();
@@ -342,31 +349,45 @@ def(['man', 'apropos'], 'system', 'manual for a command', (args, raw) => {
   if (!t) return print('What manual page do you want?' + span('m', ' (e.g. ') + cmd('man ls') + span('m', ')'));
   if (t === 'ian') {
     unlock('rtfm');
-    return printLines([
+    return showPage([
       span('m', 'IAN(1)                        User Commands                        IAN(1)'), '',
-      h2('NAME'), '       ian - project engineer, developer and professional tinkerer', '',
-      h2('SYNOPSIS'), '       ian [--coffee] [--project <name>] [--deadline <date>]', '',
-      h2('DESCRIPTION'),
+      sect('NAME'), '       ian - project engineer, developer and professional tinkerer', '',
+      sect('SYNOPSIS'), '       ian [--coffee] [--project <name>] [--deadline <date>]', '',
+      sect('DESCRIPTION'),
       '       Works somewhere between IT, software development and project',
       '       management. Likes turning vague requirements into working systems.', '',
-      h2('OPTIONS'),
+      sect('OPTIONS'),
       `       ${span('a2', '--coffee')}     Required before 09:00. Strongly recommended after.`,
       `       ${span('a2', '--project')}    Accepts any project. Big ones preferred.`,
       `       ${span('a2', '--deadline')}   Respected. Usually met.`, '',
-      h2('BUGS'),
+      sect('BUGS'),
       '       Will happily spend a weekend automating a five-minute task.',
       '       Blames DNS first. Is usually right.', '',
-      h2('SEE ALSO'), `       ${cmd('about', 'about(1)')}, ${cmd('experience', 'experience(1)')}, ${cmd('contact', 'contact(1)')}`, '',
+      sect('SEE ALSO'), `       ${cmd('about', 'about(1)')}, ${cmd('experience', 'experience(1)')}, ${cmd('contact', 'contact(1)')}`, '',
       span('m', 'IanOS 2026                       October 2026                       IAN(1)'),
-    ]);
+    ], 'ian(1)', o);
   }
   const c = C[t];
-  if (!c || !c.desc) return print(`No manual entry for ${esc(t)}`);
+  if (!c || !c.desc) { state.failed = true; return print(`No manual entry for ${esc(t)}`); }
+  const m = MANUALS[c.name] || {}, sec = m.section || 1, title = `${c.name.toUpperCase()}(${sec})`;
+  // the classic layout: a header and footer with the page name, sections in bold, text indented seven spaces
+  const w = Math.min(78, Math.max(48, charsPerLine() - 2));
+  const edge = (l, mid, r) => { const gap = Math.max(1, w - l.length - mid.length - r.length); return span('m', esc(l + ' '.repeat(Math.floor(gap / 2)) + mid + ' '.repeat(Math.ceil(gap / 2)) + r)); };
+  const month = new Date().toLocaleString('en', { month: 'long', year: 'numeric' });
   const flags = c.flags || [];
-  printLines([h2('NAME'), `       ${esc(c.name)} - ${esc(c.desc)}`, h2('SYNOPSIS'), `       ${esc(c.name)}${c.usage ? ' ' + esc(c.usage) : ''}`,
-    ...(flags.length ? [h2('OPTIONS'), ...flags.map(([f, d]) => `       ${span('a2', esc(pad(f, 22)))} ${esc(d)}`)] : []),
-    ...(c.aliases.length ? [h2('ALIASES'), '       ' + esc(c.aliases.join(', '))] : [])]);
-}, { usage: '[-k] <cmd>', flags: [['-k word', 'search the manuals, like apropos']] });
+  const page = [
+    edge(title, sec === 8 ? 'System Administration' : 'User Commands', title), '',
+    sect('NAME'), `       ${esc(c.name)} - ${esc(c.desc)}`, '',
+    sect('SYNOPSIS'), `       ${span('b', esc(c.name))}${c.usage ? ' ' + esc(c.usage) : ''}`, '',
+    ...(m.text ? [sect('DESCRIPTION'), ...m.text.flatMap((l, i) => [...(i ? [''] : []), ...wrap(l, w - 7).map(x => '       ' + esc(x))]), ''] : []),
+    ...(flags.length ? [sect('OPTIONS'), ...flags.flatMap(([f, d]) => [`       ${span('a2', esc(f))}`, `              ${esc(d)}`]), ''] : []),
+    ...(m.examples ? [sect('EXAMPLES'), ...m.examples.flatMap(([ex, d]) => [`       ${/[<]/.test(ex) ? span('a2', esc(ex)) : cmd(ex)}`, `              ${esc(d)}`]), ''] : []),
+    ...(c.aliases.length ? [sect('ALIASES'), '       ' + esc(c.aliases.join(', ')), ''] : []),
+    ...(m.see ? [sect('SEE ALSO'), '       ' + m.see.map(s => cmd('man ' + s, `${s}(${MANUALS[s]?.section || 1})`)).join(', '), ''] : []),
+    edge('IanOS 2026', month, title),
+  ];
+  return showPage(page, `${c.name}(${sec})`, o);
+}, { usage: '[-k] [-P cat] <cmd>', flags: [['-k word', 'search the manuals, like apropos'], ['-P cat', 'print the page instead of opening it in the pager']] });
 def('rot13', 'system', 'encode or decode text with rot13', (a, raw) => print(esc(rot13(raw.replace(/^\s*rot13\s?/, '')))), { usage: '<text>' });
 
 def('alias', 'system', 'make your own shortcuts', args => {

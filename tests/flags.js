@@ -89,10 +89,10 @@ export const T = [
   ['man -k dns', o => o.includes('dig')],
   ['apropos file', o => o.includes('cat')],
   ['man -k zzzzqq', o => o.includes('nothing appropriate')],
-  ['man ls', o => o.includes('OPTIONS') && o.includes('--recursive')],
-  ['man dig', o => o.includes('+short')],
+  ['man -P cat ls', o => o.includes('OPTIONS') && o.includes('--recursive') && o.includes('EXAMPLES') && o.includes('LS(1)')],
+  ['man -P cat dig', o => o.includes('+short')], ['export MANPAGER=cat && man systemctl; unset MANPAGER', o => o.includes('SYSTEMCTL(8)') && o.includes('System Administration')], ['man find | grep -c EXAMPLES', o => o === '1'],
   ['man xyzzy', o => o.includes('No manual entry')],
-  ['man ian', o => o.includes('IAN(1)')],
+  ['man -P cat ian', o => o.includes('IAN(1)')],
   // alias
   ["alias t1='echo yo'", o => o.includes('t1')], ['t1', o => o === 'yo'], ['alias -p', o => o.includes("t1='echo yo'")],
   ['unalias t1', () => true], ['alias', o => !o.includes('t1')],

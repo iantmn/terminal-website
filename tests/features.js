@@ -128,6 +128,12 @@ export async function runFeatures(onResult = () => {}) {
     key('q'); await p; await idle();
     return { ok: hits > 0 && !document.getElementById('pager'), info: 'hits ' + hits };
   });
+  await check('man opens in the pager, q closes it', async () => {
+    const p = run('man find'); await wait(200);
+    const rows = [...document.querySelectorAll('#pager .pl')].map(r => r.innerText).join('\n');
+    key('q'); await p; await idle();
+    return { ok: rows.includes('FIND(1)') && rows.includes('EXAMPLES') && !document.getElementById('pager'), info: rows.split('\n')[0] };
+  });
   await check('cmd | less pages through the output', async () => { const p = run('help | less'); await wait(200); const rows = document.querySelectorAll('#pager .pl').length; key('q'); await p; await idle(); return { ok: rows > 20, info: rows + ' rows' }; });
   await check('status: every monitor up', async () => (await out('status')).includes('All systems operational'));
   await check('tldr', async () => { const o = await out('tldr'); return o.includes('Now') && o.includes('Strong in'); });

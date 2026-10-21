@@ -33,6 +33,7 @@ const FILES = [
   'js/filesystem.js',
   'js/input.js',
   'js/main.js',
+  'js/manuals.js',
   'js/pager.js',
   'js/registry.js',
   'js/render.js',
