@@ -8,7 +8,7 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT } from './labstate.js';
 
 addTree('homelab', buildLab());
 
@@ -16,7 +16,9 @@ const hex = s => [...s].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381)
 const idOf = name => (hex(name) + hex(name + '!')).slice(0, 12);
 const status = c => c === PRINTER ? 'Exited (1) 3 years ago' : running.has(c.name)
   ? `Up ${c.stack === 'terminal' ? '3 weeks' : '5 weeks'}${c.svc === 'terminal' ? ' (healthy)' : ''}`
-  : `Exited (0) ${Math.max(1, Math.round((Date.now() - (stoppedAt[c.name] || Date.now())) / 1000))} seconds ago`;
+  : `Exited (${exitCode[c.name] || 0}) ${Math.max(1, Math.round((Date.now() - (stoppedAt[c.name] || Date.now())) / 1000))} seconds ago`;
+// how a container stopped: 0 when you stopped it, 1 when it crashed or could not start
+const exitCode = {};
 const ports = c => c.svc === 'traefik' ? '0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp' : c.svc === 'terminal' ? '80/tcp' : c.svc === 'grafana' ? '3000/tcp' : c.svc === 'prometheus' ? '9090/tcp' : c.svc === 'n8n' ? '5678/tcp' : '';
 const pause = ms => new Promise(r => setTimeout(r, ms));
 // the site is down when its proxy or its web server is
@@ -88,6 +90,29 @@ export async function vmDown(what, reboot = false, kind = 'vm') {
   await outage(what, { kind, reboot, where: kind === 'host' ? 'pve' : 'the homelab' });
 }
 
+// ---- the live alert: some time after you log in to the homelab, Grafana goes down on a full disk ----
+let alertTimer = null;
+export function fireAlert() {
+  if (ALERT.fired) return;
+  // only where you can see it, and not while something else is on the screen
+  if (state.host !== 'homelab' || !state.asking) { alertTimer = setTimeout(fireAlert, 5000); return; }
+  ALERT.fired = ALERT.full = true;
+  running.delete('monitoring-grafana-1'); stoppedAt['monitoring-grafana-1'] = Date.now(); exitCode['monitoring-grafana-1'] = 1;
+  bootSound('down');
+  printLines(['', span('e b', '📟 [FIRING:1] ContainerDown') + span('m', '  alertmanager → ian@homelab'),
+    span('e', '   monitoring-grafana-1 exited (1), 0 restarts left in its back-off.') + span('m', ' The dashboards are gone.'),
+    span('m', '   You are logged in, so you are on call. ') + span('a2', 'docker ps -a') + span('m', ', ') + span('a2', 'docker logs') + span('m', ' and ') + span('a2', 'df -h') + span('m', ' are a good start.'), '']);
+}
+function resolveAlert() {
+  if (!ALERT.fired || ALERT.resolved || ALERT.full || !running.has('monitoring-grafana-1')) return;
+  ALERT.resolved = true;
+  printLines(['', span('a b', '✅ [RESOLVED] ContainerDown') + span('m', '  monitoring-grafana-1 is up, the dashboards are back.'), span('m', '   Postmortem, one line: prune old images every month, and alert on disk space before it reaches 100%.'), '']);
+  unlock('firefighter');
+}
+// armed while you are on the homelab: 30 to 45 seconds after you log in, once per visit
+export const armAlert = () => { if (!ALERT.fired && !alertTimer) alertTimer = setTimeout(fireAlert, 30000 + Math.random() * 15000); };
+export const disarmAlert = () => { clearTimeout(alertTimer); alertTimer = null; };
+
 // ---- docker on the homelab ----
 function stackFrom(o) {
   if (o.p || o['project-name']) return o.p || o['project-name'];
@@ -129,6 +154,7 @@ async function compose(args) {
       if (cannotStart(c) && !running.has(c.name)) { print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
       print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${running.has(c.name) ? 'Running' : 'Started'}`); running.add(c.name);
     }
+    resolveAlert();
     if (sub === 'up' && !o.d && !o.detach) print(span('m', '(the logs stay in the background here, like with -d)'));
     return;
   }
@@ -138,6 +164,7 @@ async function compose(args) {
       if (cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] = Date.now(); print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
       print(` ${span('a', '✔')} Container ${pad(c.name, 22)} Started`); running.add(c.name);
     }
+    resolveAlert();
     if (stack === 'terminal') print(span('m', 'The site blinked for a second. Nobody noticed. Probably.'));
     return;
   }
@@ -161,6 +188,22 @@ export async function labDocker(args) {
     if (o.q || o.quiet) return printLines(cs.map(c => idOf(c.name)));
     return printLines(table(cs.map(c => [idOf(c.name), c.image, status(c), ports(c), c.name]), ['CONTAINER ID', 'IMAGE', 'STATUS', 'PORTS', 'NAMES']));
   }
+  if (sub === 'system' && rest[0] === 'df') return printLines([
+    span('w b', 'TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE'),
+    esc(`Images          ${ALERT.full ? 143 : 9}       9         ${ALERT.full ? '230.6GB' : '18.2GB'}   ${ALERT.full ? '212.4GB (92%)' : '1.1GB (6%)'}`),
+    esc('Containers      9         8         412MB     0B (0%)'),
+    esc('Local Volumes   6         6         142.7GB   0B (0%)'),
+    esc('Build Cache     0         0         0B        0B'),
+    ...(ALERT.full ? [span('m', '134 old images, from a month of docker compose pull without a prune. The monthly cron job skipped one.')] : []),
+  ]);
+  if ((sub === 'image' && rest[0] === 'prune') || (sub === 'system' && rest[0] === 'prune')) {
+    if (!rest.some(a => /^-\w*a/.test(a) || a === '--all')) return printLines([esc('Deleted Images:'), span('m', 'only dangling images, none here.'), esc('Total reclaimed space: 0B'), span('m', 'The old tagged ones need -a.')]);
+    await pause(900);
+    const freed = ALERT.full ? '212.4GB' : '1.1GB';
+    printLines([esc('Deleted Images:'), ...['grafana/grafana:11.0.0', 'prom/prometheus:v2.52.0', 'traefik:v3.0', 'n8nio/n8n:1.48.2'].map(i => esc('untagged: ' + i)), span('m', '... and the rest'), esc(`Total reclaimed space: ${freed}`)]);
+    if (ALERT.full) { ALERT.full = false; print(span('a', 'The disk has room again.') + span('m', ' Grafana does not come back on its own though.')); }
+    return;
+  }
   const find = n => all().find(c => c.name === n || idOf(c.name).startsWith(n) || (n.length >= 3 && c.name.startsWith(n)));
   if (['stop', 'start', 'restart', 'logs'].includes(sub)) {
     if (!rest.length) return print(span('e', `"docker ${sub}" requires at least 1 argument.`));
@@ -170,9 +213,10 @@ export async function labDocker(args) {
       if (sub === 'logs') { printLines(logsOf(c).map(esc)); continue; }
       if (c === PRINTER) { if (sub !== 'stop') print(span('e', 'Error response from daemon: printer-fix: printer not found. It never is.')); else print(esc(n)); continue; }
       await pause(400);
-      if (sub !== 'stop' && cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] ??= Date.now(); print(span('e', esc(cannotStart(c)))); continue; }
-      if (sub === 'stop') { running.delete(c.name); stoppedAt[c.name] = Date.now(); } else running.add(c.name);
+      if (sub !== 'stop' && cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] ??= Date.now(); exitCode[c.name] = 1; print(span('e', esc(cannotStart(c)))); continue; }
+      if (sub === 'stop') { running.delete(c.name); stoppedAt[c.name] = Date.now(); exitCode[c.name] = 0; } else running.add(c.name);
       print(esc(n));
+      if (sub !== 'stop' && c.svc === 'grafana') resolveAlert();
     }
     if (sub === 'stop' && siteDown()) await outage(`docker stop ${rest.join(' ')}`);
     return;
@@ -212,8 +256,10 @@ const CONTAINER_PROCS = {
   'automation-postgres-1': { pid: 1511, cpu: 0.3, mem: 0.5, cmd: 'postgres' },
 };
 // Prometheus warns about its config until it is restored; and without it, it does not start
-const logsOf = c => [...(LOGS[c.svc] || ['(nothing to report)']), ...(c.svc === 'prometheus' && !RESTORE.done ? ['level=warn msg="/etc/prometheus/prometheus.yml: no such file or directory, running on the config loaded at start. A restart will fail."'] : [])];
-const cannotStart = c => c.svc === 'prometheus' && !RESTORE.done
+const logsOf = c => [...(LOGS[c.svc] || ['(nothing to report)']), ...(c.svc === 'grafana' && ALERT.fired ? ['logger=sqlstore level=error msg="database write failed" error="write /var/lib/grafana/grafana.db-journal: no space left on device"', 'logger=server level=fatal msg="unable to continue without a writable database"'] : []), ...(c.svc === 'prometheus' && !RESTORE.done ? ['level=warn msg="/etc/prometheus/prometheus.yml: no such file or directory, running on the config loaded at start. A restart will fail."'] : [])];
+const cannotStart = c => ALERT.full
+  ? `Error response from daemon: failed to create task for container ${c.name}: write /var/lib/docker/containers/${c.name}/hostconfig.json: no space left on device`
+  : c.svc === 'prometheus' && !RESTORE.done
   ? 'Error response from daemon: failed to create task for container monitoring-prometheus-1: error mounting "/home/ian/stacks/monitoring/prometheus.yml": bind source path does not exist'
   : null;
 LOGS['printer-fix'] = ['Searching for printer ...', 'Error: printer not found', 'Exited with code 1'];
@@ -247,8 +293,8 @@ export const LAB = {
   ifs: [['lo', 'UNKNOWN', '127.0.0.1/8', 'LOOPBACK,UP,LOWER_UP', 65536], ['ens18', 'UP', '10.20.0.20/24', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['wg0', 'UNKNOWN', '10.42.0.1/24', 'POINTOPOINT,NOARP,UP,LOWER_UP', 1420], ['docker0', 'UP', '172.17.0.1/16', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500], ['br-7c1e2a9f4b10', 'UP', '172.18.0.1/16', 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500]],
   routes: ['default via 10.20.0.1 dev ens18 proto dhcp metric 100', '10.20.0.0/24 dev ens18 proto kernel scope link src 10.20.0.20', '10.42.0.0/24 dev wg0 proto kernel scope link src 10.42.0.1', '172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1', '172.18.0.0/16 dev br-7c1e2a9f4b10 proto kernel scope link src 172.18.0.1'],
   ips: '10.20.0.20 10.42.0.1 172.17.0.1 172.18.0.1', ip: '10.20.0.20', fqdn: 'homelab.lan', domain: 'lan',
-  df: [['/dev/sda1', 'ext4', '62G', '14G', '45G', '24%', '/'], ['/dev/sdb1', 'ext4', '492G', '187G', '280G', '41%', '/var/lib/docker'], ['tmpfs', 'tmpfs', '1.6G', '1.2M', '1.6G', '1%', '/run']],
-  dfNote: 'Room for one more service. There is always room for one more service.',
+  get df() { return [['/dev/sda1', 'ext4', '62G', '14G', '45G', '24%', '/'], ALERT.full ? ['/dev/sdb1', 'ext4', '492G', '492G', '0', '100%', '/var/lib/docker'] : ['/dev/sdb1', 'ext4', '492G', '187G', '280G', '41%', '/var/lib/docker'], ['tmpfs', 'tmpfs', '1.6G', '1.2M', '1.6G', '1%', '/run']]; },
+  get dfNote() { return ALERT.full ? 'Full. Something in /var/lib/docker ate it all: docker system df knows what.' : 'Room for one more service. There is always room for one more service.'; },
   mem: [16, 9.4, 1.1, 0.2, 5.5, 6.3], memNote: 'Sixteen of the host\'s gigabytes, nine of them containers.',
   uname: ['Linux', 'homelab', '6.1.0-25-amd64', '#1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3', 'x86_64', 'GNU/Linux'],
   bootedDaysAgo: 47, clock: '3:12', load: '0.31, 0.27, 0.25',
@@ -330,11 +376,13 @@ export async function remoteShell({ host, user, home, root = false, banner, star
 // resume: after a reload, { host, cwd } of where you were (the homelab, or pve behind it)
 export async function labSession(resume = null) {
   unlock('homelab');
+  armAlert();
   const back = resume && span('m', 'Connection restored after the reload.');
   await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], start: resume && (async () => {
     if (resume.host === 'pve') return (await import('./pve.js')).pveSession(resume.cwd);
     if (resume.cwd && !resolve('/' + resume.cwd.join('/')).error) state.cwd = resume.cwd;
   }), banner: back ? [back] : ['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), ''] });
+  disarmAlert();
   if (!restart) return;
   // the site came back as a fresh start: a new container, so an empty /tmp too
   const { what, down, seconds } = restart;

@@ -142,6 +142,14 @@ export const SOLUTIONS = {
     await answer('scp /tmp/prometheus.yml homelab:stacks/monitoring/');
     await answer('exit'); await answer('exit'); await p; await idle();
   },
+  firefighter: async () => {
+    const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await answer('works-on-my-machine');
+    // the alert fires half a minute after logging in; here it fires right away
+    await until(() => state.asking); (await import('/js/commands/homelab.js')).fireAlert();
+    await answer('docker image prune -af'); await answer('docker start monitoring-grafana-1');
+    await answer('exit'); await p; await idle();
+  },
   student: () => all('learn restart; pwd; ls; cd experience; cat netw-it-specialist.md; cd ..; skills -a | grep linux; ls; help ls'),
   completionist: async () => {},
 };

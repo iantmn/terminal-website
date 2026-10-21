@@ -34,6 +34,9 @@ export const PROMETHEUS_YML = [
   '    static_configs: [{ targets: [terminal-traefik-1:8080] }]',
 ];
 
+// ---- the live incident: once per visit, the Docker disk fills up and Grafana falls over ----
+export const ALERT = { fired: false, full: false, resolved: false };
+
 // ---- the guests on the Proxmox host ----
 export const VMS = [
   { id: 101, name: 'homeassistant', mem: 4096, disk: 32, pid: 2101, cores: 2, note: 'The lights still work. The automations do not.' },

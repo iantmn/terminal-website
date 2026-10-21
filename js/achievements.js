@@ -67,6 +67,7 @@ export const ACH = {
   pve:      ['Hypervisor',                 'Under the homelab is one more machine. It only lets root in.', 'From the homelab: ssh -i ~/.ssh/ansible_pve root@pve, the key that ~/ansible/inventory.ini uses.'],
   student:  ['Graduate',                   'New to terminals? There is a lesson for that.',           'Finish learn.'],
   restore:  ['Restore test',               'A backup only counts once you restored it. Something on the homelab needs one.', 'On pve: proxmox-file-restore extract an older snapshot of vm/102, /drive-scsi0.img.fidx/part/1/home/ian/stacks/monitoring/prometheus.yml to /tmp, then scp /tmp/prometheus.yml homelab:stacks/monitoring/'],
+  firefighter: ['Firefighter',              'Stay on the homelab for a while. Things break when you are around.', 'When the alert fires: docker image prune -af frees the full disk, then docker start monitoring-grafana-1.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);
@@ -95,5 +96,5 @@ export function track(key, value, goal, ach) {
   if (set.size >= goal) unlock(ach);
 }
 // classics have no hint, secrets have a hint but never a solution: those you find yourself
-export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage', 'pve', 'restore'];
+export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage', 'pve', 'restore', 'firefighter'];
 export const noSolution = id => !ACH[id][1] || SECRET_ACH.includes(id);
