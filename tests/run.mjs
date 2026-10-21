@@ -77,6 +77,16 @@ try {
   await page.waitForFunction(() => document.getElementById('out')?.innerText.includes('Welcome'), null, { timeout: 30000 });
   await page.waitForFunction(() => import('/js/core.js').then(m => !m.state.busy), null, { timeout: 30000 });
 
+  // what loads at the start: the big, rarely used modules wait until someone needs them
+  {
+    const t = suite('Startup');
+    const loaded = await page.evaluate(() => performance.getEntriesByType('resource').map(e => new URL(e.name).pathname));
+    for (const m of ['commands/python.js', 'commands/qr.js', 'commands/guestbook.js', 'commands/homelab.js', 'commands/pve.js', 'fs/homelab.js', 'fs/pve.js']) {
+      t.add({ name: `js/${m} waits until it is needed`, ok: !loaded.includes('/js/' + m), info: 'loaded at startup' });
+    }
+    t.end();
+  }
+
   current = suite('Commands and flags');
   await page.evaluate(async () => { const f = await import('/tests/flags.js'); await f.runAll([...f.T, ...f.SLOW], 1, r => window.report(r)); });
   current.end();

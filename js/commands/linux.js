@@ -5,15 +5,18 @@ import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
+import { HOSTS } from './labstate.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped } from '../shell.js';
 import { bootSound } from '../sound.js';
 import { visits, currentLogin, streak } from '../visits.js';
-import { labSession, labDocker, mainDocker, LAB, vmDown } from './homelab.js';
-import { PVE, labSsh } from './pve.js';
 // the homelab or the main machine: commands about the system answer for the one you are on
 const onLab = () => state.host !== 'iantiemann';
 // the data of the machine you are on: the Docker VM or the Proxmox host
-const here = () => state.host === 'pve' ? PVE : LAB;
+// the homelab and the Proxmox host load on the first ssh or docker: most visitors never get there.
+// Once you are on one of them it is loaded and has put its data in HOSTS, so here() can stay synchronous
+const here = () => HOSTS[state.host];
+let lab = null;
+const machines = async () => lab ??= await Promise.all([import('./homelab.js'), import('./pve.js')]).then(([h, p]) => ({ ...h, ...p }));
 
 def('sudo', null, 'run a command as root', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
@@ -92,7 +95,8 @@ def('ping', null, 'check if a host answers', async args => {
   print(span('m', `--- ${esc(host)} ping statistics ---\n${n} packets transmitted, ${n} received, 0% packet loss (unlike my old Wi-Fi)\nround-trip min/avg/max = ${Math.min(...times).toFixed(3)}/${avg.toFixed(3)}/${Math.max(...times).toFixed(3)} ms`));
   if (local) { print(span('w', "There's no place like 127.0.0.1")); unlock('home'); }
 }, { usage: '[-c count] [-i s] [-q] <host>', flags: [['-c count', 'stop after this many replies (max 20)'], ['-i seconds', 'wait between pings'], ['-s size', 'packet size in bytes'], ['-q', 'quiet: only the summary']] });
-def('docker', null, 'the containers on the homelab', args => {
+def('docker', null, 'the containers on the homelab', async args => {
+  const { labDocker, mainDocker } = await machines();
   // the homelab has real stacks you can stop and start
   if (state.host === 'homelab') { unlock('docker'); return labDocker(args); }
   // the containers run on the homelab; from here you can only look
@@ -187,7 +191,7 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install pa
 // ssh homelab: only with Ian's key and its passphrase, and the key needs root to read
 def('ssh', 'more', 'log in to another machine', async args => {
   const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
-  if (state.host === 'homelab') return labSsh(args);
+  if (state.host === 'homelab') return (await machines()).labSsh(args);
   if (state.host === 'pve') return print(span('m', 'This is as deep as it goes. ') + span('a2', 'exit') + span('m', ' goes back up.'));
   // with a key, the user is the one the key belongs to
   const [user, host] = target.includes('@') ? target.split('@') : [o.l || (o.i ? 'ian' : state.user), target];
@@ -208,16 +212,16 @@ def('ssh', 'more', 'log in to another machine', async args => {
   saw('lab-pass');
   try { pass = await ask(`Enter passphrase for key '${esc(o.i)}': `); } finally { kb.type = 'text'; }
   if (pass !== 'works-on-my-machine') { if (pass != null) print(span('e', 'Bad passphrase.')); return denied(); }
-  return labSession();
+  return (await machines()).labSession();
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
 def('reboot', null, 'restart the system', async args => {
-  if (onLab()) return vmDown('reboot', true, state.host === 'pve' ? 'host' : 'vm');
+  if (onLab()) return (await machines()).vmDown('reboot', true, state.host === 'pve' ? 'host' : 'vm');
   unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200); await boot();
 });
 // a container has no system to shut down: PID 1 is nginx. The Docker VM it runs on can
 def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args, raw) => {
   const name = raw.trim().split(/\s+/)[0];
-  if (onLab()) return vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)), state.host === 'pve' ? 'host' : 'vm');
+  if (onLab()) return (await machines()).vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)), state.host === 'pve' ? 'host' : 'vm');
   state.failed = true;
   printLines([
     span('e', 'System has not been booted with systemd as init system (PID 1). Can\'t operate.'),

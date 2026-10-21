@@ -2,8 +2,7 @@
 // and the outages of the site during this visit show up as red beats
 import { print, printLines, span, esc, pad, cmd, charsPerLine } from '../core.js';
 import { def } from '../registry.js';
-import { downSince, INCIDENTS } from './homelab.js';
-import { guestDownSince } from './pve.js';
+import { downSince, INCIDENTS, guestDownSince } from './labstate.js';
 
 const BEATS = 30, EVERY = 60e3;
 // on: when it went down (null = up); on the Docker VM means a VM or host outage takes it down too

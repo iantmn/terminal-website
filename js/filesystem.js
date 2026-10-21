@@ -4,18 +4,15 @@ import { esc, span, cmd, pad, state, displayPath, HOME } from './core.js';
 import { POSTS } from './content.js';
 import { FS } from './fs/home.js';
 import { buildRoot } from './fs/system.js';
-import { buildLab } from './fs/homelab.js';
-import { buildPve } from './fs/pve.js';
 export { FS, DIARY, diary, resetDiary, diaryReadable } from './fs/home.js';
 
-// / of every machine: the container's own (ROOT), and the ones behind ssh, by host name
+// / of every machine: the container's own (ROOT), and the ones behind ssh by host name, added when they load
 export let ROOT;
 const TREES = {};
-// main.js builds them once every command is defined, so /usr/bin can list them
+export const addTree = (host, tree) => { TREES[host] = tree; };
+// main.js builds it once every command is defined, so /usr/bin can list them
 export function initRoot() {
   ROOT = buildRoot(FS);
-  TREES.homelab = buildLab();
-  TREES.pve = buildPve();
 }
 
 export function resolve(p) {

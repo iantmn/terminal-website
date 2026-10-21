@@ -5,18 +5,12 @@ import { execChain } from '../shell.js';
 import { remember, resetHistoryCursor, expandHistory } from '../input.js';
 import { boot } from '../boot.js';
 import { bootSound } from '../sound.js';
+import { addTree } from '../filesystem.js';
+import { buildLab } from '../fs/homelab.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS } from './labstate.js';
 
-const STACKS = { terminal: ['traefik', 'terminal'], monitoring: ['prometheus', 'grafana', 'loki', 'alloy'], automation: ['n8n', 'postgres'] };
-const IMAGES = { traefik: 'traefik:v3.1', terminal: 'nginx:1.27-alpine', prometheus: 'prom/prometheus:v2.53.0', grafana: 'grafana/grafana:11.1.0', loki: 'grafana/loki:3.1.0', alloy: 'grafana/alloy:v1.2.0', n8n: 'n8nio/n8n:1.50.0', postgres: 'postgres:16-alpine' };
-// one container outside any stack, stopped for years: the printer fix that never worked
-const PRINTER = { stack: null, svc: 'printer-fix', name: 'printer-fix', image: 'ian/printer-fix:latest' };
-const all = () => [...Object.entries(STACKS).flatMap(([stack, svcs]) => svcs.map(svc => ({ stack, svc, name: `${stack}-${svc}-1`, image: IMAGES[svc] }))), PRINTER];
-// which containers run; what you stop stays stopped until you start it again (for this visit)
-const running = new Set(all().filter(c => c !== PRINTER).map(c => c.name));
-const stoppedAt = {};
-// for status: is it up, since when is it down, and every outage of the site during this visit
-export const downSince = name => running.has(name) ? null : stoppedAt[name] ?? Date.now();
-export const INCIDENTS = [];
+addTree('homelab', buildLab());
+
 const hex = s => [...s].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381).toString(16).padStart(8, '0');
 const idOf = name => (hex(name) + hex(name + '!')).slice(0, 12);
 const status = c => c === PRINTER ? 'Exited (1) 3 years ago' : running.has(c.name)
@@ -276,6 +270,8 @@ export const LAB = {
     ],
   },
 };
+
+HOSTS.homelab = LAB;
 
 // ---- a shell on another machine, until exit, logout or Ctrl+D (or until the site goes down under it) ----
 export async function remoteShell({ host, user, home, root = false, banner }) {

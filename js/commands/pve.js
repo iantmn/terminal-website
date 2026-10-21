@@ -2,26 +2,14 @@
 // qm, pct, pvesh, pvesm, pveversion and zpool only exist here; qm stop 102 stops the VM this site runs on
 import { unlock, saw } from '../achievements.js';
 import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, charsPerLine } from '../core.js';
-import { resolve } from '../filesystem.js';
+import { resolve, addTree } from '../filesystem.js';
+import { buildPve } from '../fs/pve.js';
 import { def, completes } from '../registry.js';
 import { remoteShell, outage } from './homelab.js';
+import { VMS, CTS, up, stoppedSince, HOSTS } from './labstate.js';
 
-// ---- the guests ----
-const VMS = [
-  { id: 101, name: 'homeassistant', mem: 4096, disk: 32, pid: 2101, cores: 2, note: 'The lights still work. The automations do not.' },
-  { id: 102, name: 'homelab', mem: 16384, disk: 64, pid: 2204, cores: 4, data: 500 },
-  { id: 103, name: 'pbs', mem: 4096, disk: 32, pid: 2307, cores: 2, note: 'Tonight\'s backup will have nowhere to go. Start it again before 03:00.' },
-  { id: 104, name: 'win11-sandbox', mem: 8192, disk: 80, pid: 0, cores: 4, note: 'It wants to install updates first.' },
-  { id: 9000, name: 'debian12-cloudinit', mem: 2048, disk: 8, pid: 0, cores: 2, template: true },
-];
-const CTS = [
-  { id: 200, name: 'adguard', mem: 512 },
-  { id: 201, name: 'unifi', mem: 2048 },
-  { id: 202, name: 'minecraft', mem: 4096, stopped: true },
-];
-const stoppedSince = {};
-export const guestDownSince = id => up.has(id) ? null : stoppedSince[id] ?? Date.now();
-const up = new Set([...VMS.filter(v => v.pid).map(v => v.id), ...CTS.filter(c => !c.stopped).map(c => c.id)]);
+addTree('pve', buildPve());
+
 const GUEST_IPS = { 101: '10.20.0.21', 102: '10.20.0.20', 103: '10.20.0.30', 200: '10.20.0.53', 201: '10.20.0.40' };
 
 // ---- what ps, systemctl, journalctl and friends see on the host (the same shape as LAB in homelab.js) ----
@@ -93,6 +81,8 @@ export const PVE = {
     ],
   },
 };
+
+HOSTS.pve = PVE;
 
 // ---- ssh from the homelab to the host ----
 const PVE_NAMES = /^(pve|pve\.lan|10\.20\.0\.10)$/i;

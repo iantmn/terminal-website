@@ -10,6 +10,7 @@ const FILES = [
   'js/commands/fun.js',
   'js/commands/guestbook.js',
   'js/commands/homelab.js',
+  'js/commands/labstate.js',
   'js/commands/lazy.js',
   'js/commands/learn.js',
   'js/commands/linux.js',
