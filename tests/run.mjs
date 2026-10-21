@@ -106,6 +106,27 @@ try {
   current = suite('Interactive features');
   await page.evaluate(async () => { const f = await import('/tests/features.js'); await f.runFeatures(r => window.report(r)); });
   current.end();
+
+  // every achievement, in a browser of its own that has never seen the site: on Halloween, at three at night
+  current = suite('Every achievement can be unlocked');
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' });
+  await ctx.clock.install({ time: new Date('2026-10-31T03:00:00+01:00') });
+  const fresh = await ctx.newPage();
+  fresh.on('pageerror', e => pageErrors.push('(achievements) ' + e.message));
+  await fresh.exposeFunction('report', r => current?.add(r));
+  await fresh.goto(url);
+  await fresh.keyboard.press('m');
+  await fresh.waitForFunction(() => document.getElementById('out')?.innerText.includes('Welcome'), null, { timeout: 30000 });
+  await fresh.waitForFunction(() => import('/js/core.js').then(m => !m.state.busy), null, { timeout: 30000 });
+  await fresh.evaluate(async () => { const f = await import('/tests/achievements.js'); await f.runAchievements(r => window.report(r), { skip: ['patience', 'completionist'] }); });
+  // patience: two minutes without touching anything, on the fake clock
+  await fresh.clock.fastForward('02:10');
+  await fresh.waitForTimeout(300);
+  const has = id => fresh.evaluate(i => import('/js/achievements.js').then(m => m.unlocked.has(i)), id);
+  current.add({ name: 'patience', ok: await has('patience'), info: 'two idle minutes did not unlock it' });
+  current.add({ name: 'completionist', ok: await has('completionist'), info: 'everything else is unlocked, completionist is not' });
+  current.end();
+  await ctx.close();
 } finally {
   await browser.close();
   server.close();
