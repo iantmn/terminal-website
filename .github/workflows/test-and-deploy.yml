@@ -7,6 +7,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      run_tests:
+        description: Run the test matrix before deploy
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -14,6 +19,7 @@ permissions:
 jobs:
   test:
     name: test (${{ matrix.browser }}, ${{ matrix.device }})
+    if: github.event_name != 'workflow_dispatch' || inputs.run_tests == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: ${{ matrix.informational == true }}
@@ -45,7 +51,12 @@ jobs:
 
   deploy:
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: |
+      always() &&
+      (
+        (github.event_name == 'workflow_dispatch' && (inputs.run_tests == false || needs.test.result == 'success')) ||
+        (github.event_name != 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.test.result == 'success')
+      )
     runs-on: ubuntu-latest
     permissions:
       pages: write
