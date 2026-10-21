@@ -172,6 +172,27 @@ export function buildLab() {
             'config.alloy': labFile(['// Alloy: the logs of every container, to Loki', 'discovery.docker "containers" { host = "unix:///var/run/docker.sock" }', 'loki.source.docker "logs" {', '  host    = "unix:///var/run/docker.sock"', '  targets = discovery.docker.containers.targets', '  forward_to = [loki.write.local.receiver]', '}']),
             // prometheus.yml is missing on purpose: the restore puzzle. scp from pve puts it back, so ian may write here
           }, { own: 'ian', writable: true }),
+          whoami: dir({
+            'docker-compose.yml': labFile([
+              '# set up in March to test the Traefik labels. Never started. One command away',
+              'name: whoami',
+              '',
+              'services:',
+              '  whoami:',
+              '    image: traefik/whoami:v1.10',
+              '    restart: unless-stopped',
+              '    labels:',
+              '      - traefik.enable=true',
+              '      - traefik.http.routers.whoami.rule=Host(`whoami.iantiemann.nl`)',
+              '      - traefik.http.routers.whoami.entrypoints=websecure',
+              '      - traefik.http.routers.whoami.tls.certresolver=le',
+              '    networks: [terminal_default]',
+              '',
+              'networks:',
+              '  terminal_default:',
+              '    external: true',
+            ]),
+          }, { own: 'ian' }),
           automation: dir({
             'docker-compose.yml': labFile([
               'name: automation',

@@ -8,17 +8,21 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED } from './labstate.js';
 
 addTree('homelab', buildLab());
 
 const hex = s => [...s].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381).toString(16).padStart(8, '0');
 const idOf = name => (hex(name) + hex(name + '!')).slice(0, 12);
 const status = c => c === PRINTER ? 'Exited (1) 3 years ago' : running.has(c.name)
-  ? `Up ${c.stack === 'terminal' ? '3 weeks' : '5 weeks'}${c.svc === 'terminal' ? ' (healthy)' : ''}`
+  ? `Up ${startedAt[c.name] ? ago(startedAt[c.name]) : c.stack === 'terminal' ? '3 weeks' : '5 weeks'}${c.svc === 'terminal' ? ' (healthy)' : ''}`
   : `Exited (${exitCode[c.name] || 0}) ${Math.max(1, Math.round((Date.now() - (stoppedAt[c.name] || Date.now())) / 1000))} seconds ago`;
 // how a container stopped: 0 when you stopped it, 1 when it crashed or could not start
 const exitCode = {};
+// when a container was (re)started during this visit: its uptime counts from then
+const startedAt = {};
+const ago = t => { const sec = Math.max(1, Math.round((Date.now() - t) / 1000)); return sec < 60 ? `${sec} seconds` : `${Math.round(sec / 60)} minutes`; };
+const started = c => { running.add(c.name); startedAt[c.name] = Date.now(); };
 const ports = c => c.svc === 'traefik' ? '0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp' : c.svc === 'terminal' ? '80/tcp' : c.svc === 'grafana' ? '3000/tcp' : c.svc === 'prometheus' ? '9090/tcp' : c.svc === 'n8n' ? '5678/tcp' : '';
 const pause = ms => new Promise(r => setTimeout(r, ms));
 // the site is down when its proxy or its web server is
@@ -130,6 +134,7 @@ const LOGS = {
   terminal: ['172.18.0.2 - - "GET / HTTP/1.1" 200 2797', '172.18.0.2 - - "GET /js/main.js HTTP/1.1" 200 1204', '172.18.0.2 - - "GET /css/style.css HTTP/1.1" 200 9811', '127.0.0.1 - - "GET / HTTP/1.1" 200 2797 "-" "Wget" (healthcheck)'],
   grafana: ['logger=server msg="HTTP Server Listen" address=[::]:3000', 'logger=alerting msg="all alerts are green"'],
   prometheus: ['msg="Server is ready to receive web requests."', 'msg="Completed loading of configuration file"'],
+  whoami: ['Starting up on port 80'],
   loki: ['msg="Loki started"'], alloy: ['msg="now listening for docker logs"'],
   n8n: ['Editor is now accessible via: http://localhost:5678/', 'Workflow "guestbook" activated'], postgres: ['database system is ready to accept connections'],
 };
@@ -139,6 +144,22 @@ async function compose(args) {
   const stack = stackFrom(o);
   if (!sub) return print(span('e', 'usage: docker compose [-p project] ps|up|down|stop|start|restart|logs|pull'));
   if (!stack || !STACKS[stack]) return print(span('e', 'no configuration file provided: not found') + span('m', '  (cd into ~/stacks/terminal, monitoring or automation first)'));
+  // a stack that was never started: up pulls its image and creates it; down removes it again
+  if (!DEPLOYED.has(stack)) {
+    if (sub !== 'up') return print(span('m', `no containers for ${stack} yet. `) + span('a2', 'docker compose up -d') + span('m', ' creates them.'));
+    printLines(['[+] Pulling 1/1', span('m', `   ${IMAGES[STACKS[stack][0]]}: 4 layers`)]);
+    for (const l of ['8b5ea2c3d1f0', '3a9e1c44b7d2', 'f17c0e9a2b85', 'c0ffee5ca1ab']) { await pause(220); print(`   ${span('a', '✔')} ${l} Pull complete`); }
+    print(` ${span('a', '✔')} ${STACKS[stack][0]} Pulled`);
+    await pause(300);
+    DEPLOYED.add(stack);
+    const made = all().filter(c => c.stack === stack);
+    print(`[+] Running ${made.length}/${made.length}`);
+    for (const c of made) { await pause(300); print(` ${span('a', '✔')} Container ${pad(c.name, 22)} Started`); started(c); }
+    printLines(['', span('a', `${stack} is up.`) + span('m', ' Traefik picked up its labels: whoami.iantiemann.nl routes to it now (from inside, it has no DNS record).'),
+      span('m', 'It shows up in ') + span('a2', 'docker ps') + span('m', ' and on the ') + span('a2', 'status') + span('m', ' page. Three months late, but shipped.')]);
+    unlock('shipit');
+    return;
+  }
   const cs = all().filter(c => c.stack === stack && (!rest.filter(a => !a.startsWith('-')).length || rest.includes(c.svc)));
   if (sub === 'ps') return printLines(table(cs.filter(c => o.a || running.has(c.name)).map(c => [c.name, c.image, c.svc, status(c), ports(c)]), ['NAME', 'IMAGE', 'SERVICE', 'STATUS', 'PORTS']));
   if (sub === 'logs') return printLines(cs.flatMap(c => logsOf(c).map(l => span('a2', pad(c.svc, 11) + '|') + ' ' + esc(l))));
@@ -152,7 +173,7 @@ async function compose(args) {
     for (const c of cs) {
       await pause(250);
       if (cannotStart(c) && !running.has(c.name)) { print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
-      print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${running.has(c.name) ? 'Running' : 'Started'}`); running.add(c.name);
+      print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${running.has(c.name) ? 'Running' : 'Started'}`); if (!running.has(c.name)) started(c);
     }
     resolveAlert();
     if (sub === 'up' && !o.d && !o.detach) print(span('m', '(the logs stay in the background here, like with -d)'));
@@ -162,7 +183,7 @@ async function compose(args) {
     for (const c of cs) {
       await pause(300);
       if (cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] = Date.now(); print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
-      print(` ${span('a', '✔')} Container ${pad(c.name, 22)} Started`); running.add(c.name);
+      print(` ${span('a', '✔')} Container ${pad(c.name, 22)} Started`); started(c);
     }
     resolveAlert();
     if (stack === 'terminal') print(span('m', 'The site blinked for a second. Nobody noticed. Probably.'));
@@ -170,9 +191,11 @@ async function compose(args) {
   }
   if (sub === 'down' || sub === 'stop') {
     const word = sub === 'down' ? 'Removed' : 'Stopped';
-    print(`[+] ${sub === 'down' ? 'Running' : 'Stopping'} ${cs.length + (sub === 'down' ? 1 : 0)}/${cs.length + (sub === 'down' ? 1 : 0)}`);
+    const steps = cs.length + (sub === 'down' && stack !== 'whoami' ? 1 : 0);
+    print(`[+] ${sub === 'down' ? 'Running' : 'Stopping'} ${steps}/${steps}`);
     for (const c of [...cs].reverse()) { await pause(350); print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${word}`); running.delete(c.name); stoppedAt[c.name] = Date.now(); }
-    if (sub === 'down') { await pause(200); print(` ${span('a', '✔')} Network ${pad(stack + '_default', 24)} Removed`); }
+    if (sub === 'down' && stack !== 'whoami') { await pause(200); print(` ${span('a', '✔')} Network ${pad(stack + '_default', 24)} Removed`); }
+    if (sub === 'down' && stack === 'whoami') DEPLOYED.delete(stack);
     if (stack === 'terminal' && siteDown()) await outage(`docker compose ${sub}`);
     return;
   }
@@ -214,7 +237,7 @@ export async function labDocker(args) {
       if (c === PRINTER) { if (sub !== 'stop') print(span('e', 'Error response from daemon: printer-fix: printer not found. It never is.')); else print(esc(n)); continue; }
       await pause(400);
       if (sub !== 'stop' && cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] ??= Date.now(); exitCode[c.name] = 1; print(span('e', esc(cannotStart(c)))); continue; }
-      if (sub === 'stop') { running.delete(c.name); stoppedAt[c.name] = Date.now(); exitCode[c.name] = 0; } else running.add(c.name);
+      if (sub === 'stop') { running.delete(c.name); stoppedAt[c.name] = Date.now(); exitCode[c.name] = 0; } else started(c);
       print(esc(n));
       if (sub !== 'stop' && c.svc === 'grafana') resolveAlert();
     }
@@ -246,6 +269,7 @@ const SYSTEM_PROCS = [
 ];
 // container processes come and go with the containers
 const CONTAINER_PROCS = {
+  'whoami-whoami-1': { pid: 1611, cpu: 0.0, mem: 0.0, cmd: '/whoami' },
   'terminal-traefik-1': { pid: 1201, cpu: 0.8, mem: 0.2, cmd: 'traefik --providers.docker=true' },
   'terminal-terminal-1': { pid: 1233, cpu: 0.1, mem: 0.0, cmd: 'nginx: master process nginx -g daemon off;' },
   'monitoring-prometheus-1': { pid: 1402, cpu: 2.2, mem: 1.9, cmd: 'prometheus --config.file=/etc/prometheus/prometheus.yml' },

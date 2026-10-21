@@ -171,6 +171,15 @@ export async function runFeatures(onResult = () => {}) {
     return unlocked.has('treasure') || (await out('hint')).includes('Treasure hunt');
   });
   await check('shutdown in the container points to the Docker host', async () => (await out('shutdown now')).includes('Docker host'));
+  await check('a stack you deploy shows up in docker ps and on status', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    for (const l of ['cd ~/stacks/whoami', 'docker compose up -d']) await send(l);
+    await send('docker ps'); await send('exit'); await done; await idle();
+    const lab = since(b), st = await out('status');
+    return { ok: /whoami-whoami-1/.test(lab) && /Up \d+ seconds/.test(lab) && st.includes('whoami'), info: lab.split('\n').filter(l => l.includes('whoami')).slice(-1)[0] };
+  });
   await check('homelab, then pve, then back', async () => {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };

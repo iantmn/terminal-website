@@ -2,7 +2,7 @@
 // and the outages of the site during this visit show up as red beats
 import { print, printLines, span, esc, pad, cmd, charsPerLine } from '../core.js';
 import { def } from '../registry.js';
-import { downSince, INCIDENTS, guestDownSince } from './labstate.js';
+import { downSince, INCIDENTS, guestDownSince, DEPLOYED } from './labstate.js';
 
 const BEATS = 30, EVERY = 60e3;
 // on: when it went down (null = up); on the Docker VM means a VM or host outage takes it down too
@@ -30,12 +30,15 @@ const MONITORS = [
   ]],
 ];
 // which outages of this visit hit a monitor: the stack only takes the site, a VM outage everything on the VM, the host all of it
+// whoami joins the Docker VM group once it has been deployed
+const monitors = () => MONITORS.map(([group, ms]) => [group, group === 'Docker VM' && DEPLOYED.has('whoami') ? [...ms, { name: 'whoami', type: 'HTTP', ms: 3, on: 'vm', down: container('whoami-whoami-1') }] : ms]);
 const hits = m => INCIDENTS.filter(i => i.kind === 'host' ? m.on : i.kind === 'stack' ? m.site : m.on === 'vm');
 
 def('status', 'me', 'is my homelab up? (an Uptime Kuma page)', () => {
   // as many beats (0.9 characters wide each, css/style.css) as fit next to the name, uptime and state (about 50 characters); the note only on wide screens
   const now = Date.now(), cpl = charsPerLine(), show = Math.min(BEATS, Math.floor((cpl - 52) / 0.9)), wide = cpl >= 130;
-  const rows = MONITORS.flatMap(([, ms]) => ms).map(m => {
+  const MON = monitors();
+  const rows = MON.flatMap(([, ms]) => ms).map(m => {
     const since = m.down(), inc = hits(m);
     // one beat a minute; red where it was down
     const beats = Array.from({ length: BEATS }, (_, i) => {
@@ -51,7 +54,7 @@ def('status', 'me', 'is my homelab up? (an Uptime Kuma page)', () => {
     span('w b', "Ian's homelab") + span('m', '  Uptime Kuma on the Docker VM, checked just now'),
     down.length ? span('e b', `● ${down.length} of ${rows.length} monitors down`) + span('m', ' - you would not know anything about that, would you?') : span('a b', '● All systems operational'),
   ]);
-  for (const [group, ms] of MONITORS) {
+  for (const [group, ms] of MON) {
     print('');
     print(span('w', group));
     for (const m of ms) {

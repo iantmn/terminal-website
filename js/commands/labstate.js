@@ -1,10 +1,12 @@
 // what is running on the homelab and the Proxmox host, for this visit. Small on purpose: status reads it
 // without loading the machines themselves, which only load on the first ssh (homelab.js, pve.js)
-export const STACKS = { terminal: ['traefik', 'terminal'], monitoring: ['prometheus', 'grafana', 'loki', 'alloy'], automation: ['n8n', 'postgres'] };
-export const IMAGES = { traefik: 'traefik:v3.1', terminal: 'nginx:1.27-alpine', prometheus: 'prom/prometheus:v2.53.0', grafana: 'grafana/grafana:11.1.0', loki: 'grafana/loki:3.1.0', alloy: 'grafana/alloy:v1.2.0', n8n: 'n8nio/n8n:1.50.0', postgres: 'postgres:16-alpine' };
+export const STACKS = { terminal: ['traefik', 'terminal'], monitoring: ['prometheus', 'grafana', 'loki', 'alloy'], automation: ['n8n', 'postgres'], whoami: ['whoami'] };
+// the stacks that exist as containers; whoami is a compose file that was never started, until you do
+export const DEPLOYED = new Set(['terminal', 'monitoring', 'automation']);
+export const IMAGES = { traefik: 'traefik:v3.1', terminal: 'nginx:1.27-alpine', prometheus: 'prom/prometheus:v2.53.0', grafana: 'grafana/grafana:11.1.0', loki: 'grafana/loki:3.1.0', alloy: 'grafana/alloy:v1.2.0', n8n: 'n8nio/n8n:1.50.0', postgres: 'postgres:16-alpine', whoami: 'traefik/whoami:v1.10' };
 // one container outside any stack, stopped for years: the printer fix that never worked
 export const PRINTER = { stack: null, svc: 'printer-fix', name: 'printer-fix', image: 'ian/printer-fix:latest' };
-export const all = () => [...Object.entries(STACKS).flatMap(([stack, svcs]) => svcs.map(svc => ({ stack, svc, name: `${stack}-${svc}-1`, image: IMAGES[svc] }))), PRINTER];
+export const all = () => [...Object.entries(STACKS).filter(([stack]) => DEPLOYED.has(stack)).flatMap(([stack, svcs]) => svcs.map(svc => ({ stack, svc, name: `${stack}-${svc}-1`, image: IMAGES[svc] }))), PRINTER];
 // which containers run; what you stop stays stopped until you start it again (for this visit)
 export const running = new Set(all().filter(c => c !== PRINTER).map(c => c.name));
 export const stoppedAt = {};

@@ -155,6 +155,11 @@ export const SOLUTIONS = {
     await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve');
     await answer('vzdump 102'); await answer('exit'); await answer('exit'); await p; await idle();
   },
+  shipit: async () => {
+    const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await answer('works-on-my-machine'); await answer('cd ~/stacks/whoami'); await answer('docker compose up -d');
+    await answer('exit'); await p; await idle();
+  },
   student: () => all('learn restart; pwd; ls; cd experience; cat netw-it-specialist.md; cd ..; skills -a | grep linux; ls; help ls'),
   completionist: async () => {},
 };
