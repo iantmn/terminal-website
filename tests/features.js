@@ -134,6 +134,19 @@ export async function runFeatures(onResult = () => {}) {
     key('q'); await p; await idle();
     return { ok: rows.includes('FIND(1)') && rows.includes('EXAMPLES') && !document.getElementById('pager'), info: rows.split('\n')[0] };
   });
+  await check('htop: select, kill with F9, q closes', async () => {
+    const p = run('htop'); await wait(200);
+    const box = [...outEl.querySelectorAll('.ln')].find(l => l.querySelector('.htop-row'));
+    if (!box) return { ok: false, info: 'no htop screen' };
+    key('F6', {}, window); key('F6', {}, window);
+    const i = [...box.querySelectorAll('.htop-row')].findIndex(r => r.innerText.includes('fix-the-printer'));
+    for (let k = 0; k < i; k++) key('ArrowDown', {}, window);
+    key('F9', {}, window); await wait(50);
+    const said = box.innerText;
+    key('q', {}, window); await p; await idle();
+    const gone = !(await out('ps aux')).includes('fix-the-printer');
+    return { ok: said.includes('Terminated') && gone && !document.body.contains(box), info: said.split('\n').find(l => l.includes('Terminated')) || 'no kill message' };
+  });
   await check('cmd | less pages through the output', async () => { const p = run('help | less'); await wait(200); const rows = document.querySelectorAll('#pager .pl').length; key('q'); await p; await idle(); return { ok: rows > 20, info: rows + ' rows' }; });
   await check('status: every monitor up', async () => (await out('status')).includes('All systems operational'));
   await check('tldr', async () => { const o = await out('tldr'); return o.includes('Now') && o.includes('Strong in'); });

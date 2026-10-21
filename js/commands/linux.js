@@ -338,7 +338,18 @@ const MAIN_PROCS = [
   { pid: 2016, user: 'ian',  cpu: 0.6,  mem: 0.9,  cmd: 'fix-the-printer --again' },
   { pid: 9000, user: 'guest', cpu: 0.3, mem: 0.2,  cmd: 'terminal.iantiemann.nl' },
 ];
-const procs = () => onLab() ? here().procs() : MAIN_PROCS;
+const killed = new Set();
+const procs = () => onLab() ? here().procs() : MAIN_PROCS.filter(p => !killed.has(p.pid));
+// kill one process: what it says, and whether it is gone. kill and htop both ask this
+function killProc(p) {
+  if (state.host === 'pve') return { msg: span('m', 'Root on the hypervisor, killing processes. Every VM is one of them. Let\'s not. ') + cmd('qm list') + span('m', ' is the polite way.') };
+  if (p.user === 'root') return { msg: span('e', `kill: (${p.pid}) - Operation not permitted`) };
+  if (p.cmd === 'coffee.service') { unlock('kill'); return { msg: span('w', 'Terminated: coffee.service') + span('m', ' - and it respawned (Restart=always). Some things are not negotiable.') }; }
+  if (p.user === 'guest') return { msg: span('m', 'You tried to kill the terminal you are using. Bold. Try ') + cmd('exit') + span('m', ' instead.') };
+  unlock('kill');
+  if (!onLab()) killed.add(p.pid);
+  return { gone: true, msg: `[1]+  Terminated              ${esc(p.cmd)}` + span('m', `  - ${esc(p.cmd.split(' ')[0])} will be back tomorrow morning, probably before the coffee.`) };
+}
 const jitter = v => Math.max(0, v + (Math.random() - 0.5) * v * 0.4);
 function topLines() {
   const rows = procs().map(p => ({ ...p, cpu: jitter(p.cpu) })).sort((a, b) => b.cpu - a.cpu);
@@ -354,7 +365,7 @@ function topLines() {
     ...rows.map(p => `${String(p.pid).padStart(5)} ${pad(p.user, 8)} ${p.cpu.toFixed(1).padStart(5)} ${p.mem.toFixed(1).padStart(5)}  ${p.cmd === 'coffee.service' ? span('w', esc(p.cmd)) : esc(p.cmd)}`),
   ];
 }
-def(['top', 'htop', 'btop'], null, 'show running processes, live', async args => {
+def(['top', 'btop'], null, 'show running processes, live', async args => {
   const [o] = getopt(args, ['n', 'd']);
   const rounds = Math.min(parseInt(o.n ?? 8, 10) || 8, 60), delay = Math.max(0.2, parseFloat(o.d) || 1) * 1000;
   unlock('top');
@@ -398,13 +409,7 @@ def(['kill', 'killall', 'pkill'], null, 'stop a process', args => {
   if (!t) return print(span('e', 'kill: usage: kill [-s sigspec | -n signum | -sigspec] pid | name'));
   const p = procs().find(p => String(p.pid) === t || p.cmd.split(' ')[0].replace('.service', '') === t || p.cmd.startsWith(t));
   if (!p) return print(span('e', `kill: (${esc(t)}) - No such process`));
-  if (state.host === 'pve') return print(span('m', 'Root on the hypervisor, killing processes. Every VM is one of them. Let\'s not. ') + cmd('qm list') + span('m', ' is the polite way.'));
-  if (p.user === 'root') return print(span('e', `kill: (${p.pid}) - Operation not permitted`));
-  if (p.cmd === 'coffee.service') { unlock('kill'); return print(span('w', 'Terminated: coffee.service') + span('m', '\ncoffee.service respawned (Restart=always). Some things are not negotiable.')); }
-  if (p.user === 'guest') return print(span('m', 'You tried to kill the terminal you are using. Bold. Try ') + cmd('exit') + span('m', ' instead.'));
-  unlock('kill');
-  print(`[1]+  Terminated              ${esc(p.cmd)}`);
-  print(span('m', `${esc(p.cmd.split(' ')[0])} will be back tomorrow morning, probably before the coffee.`));
+  print(killProc(p).msg);
 }, { usage: '[-9] <pid|name>', flags: [['-l, --list', 'list the signals'], ['-9', 'SIGKILL: no mercy'], ['-s signal', 'send this signal']] });
 def('df', 'more', 'free disk space', args => {
   const [o] = getopt(args);
@@ -533,6 +538,68 @@ def('systemctl', 'more', 'manage services', args => {
   const rows = units().map(([n, desc, pid]) => esc(`${pad(n, 28)}loaded active ${pad(pid ? 'running' : n.endsWith('.target') ? 'active' : 'exited', 8)}${desc}`));
   printLines([span('w b', 'UNIT                        LOAD   ACTIVE SUB     DESCRIPTION'), ...rows, span('m', 'Try ') + cmd(onLab() ? 'systemctl status ' + here().unitHint : 'systemctl status coffee')]);
 }, { usage: '[status|is-active <unit>] [--failed]', flags: [['status <unit>', 'details of one service'], ['is-active <unit>', 'just active or inactive'], ['--failed', 'services that crashed']] });
+// htop: the processes, live, and you can pick one. Arrows (or a tap) select, F6 or > sorts, F9 or k kills, q quits
+const SORTS = [['CPU%', (a, b) => b.cpu - a.cpu], ['MEM%', (a, b) => b.mem - a.mem], ['PID', (a, b) => a.pid - b.pid]];
+def('htop', null, 'processes, interactive: pick one and kill it', args => {
+  const [o] = getopt(args, ['n', 'd']);
+  // into a pipe or with -n it is top: a few snapshots
+  if (state.capture || o.n) return C.top.run(args);
+  unlock('top');
+  return new Promise(resolve => {
+    const box = print('');
+    let sel = 0, sort = 0, note = '', timer;
+    const cores = state.host === 'pve' ? 8 : state.host === 'homelab' ? 4 : Math.min(navigator.hardwareConcurrency || 4, 8);
+    const bar = (pct, w) => span('a', '|'.repeat(Math.round(Math.min(pct, 100) / 100 * w))) + ' '.repeat(w - Math.round(Math.min(pct, 100) / 100 * w));
+    const rows = () => procs().map(p => ({ ...p, cpu: jitter(p.cpu) })).sort(SORTS[sort][1]);
+    let shown = rows();
+    const draw = () => {
+      shown = rows(); sel = Math.min(sel, shown.length - 1);
+      const total = shown.reduce((t, p) => t + p.cpu, 0) / cores;
+      const [used, max] = onLab() ? here().top.mem : [10.7, 16.0];
+      const up = onLab() ? `${here().bootedDaysAgo} days` : uptime();
+      const left = [...Array(cores)].map((_, i) => { const pct = Math.max(0, jitter(total * (1.4 - i * 0.15))); return `${span('a2', String(i).padStart(3))}[${bar(pct, 22)}${span('m', (pct.toFixed(1) + '%').padStart(6))}]`; });
+      left.push(`${span('a2', 'Mem')}[${bar(used / max * 100, 18)}${span('m', `${used}G/${max}G`.padStart(10))}]`, `${span('a2', 'Swp')}[${bar(0, 18)}${span('m', '0K/2.00G'.padStart(10))}]`);
+      const right = [`Tasks: ${span('a', shown.length)}, ${span('a', 1)} running`, `Load average: ${onLab() ? here().load.replace(/,/g, '') : '0.42 0.13 0.37'}`, `Uptime: ${esc(up)}`];
+      const head = left.map((l, i) => l + '   ' + (right[i] || ''));
+      const list = shown.map((p, i) => {
+        const line = `${String(p.pid).padStart(6)} ${pad(p.user, 8)} ${p.cpu.toFixed(1).padStart(5)} ${p.mem.toFixed(1).padStart(5)}  ${esc(p.cmd)}`;
+        return `<span class="htop-row${i === sel ? ' sel' : ''}" data-i="${i}">${line}</span>`;
+      });
+      const keys = [['F1', 'Help', 'h'], ['F6', 'SortBy', 'F6'], ['F9', 'Kill', 'F9'], ['F10', 'Quit', 'q']].map(([k, w, key]) => `<span class="htop-key" data-key="${key}">${span('w b', k)}<span class="inv">${w}</span></span>`).join(' ');
+      box.innerHTML = [...head, '', span('inv', `   PID USER      CPU%  MEM%  Command${' '.repeat(20)}`) + span('m', `  sorted by ${SORTS[sort][0]}`), ...list, '', note || span('m', '↑↓ select · F6 or > sort · F9 or k kill · q quit'), keys].join('\n');
+      scrollDown();
+    };
+    const end = () => { clearInterval(timer); removeEventListener('keydown', onKey, true); box.removeEventListener('click', onClick); box.remove(); resolve(); };
+    const act = k => {
+      if (k === 'ArrowDown' || k === 'j') sel = Math.min(sel + 1, shown.length - 1);
+      else if (k === 'ArrowUp') sel = Math.max(sel - 1, 0);
+      else if (k === 'Home') sel = 0;
+      else if (k === 'End') sel = shown.length - 1;
+      else if (k === 'F6' || k === '>' || k === '<' || k === '.') sort = (sort + 1) % SORTS.length;
+      else if (k === 'F9' || k === 'k') note = killProc(shown[sel]).msg;
+      else if (k === 'F1' || k === 'h' || k === '?') note = span('m', 'htop: the processes of this machine. Pick one with the arrows, F9 kills it. coffee.service always comes back.');
+      else if (k === 'q' || k === 'F10' || k === 'Escape') return end();
+      else return;
+      draw();
+    };
+    const onKey = e => {
+      const ctrlC = e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'c';
+      if ((e.ctrlKey || e.metaKey || e.altKey) && !ctrlC) return;
+      e.preventDefault(); e.stopPropagation();
+      if (ctrlC) return end();
+      act(e.key);
+    };
+    // a tap picks a row; the F-keys at the bottom are buttons
+    const onClick = e => {
+      const row = e.target.closest('.htop-row'), key = e.target.closest('.htop-key');
+      if (row) { sel = +row.dataset.i; draw(); } else if (key) act(key.dataset.key);
+    };
+    addEventListener('keydown', onKey, true);
+    box.addEventListener('click', onClick);
+    draw();
+    timer = setInterval(draw, 1500);
+  });
+}, { usage: '', flags: [['arrows, j', 'select a process'], ['F6, >', 'sort by CPU, memory or PID'], ['F9, k', 'kill the selected process'], ['q, F10', 'quit']] });
 // fsck in the style of e2fsck: five passes, the last one finds the hidden corrupt theme
 def('fsck', 'more', 'check the filesystem for errors', async () => {
   const bar = async label => {
