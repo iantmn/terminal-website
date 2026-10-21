@@ -6,7 +6,7 @@ import { resolve, addTree, writeFile } from '../filesystem.js';
 import { buildPve } from '../fs/pve.js';
 import { def, completes } from '../registry.js';
 import { remoteShell, outage } from './homelab.js';
-import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML } from './labstate.js';
+import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML, MY_BACKUPS } from './labstate.js';
 
 addTree('pve', buildPve());
 
@@ -219,7 +219,8 @@ def('pvesm', null, 'the storage: where disks and backups live', args => {
     const days = [2, 1, 0].map(d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10));
     const guests = [...VMS.filter(v => v.pid && v.id !== 103).map(v => ['vm', v.id, v.disk + (v.data || 0)]), ...CTS.filter(c => !c.stopped).map(c => ['ct', c.id, 8])];
     return printLines([span('w b', 'Volid                                          Format  Type             Size VMID'),
-      ...days.flatMap(d => guests.map(([t, id, gb], i) => esc(`${pad(`pbs:backup/${t}/${id}/${d}T01:${String(i * 4).padStart(2, '0')}:0${i}Z`, 46)} ${pad(t === 'vm' ? 'pbs-vm' : 'pbs-ct', 7)} backup ${String(Math.round(gb * 1.07e9 * 0.4)).padStart(14)} ${id}`)))]);
+      ...days.flatMap(d => guests.map(([t, id, gb], i) => esc(`${pad(`pbs:backup/${t}/${id}/${d}T01:${String(i * 4).padStart(2, '0')}:0${i}Z`, 46)} ${pad(t === 'vm' ? 'pbs-vm' : 'pbs-ct', 7)} backup ${String(Math.round(gb * 1.07e9 * 0.4)).padStart(14)} ${id}`))),
+      ...MY_BACKUPS.map(b => span('a', esc(`${pad(`pbs:backup/${b.kind}/${b.id}/${stamp(b.at)}`, 46)} ${pad('pbs-' + b.kind, 7)} backup ${String(Math.round(3.1 * 1.07e9)).padStart(14)} ${b.id}`)) + span('m', '  # yours'))]);
   }
   if (sub === 'list') { state.failed = true; return print(span('e', store ? `storage '${esc(store)}' does not exist` : '400 not enough arguments\npvesm list <storage>') + span('m', '  try pvesm list pbs')); }
   if (sub !== 'status') return printLines([span('m', 'USAGE: pvesm <COMMAND> [ARGS]'), '', '       pvesm status', '       pvesm list <storage>']);
@@ -307,13 +308,16 @@ completes('ansible-playbook', () => ['site.yml', '--check', '--list-tasks', '--l
 completes('ansible', args => args.length ? ['-m', 'ping'] : ['all', 'proxmox', 'docker']);
 // ---- one file out of a VM backup: proxmox-file-restore, and scp to put it back ----
 // the snapshots of VM 102 (the names pvesm list pbs shows); the newest one ran at 03:04, after the file was deleted
-const snapshots = () => [2, 1, 0].map(d => `vm/102/${new Date(Date.now() - d * 864e5).toISOString().slice(0, 10)}T01:04:01Z`);
+const stamp = t => new Date(t).toISOString().slice(0, 19) + 'Z';
+const snapshots = () => [...[2, 1, 0].map(d => `vm/102/${new Date(Date.now() - d * 864e5).toISOString().slice(0, 10)}T01:04:01Z`), ...MY_BACKUPS.filter(b => b.id === 102).map(b => `vm/102/${stamp(b.at)}`)];
+// the file went at 22:14 last night, local time
+const deletedAt = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return +d - (1 * 60 + 46) * 6e4; };
 const ARCHIVE = '/drive-scsi0.img.fidx/part/1';
 // what the Docker VM looked like in a snapshot: its tree now, plus the file that was still there in the older ones
 function inSnapshot(snap, path) {
   const rel = path.startsWith(ARCHIVE) ? path.slice(ARCHIVE.length) || '/' : null;
   if (rel === null) return path === '/' || path === '/drive-scsi0.img.fidx' || path === '/drive-scsi0.img.fidx/part' ? { dir: { '/': ['drive-scsi0.img.fidx/', 'drive-scsi1.img.fidx/', 'qemu-server.conf.blob'], '/drive-scsi0.img.fidx': ['part/'], '/drive-scsi0.img.fidx/part': ['1/'] }[path] } : null;
-  const had = snap !== snapshots()[2];
+  const t = Date.parse(snap.slice(7)), had = t < deletedAt() || (RESTORE.done && t > RESTORE.at);
   if (rel.replace(/\/$/, '') === '/home/ian/stacks/monitoring/prometheus.yml') return had ? { file: PROMETHEUS_YML } : null;
   const saved = { host: state.host, home: [...HOME] };
   state.host = 'homelab'; HOME.splice(0, HOME.length, 'home', 'ian');
@@ -374,13 +378,73 @@ def('scp', null, 'copy a file to another machine', args => {
   if (err) { state.failed = true; return print(span('e', `scp: ${esc(target)}: ${err}`)); }
   print(`${esc(src.split('/').pop())}${' '.repeat(Math.max(1, 30 - src.split('/').pop().length))}100%  ${text.length}B   1.2MB/s   00:00`);
   if (target === '/home/ian/stacks/monitoring/prometheus.yml') {
-    RESTORE.done = true;
+    RESTORE.done = true; RESTORE.at = Date.now();
     unlock('restore');
     print(span('a', 'prometheus.yml is back.') + span('m', ' A backup only counts once you restored it, and now this one does. On the homelab: ') + span('a2', 'docker restart monitoring-prometheus-1'));
   }
 }, { hosts: ['pve'], usage: '<file> [user@]host:<path>', flags: [['file', 'the file on this machine'], ['host:path', 'where it goes, like ian@homelab:stacks/monitoring/']] });
 
 completes('proxmox-file-restore', args => !args.length ? ['list', 'extract'] : args.length === 1 ? snapshots() : args.length === 2 ? [ARCHIVE + '/home/ian/'] : null);
+// ---- vzdump: run a backup yourself. snapshot mode keeps the VM running, stop mode does not (and 102 is this site) ----
+def('vzdump', null, 'back up a VM or container', async args => {
+  const [o, [id]] = getopt(args, ['mode', 'storage', 'compress']);
+  if (!id) return printLines([span('m', esc('usage: vzdump <vmid> [--mode snapshot|suspend|stop] [--storage pbs|local]')), span('m', 'The nightly job does this for every guest at 03:00: ') + cmd('pvesh get /cluster/backup')]);
+  const v = VMS.find(x => String(x.id) === id), c = CTS.find(x => String(x.id) === id);
+  if (!v && !c) { state.failed = true; return print(span('e', `unable to find VM ${esc(id)}`)); }
+  const mode = o.mode || 'snapshot', storage = o.storage || 'pbs', name = (v || c).name, kind = v ? 'vm' : 'ct';
+  if (!['snapshot', 'suspend', 'stop'].includes(mode)) { state.failed = true; return print(span('e', `vzdump: invalid mode '${esc(mode)}'`)); }
+  if (!['pbs', 'local'].includes(storage)) { state.failed = true; return print(span('e', `storage '${esc(storage)}' does not exist`)); }
+  const log = async (text, ms = 250) => { await sleep(ms); print(esc('INFO: ' + text)); };
+  const t0 = Date.now(), at = new Date();
+  await log(`starting new backup job: vzdump ${id} --mode ${mode} --storage ${storage}`, 100);
+  await log(`Starting Backup of VM ${id} (${v ? 'qemu' : 'lxc'})`);
+  await log(`Backup started at ${at.toISOString().slice(0, 19).replace('T', ' ')}`, 100);
+  await log(`VM Name: ${name}`, 100);
+  // stop mode on the Docker VM: the site goes down with it, and comes back when the backup is done
+  if (mode === 'stop' && v?.id === 102 && up.has(102)) {
+    await log('stopping virtual guest');
+    print(span('w', 'That is the VM this site runs on. Snapshot mode would have kept it running.'));
+    return outage(`vzdump 102 --mode stop`, { kind: 'guest', reboot: true, where: 'pve' });
+  }
+  if (v) {
+    await log(`include disk 'scsi0' 'local-zfs:vm-${id}-disk-0' ${v.disk}G`);
+    if (v.data) await log(`include disk 'scsi1' 'local-zfs:vm-${id}-disk-1' ${v.data}G`);
+    if (mode === 'snapshot' && up.has(v.id)) { await log("issuing guest-agent 'fs-freeze' command"); await log("issuing guest-agent 'fs-thaw' command", 400); }
+    if (mode === 'suspend') await log('suspending guest, it waits while the backup reads its disks');
+  }
+  const total = v ? v.disk + (v.data || 0) : 8, dirty = Math.max(0.4, total * 0.0055);
+  if (storage === 'pbs') {
+    await log(`creating Proxmox Backup Server archive '${kind}/${id}/${stamp(at)}'`);
+    await log(`using fast incremental mode (dirty-bitmap), ${dirty.toFixed(1)} GiB dirty of ${total.toFixed(1)} GiB total`);
+  } else await log(`creating vzdump archive '/var/lib/vz/dump/vzdump-${v ? 'qemu' : 'lxc'}-${id}-${at.toISOString().slice(0, 19).replace(/[-:]/g, '_').replace('T', '-')}.vma.zst'`);
+  const box = print('');
+  const size = storage === 'pbs' ? dirty : total * 0.4;
+  for (let p = 0; p <= 100; p += 10) {
+    box.innerHTML = esc(`INFO: ${String(p).padStart(3)}% (${(size * p / 100).toFixed(1)} GiB of ${size.toFixed(1)} GiB) in ${Math.round((Date.now() - t0) / 1000)}s `) + span('a', '█'.repeat(p / 5)) + span('m', '░'.repeat(20 - p / 5));
+    await sleep(storage === 'pbs' ? 180 : 320);
+  }
+  if (storage === 'pbs') await log(`backup was done incrementally, reused ${(total - dirty).toFixed(1)} GiB (${Math.round((1 - dirty / total) * 100)}%)`);
+  if (mode === 'suspend') await log('resuming VM again');
+  await log(`Finished Backup of VM ${id} (00:00:${String(Math.max(3, Math.round((Date.now() - t0) / 1000))).padStart(2, '0')})`);
+  await log('Backup job finished successfully', 150);
+  if (storage === 'local') {
+    print('');
+    return print(span('w', '3-2-1 says no:') + span('m', ' that copy is on the same host as the VM. When this machine dies, both copies die with it. Try ') + cmd(`vzdump ${id} --storage pbs`));
+  }
+  MY_BACKUPS.push({ kind, id: +id, at: +at });
+  // the sync job on PBS takes every new backup offsite
+  await sleep(500);
+  print(span('m', `pbs: sync job 'hetzner' started for ${kind}/${id}/${stamp(at)}, encrypted`));
+  await sleep(700);
+  print(span('m', `pbs: sync job 'hetzner' finished, ${(dirty * 0.6).toFixed(1)} GiB transferred`));
+  printLines(['', span('w b', '3-2-1 check for ' + name),
+    `  ${span('a', '✔')} 3 copies   the live disks, PBS, the Storage Box at Hetzner`,
+    `  ${span('a', '✔')} 2 kinds    ZFS on the host, the PBS datastore`,
+    `  ${span('a', '✔')} 1 offsite  the sync job, encrypted before it leaves the house`,
+    span('m', 'There is a guide for exactly this setup, back on the terminal: ') + span('a2', 'read backups'), '']);
+  unlock('threetwoone');
+}, { hosts: ['pve'], usage: '<vmid> [--mode snapshot|suspend|stop] [--storage pbs|local]', flags: [['vmid', 'the VM or container, from qm list or pct list'], ['--mode snapshot', 'keeps the guest running (the default)'], ['--mode stop', 'shuts the guest down for the backup'], ['--storage pbs', 'to Proxmox Backup Server (the default)'], ['--storage local', 'a file on this host']] });
+completes('vzdump', args => args.length ? ['--mode', 'snapshot', 'stop', '--storage', 'pbs', 'local'] : [...VMS, ...CTS].map(g => String(g.id)));
 completes('qm', args => args.length ? VMS.map(v => String(v.id)) : ['list', 'status', 'config', 'start', 'stop', 'shutdown', 'reboot']);
 completes('pct', args => args.length ? CTS.map(c => String(c.id)) : ['list', 'status', 'start', 'stop', 'enter']);
 completes('pvesh', args => args.length ? Object.keys(API) : ['get', 'ls']);

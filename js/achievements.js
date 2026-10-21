@@ -68,6 +68,7 @@ export const ACH = {
   student:  ['Graduate',                   'New to terminals? There is a lesson for that.',           'Finish learn.'],
   restore:  ['Restore test',               'A backup only counts once you restored it. Something on the homelab needs one.', 'On pve: proxmox-file-restore extract an older snapshot of vm/102, /drive-scsi0.img.fidx/part/1/home/ian/stacks/monitoring/prometheus.yml to /tmp, then scp /tmp/prometheus.yml homelab:stacks/monitoring/'],
   firefighter: ['Firefighter',              'Stay on the homelab for a while. Things break when you are around.', 'When the alert fires: docker image prune -af frees the full disk, then docker start monitoring-grafana-1.'],
+  threetwoone: ['3-2-1',                    'A backup only counts when there are three. Make one yourself, the right way.', 'On pve: vzdump 102 (snapshot mode, to pbs). The sync job takes it offsite.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);

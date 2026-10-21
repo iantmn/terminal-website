@@ -16,7 +16,9 @@ export const INCIDENTS = [];
 export const HOSTS = {};
 
 // ---- the restore puzzle: stacks/monitoring/prometheus.yml went at 22:14 last night, the 03:00 backup ran without it ----
-export const RESTORE = { done: false };
+export const RESTORE = { done: false, at: 0 };
+// backups you made yourself with vzdump this visit: { kind: 'vm' | 'ct', id, at }
+export const MY_BACKUPS = [];
 export const PROMETHEUS_YML = [
   '# scraped every 15 seconds: the hosts, the Docker VM and the containers',
   'global:',
