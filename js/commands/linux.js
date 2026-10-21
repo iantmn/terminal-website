@@ -696,7 +696,20 @@ def(['traceroute', 'tracert', 'mtr'], 'more', 'the route to a host', async args 
 // who is here, who was here, and what they plan
 const when = t => new Date(t).toString().slice(0, 21);
 const hhmm = ms => { const m = Math.max(0, Math.round(ms / 60000)); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
-def('who', 'more', 'who is logged in', () => print(`${pad(state.user, 9)}pts/0        ${when(currentLogin()?.start || BOOT_TIME).slice(4)} (your browser)`));
+// Ian is logged in too, on pts/1: that is where the wall messages come from
+const IAN_SINCE = Date.now() - 3 * 36e5 - 17 * 6e4;
+def('who', 'more', 'who is logged in', () => printLines([
+  `${pad(state.user, 9)}pts/0        ${when(currentLogin()?.start || BOOT_TIME).slice(4)} (your browser)`,
+  esc(`${pad('ian', 9)}pts/1        ${when(IAN_SINCE).slice(4)} (10.42.0.12)`) + span('m', '  # tmux, on the laptop'),
+]));
+// wall: a message to every terminal. Here that is Ian's and yours
+const broadcast = (from, tty, msg) => printLines(['', span('w b', esc(`Broadcast message from ${from} (${tty}) (${new Date().toString().slice(0, 24)}):`)), '', span('w', esc(msg)), '']);
+def('wall', 'more', 'send a message to everyone logged in', (args, raw) => {
+  const msg = raw.replace(/^\s*wall\s*/, '').replace(/^(["'])(.*)\1$/, '$2');
+  if (!msg) return print(span('e', 'wall: nothing to say? Try wall hello'));
+  broadcast(`${state.user}@${state.host}`, 'pts/0', msg);
+  print(span('m', 'Ian got it too, on pts/1. He is in a meeting, probably.'));
+}, { usage: '<message>' });
 def('last', 'more', 'your earlier visits', args => {
   const [o] = getopt(args, ['n']);
   const now = currentLogin();
@@ -782,6 +795,58 @@ function nextRun(spec, from = new Date()) {
   }
   return null;
 }
+// ---- cron runs while you are here: at the minute a job is due, the ones worth hearing about say so ----
+function cronDue(spec, d) {
+  if (spec.startsWith('@')) return false;
+  const [mi, ho, dom, mon, dow] = spec.split(/\s+/);
+  if (!cronField(mi, 0, 59).has(d.getMinutes()) || !cronField(ho, 0, 23).has(d.getHours()) || !cronField(mon, 1, 12).has(d.getMonth() + 1)) return false;
+  const domOk = cronField(dom, 1, 31).has(d.getDate()), dowOk = cronField(dow.replace('7', '0'), 0, 6).has(d.getDay());
+  return dom !== '*' && dow !== '*' ? domOk || dowOk : domOk && dowOk;
+}
+const CRON_SAYS = {
+  '/usr/bin/coffee --brew --strong': '☕ the first coffee of the day is brewing',
+  '/usr/bin/coffee --refill': '☕ coffee.service refilled the mug',
+  '/usr/bin/coffee --after-lunch': '☕ the after-lunch coffee, against the dip',
+  '/usr/bin/stretch --remind': '🧘 stretch reminder. Ignored, as always',
+  '/usr/bin/standup --monday': '🗣️ standup: what did the weekend break?',
+  '/usr/bin/deploy --never': '🚫 deploy --never ran. Nothing was deployed, as planned',
+  '/usr/bin/write-guide --next-article': '✍️ guide writing time. Coming soon to articles',
+  '/usr/bin/homelab --tinker "just five minutes"': '🔧 homelab tinkering started. See you around one',
+  '/usr/bin/label-cables --this-month-for-real': '🏷️ label the cables. This month. For real',
+  '/usr/bin/cake --birthday': "🎂 it is Ian's birthday: cake.service started",
+  '/usr/sbin/backup --offsite --encrypt': '💾 the nightly backup started: 3-2-1, encrypted',
+  '/usr/bin/check-dns': '🔍 check-dns: ok. It was not DNS this time',
+};
+const WALLS = [
+  'rebooting the printer. Again.',
+  'who pushed to main on a Friday?',
+  'the coffee machine is empty. This is not a drill.',
+  'the homelab fan is loud again. It is fine. Everything is fine.',
+  'reminder to self: label the cables. (I will not.)',
+  'if the site blinks in a minute, that was me. Sorry.',
+  'whoever is reading this: hi! Type contact, I like meeting curious people.',
+];
+// the minute the page loaded counts as done, so only what comes due during the visit runs
+let lastMinute = Math.floor(Date.now() / 6e4), wallAt = Date.now() + (4 + Math.random() * 5) * 6e4, wallN = Math.floor(Math.random() * WALLS.length);
+const told = new Set();
+// only between commands, never in the middle of one, a game or the pager
+setInterval(() => {
+  if (state.busy || state.asking || state.host !== 'iantiemann' || document.getElementById('pager')) return;
+  const d = new Date(), minute = Math.floor(d / 6e4);
+  if (minute !== lastMinute) {
+    lastMinute = minute;
+    for (const [user, rows] of Object.entries(CRONTABS)) for (const [spec, command] of rows) {
+      // the quiet ones that run every few minutes say so once per visit
+      if (!CRON_SAYS[command] || !cronDue(spec, d) || (/check-dns/.test(command) && told.has(command))) continue;
+      told.add(command);
+      print(span('m', `[${d.toTimeString().slice(0, 5)}] CRON (${user}) ${esc(command)}  `) + span('a2', esc(CRON_SAYS[command])));
+    }
+  }
+  if (Date.now() >= wallAt) {
+    broadcast('ian@iantiemann', 'pts/1', WALLS[wallN++ % WALLS.length]);
+    wallAt = Date.now() + (9 + Math.random() * 7) * 6e4;
+  }
+}, 5000);
 const inWords = t => {
   const min = Math.round((t - Date.now()) / 60000);
   if (min < 60) return `in ${min} min`;
