@@ -271,7 +271,9 @@ export const T = [
   ['tail -n 1 about.txt cv.txt', o => o.includes('==> about.txt <==') && o.includes('==> cv.txt <==')],
   ['wc -l about.txt cv.txt', o => / total$/.test(o) && lines(o).length === 3],
   ['head nope', o => o.includes('No such file')],
-  // the network map
+  // the network map, the dashboards, mtr
+  ['grafana', o => o.includes('homelab CPU') && o.includes('/var/lib/docker') && /[▁▂▃▄▅▆▇█]{20}/.test(o)],
+  ['mtr -r -c 3 iantiemann.nl', o => o.includes('Loss%') && o.includes('router.lan') && lines(o).length === 10],
   ['netmap', o => o.includes('pve') && o.includes('10.20.0.20') && o.includes('you are here') && o.includes('wg0')],
   // command not found, but helpful
   ['nmap', o => o.includes('can be installed with') && o.includes('sudo apt install nmap')],

@@ -1,7 +1,7 @@
 // netmap: the whole network at a glance, live from what runs; nmap on the homelab scans it like the real one
-import { print, printLines, span, esc, cmd, pad, state, getopt, sleep } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, scrollDown } from '../core.js';
 import { def, completes } from '../registry.js';
-import { running, up, VMS, CTS } from './labstate.js';
+import { running, up, ALERT, INCIDENTS } from './labstate.js';
 
 const dot = ok => ok ? span('a', '●') : span('e', '●');
 const site = () => running.has('terminal-traefik-1') && running.has('terminal-terminal-1');
@@ -61,3 +61,88 @@ def('nmap', null, 'scan the network', async args => {
   print(`Nmap done: ${hosts.length === 7 ? 256 : hosts.length} IP address${hosts.length === 1 ? '' : 'es'} (${live.length} host${live.length === 1 ? '' : 's'} up) scanned in ${((Date.now() - t0) / 1000).toFixed(2)} seconds`);
 }, { hosts: ['homelab'], usage: '[-sn] <network|host>', flags: [['10.20.0.0/24', 'every address of the home network'], ['-sn', 'a ping scan: only which hosts are up']] });
 completes('nmap', args => args.length ? null : ['10.20.0.0/24', '-sn', 'pve.lan']);
+
+// the route from this terminal to anywhere: the Docker VM, the router, and then Ian's career (traceroute and mtr agree)
+export const routeTo = host => [['homelab', '172.18.0.1'], ['router.lan', '10.20.0.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [host, '192.0.2.42']];
+
+// ---- grafana: the dashboards of the homelab, in sparklines. Dips where you broke things ----
+const SPARK = '▁▂▃▄▅▆▇█';
+// the same value for the same minute, so a second look shows the same history
+const noise = (n, salt) => { const x = Math.sin(n * 12.9898 + salt * 78.233) * 43758.5453; return x - Math.floor(x); };
+const minuteNow = () => Math.floor(Date.now() / 6e4);
+def(['grafana', 'dashboard'], 'more', 'the homelab dashboards, in sparklines', () => {
+  if (!running.has('monitoring-grafana-1')) {
+    state.failed = true;
+    return print(span('e', '502 Bad Gateway') + span('m', ' (traefik): monitoring-grafana-1 is not running. ') + cmd('status') + span('m', ' still works, it does not need Grafana.'));
+  }
+  const now = minuteNow(), N = 30;
+  // was the site, the Docker VM or the host down in that minute?
+  const downIn = (m, kinds) => INCIDENTS.some(i => kinds.includes(i.kind) && m >= Math.floor(i.at / 6e4) && m <= Math.floor((i.at + i.seconds * 1000) / 6e4));
+  const vmDown = m => downIn(m, ['vm', 'guest', 'host']) || (m === now && !up.has(102));
+  const series = (salt, base, amp, fn = v => v) => Array.from({ length: N }, (_, i) => { const m = now - N + 1 + i; return fn(base + amp * (Math.sin(m / 5 + salt) * 0.5 + noise(m, salt) - 0.25), m); });
+  const stacks = ['terminal', 'monitoring', 'automation'].filter(s => [...running].some(r => r.startsWith(s))).length;
+  const panels = [
+    ['homelab CPU', series(1, 8 + stacks * 4, 10, (v, m) => vmDown(m) ? null : v), v => v.toFixed(0) + '%', 100],
+    ['homelab memory', series(2, 9.4, 0.6, (v, m) => vmDown(m) ? null : v), v => v.toFixed(1) + ' GiB', 16],
+    ['pve CPU', series(3, 7, 6, (v, m) => downIn(m, ['host']) ? null : v), v => v.toFixed(0) + '%', 100],
+    ['/var/lib/docker', series(4, 41, 0.4, (v, m) => ALERT.full && m >= now - 4 ? Math.min(100, 41 + (m - now + 5) * 15) : v), v => v.toFixed(0) + '%', 100],
+    ['site requests/min', series(5, 40, 30, (v, m) => downIn(m, ['stack', 'vm', 'guest', 'host']) ? 0 : Math.max(0, v)), v => v.toFixed(0), null],
+    ['WAN in', series(6, 18, 14, v => Math.max(0, v)), v => v.toFixed(1) + ' Mbit/s', null],
+  ];
+  const w = Math.max(...panels.map(p => p[0].length));
+  printLines([
+    span('w b', 'Grafana') + span('m', ' · homelab overview · last 30 minutes · ') + cmd('watch -n 5 grafana', 'watch it'), '',
+    ...panels.map(([name, vals, fmt, max]) => {
+      // panels with a ceiling (CPU, disk) turn yellow and red near it; traffic is just traffic
+      const nums = vals.filter(v => v !== null), top = max ?? Math.max(...nums, 1);
+      const line = vals.map(v => v === null ? span('e', '·') : span(max && v / top > 0.9 ? 'e' : max && v / top > 0.7 ? 'w' : 'a', SPARK[Math.max(0, Math.min(7, Math.round(v / top * 7)))])).join('');
+      const last = vals.at(-1);
+      return `${span('a2', pad(name, w))}  ${line}  ${last === null ? span('e', 'no data') : span('b', fmt(last))}${span('m', '  max ' + fmt(Math.max(...nums)))}`;
+    }),
+    '', span('m', 'Red dots: no data, the machine was down. ') + (INCIDENTS.length ? span('m', 'The dip in requests is you. ') : '') + cmd('status'),
+  ]);
+});
+
+// ---- mtr: traceroute and ping in one, live. q quits; -r -c n prints a report once ----
+def('mtr', null, 'traceroute and ping in one, live', async args => {
+  const [o, [target]] = getopt(args, ['c']);
+  const host = target || 'iantiemann.nl', hops = routeTo(host);
+  const stats = hops.map((h, i) => ({ h, base: 0.4 + i * 2.1 + (i > 2 ? 4 : 0), n: 0, last: 0, sum: 0, sq: 0, best: Infinity, worst: 0, lost: 0 }));
+  const sample = () => stats.forEach((s, i) => {
+    s.n++;
+    // one hop that rate-limits ICMP, like there always is one
+    if (i === 3 && noise(s.n, 9) < 0.15) { s.lost++; return; }
+    const v = s.base * (0.8 + noise(s.n, i) * 0.5);
+    s.last = v; s.sum += v; s.sq += v * v; s.best = Math.min(s.best, v); s.worst = Math.max(s.worst, v);
+  });
+  const ok = s => s.n - s.lost;
+  const table = () => [
+    span('w b', `${pad('HOST: ' + state.host, 34)} Loss%   Snt   Last   Avg  Best  Wrst StDev`),
+    ...stats.map((s, i) => {
+      const avg = ok(s) ? s.sum / ok(s) : 0, sd = ok(s) ? Math.sqrt(Math.max(0, s.sq / ok(s) - avg * avg)) : 0;
+      const loss = (s.lost / Math.max(1, s.n) * 100).toFixed(1) + '%';
+      return esc(`${String(i + 1).padStart(2)}.|-- ${pad(s.h[0], 28)} ${loss.padStart(6)} ${String(s.n).padStart(5)} ${s.last.toFixed(1).padStart(6)} ${avg.toFixed(1).padStart(5)} ${(s.best === Infinity ? 0 : s.best).toFixed(1).padStart(5)} ${s.worst.toFixed(1).padStart(5)} ${sd.toFixed(1).padStart(5)}`);
+    }),
+  ];
+  // the report: n cycles, then the table once (and it pipes)
+  if (o.r || o.report || state.capture) {
+    const n = Math.min(Math.max(parseInt(o.c ?? 10, 10) || 10, 1), 50);
+    for (let i = 0; i < n; i++) sample();
+    return printLines([`Start: ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`, ...table()]);
+  }
+  const box = print('');
+  await new Promise(resolve => {
+    const tick = () => { sample(); box.innerHTML = [span('m', `My traceroute [v0.95]   ${state.host} → ${esc(host)}   ${new Date().toTimeString().slice(0, 8)}`), span('m', 'Keys: q quit, r reset'), '', ...table()].join('\n'); scrollDown(); };
+    const done = () => { clearInterval(timer); removeEventListener('keydown', onKey, true); resolve(); };
+    const onKey = e => {
+      const ctrlC = e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'c';
+      if ((e.ctrlKey || e.metaKey || e.altKey) && !ctrlC) return;
+      e.preventDefault(); e.stopPropagation();
+      if (ctrlC || e.key === 'q' || e.key === 'Escape') return done();
+      if (e.key === 'r') { stats.forEach(s => Object.assign(s, { n: 0, last: 0, sum: 0, sq: 0, best: Infinity, worst: 0, lost: 0 })); tick(); }
+    };
+    addEventListener('keydown', onKey, true);
+    const timer = setInterval(tick, 1000);
+    tick();
+  });
+}, { usage: '[-r] [-c count] <host>', flags: [['host', 'where to (default: iantiemann.nl)'], ['-r, --report', 'run, then print one report'], ['-c count', 'with -r: how many rounds (default 10)']] });

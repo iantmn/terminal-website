@@ -6,6 +6,7 @@ import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrol
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { HOSTS, all } from './labstate.js';
+import { routeTo } from './network.js';
 import { forgetSession } from '../session.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped, vars, envVars } from '../shell.js';
 import { bootSound } from '../sound.js';
@@ -751,12 +752,12 @@ def(['dig', 'nslookup', 'host'], 'more', 'look up a DNS record', (args, raw) => 
     span('m', ';; Query time: 42 msec'),
   ]);
 }, { usage: '[+short] <host>', flags: [['+short', 'only the answer']] });
-def(['traceroute', 'tracert', 'mtr'], 'more', 'the route to a host', async args => {
+def(['traceroute', 'tracert'], 'more', 'the route to a host', async args => {
   const [o, [target]] = getopt(args, ['m', 'q', 'w']);
   const host = target || 'iantiemann.nl';
   const max = Math.max(1, parseInt(o.m ?? 30, 10) || 30);
   print(`traceroute to ${esc(host)}, ${max} hops max`);
-  const hops = [['homelab', '172.18.0.1'], ['router.lan', '10.20.0.1'], ['curiosity.gw', '10.0.0.1'], ['tudelft.ide.edu', '131.180.0.1'], ['avans.breda.edu', '145.48.0.1'], ['notive.zwijndrecht', '185.12.0.1'], ['netw.stellendam', '194.0.4.2'], [esc(host), '192.0.2.42']].slice(0, max);
+  const hops = routeTo(esc(host)).slice(0, max);
   for (let i = 0; i < hops.length; i++) { await sleep(400); print(`${String(i + 1).padStart(2)}  ${o.n ? hops[i][1] : `${hops[i][0]} (${hops[i][1]})`}  ${(Math.random() * 8 + 2 + i * 3).toFixed(1)} ms`); }
 }, { usage: '[-n] [-m hops] <host>', flags: [['-m hops', 'give up after this many hops'], ['-n', 'numbers only, no names']] });
 

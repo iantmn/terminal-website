@@ -152,6 +152,12 @@ export async function runFeatures(onResult = () => {}) {
     const img = [...outEl.querySelectorAll('img.share-card')].pop(), link = [...outEl.querySelectorAll('a[download]')].pop();
     return { ok: !!img && img.src.startsWith('data:image/png') && img.naturalWidth === 1200 && link?.download === 'iantiemann-achievements.png', info: img ? `${img.naturalWidth}x${img.naturalHeight}` : 'no image' };
   });
+  await check('mtr counts up live, q stops it', async () => {
+    const p = run('mtr homelab'); await wait(2300);
+    const box = [...outEl.querySelectorAll('.ln')].pop().innerText;
+    key('q', {}, window); await p; await idle();
+    return { ok: /My traceroute/.test(box) && /\s[23]\s+\d+\.\d/.test(box) && !state.busy, info: box.split('\n').slice(-1)[0] };
+  });
   await check('cmd | less pages through the output', async () => { const p = run('help | less'); await wait(200); const rows = document.querySelectorAll('#pager .pl').length; key('q'); await p; await idle(); return { ok: rows > 20, info: rows + ' rows' }; });
   await check('status: every monitor up', async () => (await out('status')).includes('All systems operational'));
   await check('tldr', async () => { const o = await out('tldr'); return o.includes('Now') && o.includes('Strong in'); });
