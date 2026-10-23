@@ -70,6 +70,11 @@ export const T = [
   ['echo -n hi', o => o === 'hi'],
   ['echo -ne "x\\ty"', o => o === 'x\ty'],
   ['echo -x', o => o === '-x'],
+  // a typo in a path: the name it is closest to, and nothing for a name that is nowhere near
+  ['cd ~/expereince', o => o.includes('did you mean ~/experience/?')],
+  ['ls ~/Articles', o => o.includes('did you mean ~/articles/?')],
+  ['cat /etc/hostnmae', o => o.includes('did you mean /etc/hostname?')],
+  ['cat ~/zzzzzzzz.txt', o => o.includes('No such file') && !o.includes('did you mean')],
   // a flag a command does not declare: the GNU error, and the way to --help
   ['ls -z', o => o.includes("ls: invalid option -- 'z'") && o.includes("Try 'ls --help'")],
   ['ls -laz', o => o.includes("invalid option -- 'z'")],

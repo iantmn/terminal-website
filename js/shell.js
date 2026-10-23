@@ -1,6 +1,6 @@
 // parsing and running command lines: aliases, pipes, && and ;
 import { unlock, unlocked } from './achievements.js';
-import { esc, span, cmd, pad, print, printLines, state, store, getopt, pathStr, HOME } from './core.js';
+import { esc, span, cmd, pad, print, printLines, state, store, getopt, pathStr, HOME, lev } from './core.js';
 import { resolve, cannotWrite, writeFile, TMP_NOTE, glob } from './filesystem.js';
 import { C } from './registry.js';
 import { pager } from './pager.js';
@@ -15,13 +15,6 @@ export function tokenize(s) {
   }
   if (cur) out.push(cur);
   return out;
-}
-function lev(a, b) {
-  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
-    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-  return d[a.length][b.length];
 }
 
 // -h / --help and --version work for every command, built from what def() knows about it.

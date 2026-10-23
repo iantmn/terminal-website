@@ -1,6 +1,6 @@
 // the virtual filesystem: finding paths, ls, and the writable /tmp. The trees themselves are in js/fs/:
 // home.js is ~, system.js the rest of / on the container, homelab.js and pve.js the machines behind ssh
-import { esc, span, cmd, pad, state, displayPath, HOME } from './core.js';
+import { esc, span, cmd, pad, state, displayPath, HOME, lev } from './core.js';
 import { POSTS } from './content.js';
 import { FS } from './fs/home.js';
 import { buildRoot } from './fs/system.js';
@@ -37,6 +37,31 @@ export function resolve(p) {
   }
   return { node, segs: stack };
 }
+
+// a typo in a path: cd expereince -> experience/. Fixes each part that is not there by the closest name in its
+// folder (a letter or two off, or another case), and gives the whole path back, or null when nothing is close
+export function suggestPath(p) {
+  if (!p || !p.replace(/\/+$/, '')) return null;
+  const head = p.startsWith('~/') ? '~/' : p.startsWith('/') ? '/' : '';
+  const parts = p.slice(head.length).split('/').filter(Boolean);
+  let node = head === '~/' ? resolve('~').node : head === '/' ? resolve('/').node : resolve('.').node, fixed = false;
+  const out = [];
+  for (const part of parts) {
+    // a locked folder does not tell what is in it, not even by a suggestion
+    if (!node || node.type !== 'dir' || (node.locked && !state.asRoot)) return null;
+    if (part === '.' || part === '..') { out.push(part); node = resolve(head + [...out].join('/')).node; continue; }
+    let name = node.children[part] ? part : null;
+    if (!name) {
+      const best = Object.keys(node.children).map(n => [n, n.toLowerCase() === part.toLowerCase() ? 0 : lev(part.toLowerCase(), n.toLowerCase())]).sort((a, b) => a[1] - b[1])[0];
+      if (!best || best[1] > Math.min(2, Math.floor(part.length / 3))) return null;
+      name = best[0]; fixed = true;
+    }
+    out.push(name); node = node.children[name];
+  }
+  return fixed ? head + out.join('/') + (node?.type === 'dir' ? '/' : '') : null;
+}
+// what an error about a missing path says after it: did you mean ...?
+export const didYouMean = p => { const s = suggestPath(p); return s ? span('m', '  did you mean ') + cmd(s) + span('m', '?') : ''; };
 
 // a path as typed, as a link: folders cd, programs run, files cat
 export function pathLink(path, node, label = path) {

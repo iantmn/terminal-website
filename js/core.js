@@ -60,6 +60,15 @@ export const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0,
 
 // splits args into options and operands, getopt style: -la gives { l, a }, --all gives { all }.
 // options named in `takes` read a value: -n 5, -n5, --lines=5, --lines 5. A bare -5 gives { num: 5 }.
+// how many letters apart two words are: for the typo suggestions
+export function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
 export function getopt(args, takes = []) {
   const o = {}, rest = [];
   for (let i = 0; i < args.length; i++) {

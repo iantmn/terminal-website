@@ -2,7 +2,7 @@
 import { unlock, track } from '../achievements.js';
 import { PROFILE, SITE, POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
-import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode, writeFile, isMine } from '../filesystem.js';
+import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode, writeFile, isMine, didYouMean } from '../filesystem.js';
 import { htmlToText } from '../shell.js';
 import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
@@ -46,7 +46,7 @@ def(['ls', 'dir', 'll'], 'nav', 'list files', (args, raw = '') => {
   for (const target of targets.length ? targets : [undefined]) {
     const r = resolve(target);
     if (r.error === 'denied') { print(span('e', `ls: cannot open directory '${esc(target)}': Permission denied`)); continue; }
-    if (r.error) { print(span('e', `ls: cannot access '${esc(target)}': No such file or directory`)); continue; }
+    if (r.error) { print(span('e', `ls: cannot access '${esc(target)}': No such file or directory`) + didYouMean(target)); continue; }
     if (r.node.type === 'file' || o.d || o.directory) { print((long ? lsLong(r.segs.at(-1) || '/', r.node, opts) : '') + (!r.segs.length ? '/' : target ? pathLink(target, r.node) : lsEntry(r.segs.at(-1), r.node, r.segs.slice(0, -1)))); continue; }
     // an absolute target keeps absolute headers, like ls -R /home
     const abs = (target || '').startsWith('/'), label = segs => abs ? '/' + segs.join('/') : displayPath(segs);
@@ -74,7 +74,7 @@ def('cd', 'nav', 'change directory', args => {
   if (back && !oldpwd) return print(span('e', 'cd: OLDPWD not set'));
   const r = back ? { node: resolve(displayPath(oldpwd)).node, segs: oldpwd } : resolve(target || '~');
   if (r.error === 'denied') return print(span('e', `cd: ${esc(target)}: Permission denied`));
-  if (r.error || !r.node) return print(span('e', `cd: no such file or directory: ${esc(target)}`));
+  if (r.error || !r.node) return print(span('e', `cd: no such file or directory: ${esc(target)}`) + didYouMean(target));
   if (r.node.type !== 'dir') return print(span('e', `cd: not a directory: ${esc(target)}`));
   if (back) print(esc(displayPath(r.segs)));
   if (!r.segs.length) { print(span('m', "You're at the root of everything. Can't go any higher. Here be dragons.")); unlock('edge'); }
@@ -91,7 +91,7 @@ def(['cat', 'bat'], 'nav', 'print a file', args => {
   for (const a of files) {
     const r = resolve(a);
     if (r.error === 'denied') { print(span('e', `cat: ${esc(a)}: Permission denied`)); continue; }
-    if (r.error) { print(span('e', `cat: ${esc(a)}: No such file or directory`)); continue; }
+    if (r.error) { print(span('e', `cat: ${esc(a)}: No such file or directory`) + didYouMean(a)); continue; }
     if (r.node.type === 'dir') { print(span('e', `cat: ${esc(a)}: Is a directory`)); continue; }
     let lines = r.node.read();
     if (squeeze) lines = lines.filter((l, i) => l !== '' || lines[i - 1] !== '');
@@ -222,7 +222,7 @@ def(['less', 'more'], 'nav', 'read a file one page at a time', async args => {
   const [o, files] = getopt(args);
   if (!files.length) return print(span('e', 'Missing filename ("less --help" for help)') + span('m', ' Try ') + cmd('less about.txt') + span('m', ' or ') + cmd('history | less'));
   const r = resolve(files[0]);
-  if (r.error) { state.failed = true; return print(span('e', `${esc(files[0])}: ${r.error === 'denied' ? 'Permission denied' : 'No such file or directory'}`)); }
+  if (r.error) { state.failed = true; return print(span('e', `${esc(files[0])}: ${r.error === 'denied' ? 'Permission denied' : 'No such file or directory'}`) + (r.error === 'denied' ? '' : didYouMean(files[0]))); }
   if (r.node.type === 'dir') { state.failed = true; return print(span('e', `${esc(files[0])} is a directory`)); }
   await pager(r.node.read(), files[0], { numbers: o.N || o['LINE-NUMBERS'] });
 }, { usage: '[-N] <file>', flags: [['-N, --LINE-NUMBERS', 'number every line'], ['space / b', 'a page down / up'], ['j / k', 'a line down / up'], ['g / G', 'the top / the end'], ['/word, n, N', 'search, next, previous'], ['q', 'quit']] });
