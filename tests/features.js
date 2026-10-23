@@ -206,6 +206,12 @@ export async function runFeatures(onResult = () => {}) {
     return { ok: o.includes('container monitoring-loki-1 started') && /homelab sshd\[\d+\]: Accepted publickey for ian from 172\.18\.0\.3/.test(o)
       && /pve1 sshd\[\d+\]: pam_unix\(sshd:session\): session closed for user root/.test(o), info: o.split('\n').filter(l => /sshd|dockerd/.test(l)).slice(-3).join(' | ') };
   });
+  // been on pve1 by now: hint nudges towards the cluster puzzles
+  await check('hint nudges towards the backup and the cluster', async () => {
+    const o = await out('hint');
+    const { unlocked } = await import('/js/achievements.js');
+    return { ok: (unlocked.has('threetwoone') || o.includes('nightly job')) && (unlocked.has('closet') || o.includes('pve1 is one of three nodes')), info: o.split('\n').filter(l => l.includes('💡')).join(' | ') };
+  });
   await check('who and last on pve1 show your own sessions', async () => {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
