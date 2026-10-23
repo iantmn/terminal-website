@@ -233,6 +233,7 @@ def('reset-achievements', 'system', 'forget all achievements', async () => {
   seen.clear();
   found.clear();
   store.del('wol'); CLUSTER.wol = false;
+  store.del('tmux-closed');
   resetDiary();
   print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
 });
@@ -267,6 +268,7 @@ function nudges() {
   if (!has('restore') && s('restore-start')) out.push(s('restore-extracted') ? 'You have the file on pve1. It belongs on the homelab: scp can take it there.' : s('restore-wrong-snapshot') ? 'That backup ran after the file was gone. Take an older snapshot.' : 'The backups are made per VM, by the Proxmox cluster. Getting one file out of one has its own tool on pve1.');
   if (!has('firefighter') && ALERT.fired) out.push(ALERT.full ? 'The alert on the homelab is still firing. Why did Grafana die? Its logs know, and df -h agrees.' : 'The disk has room again. Grafana does not start itself.');
   if (has('homelab') && !has('shipit') && !DEPLOYED.has('whoami')) out.push('One folder in ~/stacks on the homelab has a compose file, and nothing ever ran from it. ' + cmd('docker ps -a') + ' agrees.');
+  if (has('homelab') && !has('snoop') && !store.get('tmux-closed', false)) out.push('Ian is logged in on the homelab too, right now. ' + cmd('who') + ' shows where; the comment says what he runs.');
   if (has('pve') && !has('threetwoone')) out.push(MY_BACKUPS.length ? 'A backup that goes to local disk is one copy too few. Where does the nightly job send them?' : 'The nightly job backs up every guest at 03:00. You can make one yourself, any time, with the same tool. Which one does the job run?');
   // the cluster: one node off, the same again with Wake-on-LAN, and then all of them
   if (has('pve') && !has('closet') && !CLUSTER.wol) out.push('pve1 is one of three nodes. What happens to this site when one is switched off? And who has to switch it back on?');

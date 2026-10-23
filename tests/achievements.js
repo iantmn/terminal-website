@@ -185,6 +185,13 @@ export const SOLUTIONS = {
     for (const n of order) await answer(`pvesh create /nodes/${n}/status --command shutdown`);
     await p; await idle();
   },
+  // Ian's tmux on the homelab: watch until he kicks you out
+  snoop: async () => {
+    const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await answer('works-on-my-machine'); await answer('tmux ls'); await answer('tmux attach -r');
+    await until(() => unlocked.has('snoop'), 30000);
+    await answer('exit'); await p; await idle();
+  },
   student: () => all('learn restart; pwd; ls; cd experience; cat netw-it-specialist.md; cd ..; skills -a | grep linux; ls; help ls'),
   completionist: async () => {},
 };

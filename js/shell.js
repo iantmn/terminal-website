@@ -55,7 +55,7 @@ function noteFound(c) {
 const BASE_COMMANDS = ['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'ssh', 'netmap', 'grafana', 'mtr', 'who', 'last'];
 const HOST_COMMANDS = {
   // status: Uptime Kuma runs on the homelab, so its page is there too
-  homelab: [new Set([...BASE_COMMANDS, 'status', 'docker', 'wg', 'ansible', 'ansible-playbook', 'nmap']), 'A lean install.'],
+  homelab: [new Set([...BASE_COMMANDS, 'status', 'tmux', 'docker', 'wg', 'ansible', 'ansible-playbook', 'nmap']), 'A lean install.'],
   pve1: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool', 'proxmox-file-restore', 'scp', 'vzdump', 'pvecm', 'pvesr', 'ha-manager', 'cp', 'rm', 'mkdir', 'touch']), 'The hypervisor: everything runs on this, so tread lightly.'],
 };
 // help on the homelab and pve1: by topic, one short line each. What a command does on the main terminal is not

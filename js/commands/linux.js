@@ -2,7 +2,7 @@
 import { unlock, unlocked, ACH_IDS, saw } from '../achievements.js';
 import { boot } from '../boot.js';
 import { POSTS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
+import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt, store } from '../core.js';
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
 import { HOSTS, all, logRows, logStamp, VISIT_LOG, SESSIONS } from './labstate.js';
@@ -781,7 +781,7 @@ const IAN_SINCE = Date.now() - 3 * 36e5 - 17 * 6e4;
 const remoteWho = () => [...SESSIONS.filter(x => x.host === state.host && !x.end).map((x, i) => ({ ...x, tty: 'pts/' + i })),
   ...(state.host === 'homelab' ? [{ user: 'ian', tty: 'pts/' + SESSIONS.filter(x => x.host === 'homelab' && !x.end).length, from: '10.42.0.12', start: IAN_SINCE, ian: true }] : [])];
 const isoMin = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-def('who', 'more', 'who is logged in', () => onLab() ? printLines(remoteWho().map(x => esc(`${pad(x.user, 9)}${pad(x.tty, 13)}${isoMin(x.start)} (${x.from})`) + (x.ian ? span('m', '  # Ian, tmux on the laptop') : ''))) : printLines([
+def('who', 'more', 'who is logged in', () => onLab() ? printLines(remoteWho().map(x => esc(`${pad(x.user, 9)}${pad(x.tty, 13)}${isoMin(x.start)} (${x.from})`) + (x.ian ? span('m', store.get('tmux-closed', false) ? '  # Ian, tmux on his laptop now' : '  # Ian, in tmux on this machine') : ''))) : printLines([
   `${pad(state.user, 9)}pts/0        ${when(currentLogin()?.start || BOOT_TIME).slice(4)} (your browser)`,
   esc(`${pad('ian', 9)}pts/1        ${when(IAN_SINCE).slice(4)} (10.42.0.12)`) + span('m', '  # tmux, on the laptop'),
 ]));

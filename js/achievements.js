@@ -73,6 +73,7 @@ export const ACH = {
   closet:   ['Coffee run',                 'Turn off a cluster node, and see who has to fix it.', 'poweroff on pve1. Ian walks to the closet, and afterwards sets up Wake-on-LAN.'],
   wol:      ['Magic packet',               'Do it again, now that Ian prepared for it.', 'poweroff on a node a second time: Ian wakes it with Wake-on-LAN.'],
   blackout: ['Lights out',                 'A cluster survives one node going down. Not three.', 'On pve1: pvesh create /nodes/pve2/status --command shutdown, then the same for pve3. If VM 102 (this site) runs on one of them, shut that one down last.'],
+  snoop:    ['Shoulder surfer',            'Ian is logged in on the homelab right now. What is he working on?', 'On the homelab: tmux ls, then tmux attach -r. Watch until he notices you.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);
@@ -101,5 +102,5 @@ export function track(key, value, goal, ach) {
   if (set.size >= goal) unlock(ach);
 }
 // classics have no hint, secrets have a hint but never a solution: those you find yourself
-export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage', 'pve', 'restore', 'firefighter', 'closet', 'wol', 'blackout'];
+export const SECRET_ACH = ['konami', 'treasure', 'oncall', 'corrupt', 'ghost', 'homelab', 'outage', 'pve', 'restore', 'firefighter', 'closet', 'wol', 'blackout', 'snoop'];
 export const noSolution = id => !ACH[id][1] || SECRET_ACH.includes(id);

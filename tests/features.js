@@ -256,6 +256,21 @@ export async function runFeatures(onResult = () => {}) {
     const o = since(b), [, st, ku] = o.split(/ian@homelab:~\$ (?:status|kuma)\n/);
     return { ok: !!st && !!ku && st.includes('Uptime Kuma') && ku.includes('Uptime Kuma') && !o.includes('command not found'), info: o.split('\n').slice(-4).join(' | ') };
   });
+  // tmux: Ctrl+B d leaves Ian's session open; watch long enough and he kicks you, and then it is gone for good
+  await check("tmux attach to Ian's session, until he closes it", async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    await send('tmux attach -r'); await wait(1200);
+    key('b', { ctrlKey: true }); key('d'); await wait(300);
+    await send('tmux ls'); const open = since(b).includes('0: 1 windows');
+    await send('tmux attach -r');
+    const t = Date.now(); while (!state.asking && Date.now() - t < 30000) await wait(100);
+    await send('tmux ls'); await send('tmux attach'); await send('exit'); await done; await idle();
+    const o = since(b);
+    return { ok: open && o.includes('DiskAlmostFull') && o.includes('tmux detach-client -t /dev/pts/0') && /no server running on \/tmp\/tmux-1000\/default[\s\S]*no server running/.test(o),
+      info: o.split('\n').filter(l => /tmux|detached|server/.test(l)).slice(-5).join(' | ') };
+  });
   await check('who and last on pve1 show your own sessions', async () => {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
@@ -264,7 +279,7 @@ export async function runFeatures(onResult = () => {}) {
     await done; await idle();
     const o = since(b);
     return { ok: /root +pts\/0 +\d{4}-\d\d-\d\d \d\d:\d\d \(10\.20\.0\.20\)/.test(o) && /root +pts\/0 +10\.20\.0\.20 .* still logged in/.test(o)
-      && /root +pts\/0 +10\.20\.0\.20 .* - \d\d:\d\d/.test(o) && /ian +pts\/0 .*\(172\.18\.0\.3\)/.test(o) && o.includes('Ian, tmux on the laptop'), info: o.split('\n').filter(l => /pts\//.test(l)).join(' | ') };
+      && /root +pts\/0 +10\.20\.0\.20 .* - \d\d:\d\d/.test(o) && /ian +pts\/0 .*\(172\.18\.0\.3\)/.test(o) && /# Ian, (in tmux on this machine|tmux on his laptop now)/.test(o), info: o.split('\n').filter(l => /pts\//.test(l)).join(' | ') };
   });
   return results;
 }

@@ -1,6 +1,7 @@
 // the homelab: the shell after ssh, its docker stacks, and what happens when you stop the one this site runs in
 import { unlock } from '../achievements.js';
-import { print, printLines, span, esc, cmd, pad, ask, state, inrow, promptHTML, HOME, getopt, store } from '../core.js';
+import { def, completes } from '../registry.js';
+import { print, printLines, span, esc, cmd, pad, ask, state, inrow, promptHTML, HOME, getopt, store, scrollDown } from '../core.js';
 import { execChain } from '../shell.js';
 import { remember, resetHistoryCursor, expandHistory } from '../input.js';
 import { boot } from '../boot.js';
@@ -575,3 +576,85 @@ export async function labSession(resume = null) {
     down.kind === 'guest' ? 'Stopping the VM you came in through. Bold.' : 'You turned off the machine you were standing on. Bold.');
   note('🐕', 'The watchdog restarted terminal.iantiemann.nl', `${after}. Nothing got lost: the site is static, the stack came back on its own.`, 'Thanks for the chaos test. That is exactly what the watchdog is for.');
 }
+
+// ---- tmux: Ian's session on the homelab, shared by accident. Attach and you watch him work, until he notices you.
+// Then he kicks you out and runs tmux on his laptop from then on: for good, also on your next visit ----
+export const tmuxClosed = () => store.get('tmux-closed', false);
+const TMUX_SINCE = new Date(Date.now() - 3 * 36e5 - 15 * 6e4);
+const ALERT_RULE = [
+  '      - alert: DiskAlmostFull',
+  '        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes < 0.10',
+  '        for: 5m',
+  '        annotations:',
+  '          summary: Docker disk below 10%. Prune before Grafana falls over again.',
+];
+async function tmuxAttach(readOnly) {
+  const ROWS = 16, W = 76;
+  const vim = ['groups:', '  - name: homelab', '    rules:', '      - alert: ContainerDown', '        expr: time() - container_last_seen > 60', '        for: 1m'];
+  let pane = [...vim], cmdline = '"alerts.yml" 6L, 164B', status = '', mode = 'vim';
+  const bar = () => span('a', pad(`[0] 0:${mode}*`, 22)) + span('m', pad(status, W - 42)) + span('a', `"homelab" ${new Date().toTimeString().slice(0, 5)} ${new Date().toDateString().slice(4, 10)}`);
+  const box = print('');
+  const draw = () => {
+    const body = mode === 'vim'
+      ? [...pane.map(esc), ...Array(Math.max(0, ROWS - 1 - pane.length)).fill(span('m', '~')), esc(cmdline)]
+      : [...Array(Math.max(0, ROWS - pane.length)).fill(''), ...pane.slice(-ROWS).map(esc)];
+    box.innerHTML = [...body.slice(-ROWS), bar(), span('m', readOnly ? '(read-only: Ctrl+B d detaches)' : '(Ian has the keyboard. Ctrl+B d detaches)')].join('\n');
+    scrollDown();
+  };
+  let prefix = false, gone = false, finish;
+  const ended = new Promise(r => { finish = r; });
+  const detach = () => { if (gone) return; gone = true; removeEventListener('keydown', onKey, true); finish(); };
+  const onKey = e => {
+    if (e.metaKey || e.altKey) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.ctrlKey && e.key.toLowerCase() === 'b') { prefix = true; return; }
+    if (prefix && e.key === 'd') return detach();
+    prefix = false;
+  };
+  addEventListener('keydown', onKey, true);
+  // what Ian does while you watch; every step stops when you detached in the meantime
+  const step = async (ms, f) => { if (gone) return false; await pause(ms); if (gone) return false; f(); draw(); return true; };
+  const ianPrompt = 'ian@homelab:~/stacks/monitoring$ ';
+  draw();
+  try {
+    for (const line of ALERT_RULE) if (!await step(700, () => { pane.push(line); cmdline = '-- INSERT --'; })) return;
+    if (!await step(900, () => { cmdline = ':w'; })) return;
+    if (!await step(500, () => { cmdline = '"alerts.yml" 11L, 412B written'; })) return;
+    // he notices: a second client on his session
+    if (!await step(1800, () => { status = '2 clients'; })) return;
+    if (!await step(1500, () => { cmdline = ':q'; })) return;
+    if (!await step(500, () => { mode = 'bash'; pane = [ianPrompt + 'tmux list-clients']; })) return;
+    if (!await step(700, () => pane.push('/dev/pts/1: 0 [80x24 xterm-256color] (utf8)', `/dev/pts/0: 0 [80x24 xterm-256color] (${readOnly ? 'read-only' : 'utf8'}) <- 172.18.0.3, the terminal container`))) return;
+    if (!await step(1600, () => pane.push(ianPrompt + 'echo "hi guest. nice find. this session was never meant to be shared"'))) return;
+    if (!await step(500, () => pane.push('hi guest. nice find. this session was never meant to be shared'))) return;
+    if (!await step(1600, () => pane.push(ianPrompt + 'tmux detach-client -t /dev/pts/0'))) return;
+    await pause(600);
+    if (gone) return;
+    // he kicks you, kills the shared session, and keeps tmux on his laptop from now on
+    store.set('tmux-closed', true);
+    logEvent('homelab', 'tmux', 1517, 'client /dev/pts/0 detached by ian, server exited');
+    detach();
+    printLines([span('m', '[detached (from session 0)]'), '',
+      span('w', '💻 Ian runs ') + span('a2', 'tmux kill-server') + span('w', ' on the homelab and starts tmux on his laptop instead. You will not be watching him type again.')]);
+    unlock('snoop');
+    return;
+  } finally {
+    await ended;
+    if (!store.get('tmux-closed', false)) print(span('m', '[detached (from session 0)]'));
+  }
+}
+def('tmux', null, 'terminal multiplexer: sessions that keep running', async args => {
+  const [o, [sub = 'new', ...rest]] = getopt(args, ['t', 's', 'S', 'L']);
+  const none = () => { state.failed = true; print(span('e', 'no server running on /tmp/tmux-1000/default')); };
+  if (['ls', 'list-sessions'].includes(sub)) return tmuxClosed() ? none() : print(`0: 1 windows (created ${TMUX_SINCE.toString().slice(0, 24)}) (attached)`);
+  if (['attach', 'attach-session', 'a', 'at'].includes(sub)) {
+    if (tmuxClosed()) return none();
+    if (o.t && !['0', '0:'].includes(String(o.t))) { state.failed = true; return print(span('e', `can't find session: ${esc(o.t)}`)); }
+    return tmuxAttach(!!o.r || rest.includes('-r'));
+  }
+  if (['kill-server', 'kill-session'].includes(sub)) { state.failed = true; return print(span('e', tmuxClosed() ? 'no server running on /tmp/tmux-1000/default' : "Ian is in that session. Killing it would be rude; watching it is only nosy.")); }
+  if (sub === 'new' || sub === 'new-session') return print(span('m', 'A tmux of your own would end when this connection does. ') + (tmuxClosed() ? '' : span('m', 'There is one running already: ') + cmd('tmux ls')));
+  state.failed = true;
+  print(span('e', `unknown command: ${esc(sub)}`) + span('m', '  (ls, attach [-r] [-t 0])'));
+}, { hosts: ['homelab'], usage: 'ls | attach [-r] [-t session]', flags: [['ls', 'the sessions on this machine'], ['attach', 'join a session and see what it shows'], ['-r', 'with attach: read-only, only watch'], ['-t session', 'with attach: which session (0)']] });
+completes('tmux', args => args.length ? (args[0].startsWith('a') ? ['-r', '-t'] : null) : ['ls', 'attach']);
