@@ -3,10 +3,11 @@
 // (or CHANNEL=msedge / CHANNEL=chrome to use a browser that is installed already)
 // BROWSER=chromium|firefox|webkit picks the engine, DEVICE=phone a phone (Pixel 7 in Chromium, iPhone 14 in WebKit)
 // SHARD=main runs everything but the achievements, SHARD=achievements only those (the slow part); CI runs both side by side.
+// A suite that fails leaves a screenshot and the text of the terminal in test-results/
 // Every test prints a line as it finishes; on GitHub Actions each suite is a collapsible group, failures are
 // annotations, and a table goes into the job summary
 import { createServer } from 'node:http';
-import { readFile, readdir, appendFile } from 'node:fs/promises';
+import { readFile, readdir, appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,6 +30,8 @@ function suite(name) {
   suites.push(s);
   console.log(CI ? `::group::${name}` : '\n' + bold(name));
   return {
+    name,
+    failed: () => s.results.some(r => !r.ok),
     add(r) {
       s.results.push(r);
       const time = r.ms !== undefined ? dim(` (${r.ms} ms)`) : '';
@@ -76,6 +79,18 @@ const browser = await playwright[engine].launch(process.env.CHANNEL ? { channel:
 const device = phone ? playwright.devices[engine === 'webkit' ? 'iPhone 14' : 'Pixel 7'] : { viewport: { width: 1280, height: 900 } };
 const pageOpts = { ...device, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'Europe/Amsterdam' };
 const label = `${engine}${phone ? ', phone' : ''}${SHARD === 'all' ? '' : ', ' + SHARD}`;
+// what the page looked like when a suite failed: for the artifact CI keeps of a failed run
+const OUT = join(root, 'test-results');
+async function evidence(p, what) {
+  if (!p || p.isClosed()) return;
+  const file = join(OUT, `${label}-${what}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+  try {
+    await mkdir(OUT, { recursive: true });
+    await p.screenshot({ path: file + '.png' });
+    await writeFile(file + '.txt', await p.evaluate(() => (document.getElementById('out') || document.body).innerText));
+    console.log(dim(`      saved ${file.slice(root.length + 1)}.png and .txt`));
+  } catch (e) { console.log(dim('      no screenshot: ' + e.message)); }
+}
 console.log(bold(`Browser: ${label}`) + dim(` (${browser.version()})`));
 const pageErrors = [];
 let current = null;
@@ -108,17 +123,19 @@ try {
       t.end();
     }
 
+    // a suite that fails leaves the page behind as it was
+    const done = async () => { current.end(); if (current.failed()) await evidence(page, current.name); };
     current = suite('Commands and flags');
     await page.evaluate(async () => { const f = await import('/tests/flags.js'); await f.runAll([...f.T, ...f.SLOW], 1, r => window.report(r)); });
-    current.end();
+    await done();
 
     current = suite('Help texts agree');
     await page.evaluate(async () => { const f = await import('/tests/help.js'); await f.runHelp(r => window.report(r)); });
-    current.end();
+    await done();
 
     current = suite('Interactive features');
     await page.evaluate(async () => { const f = await import('/tests/features.js'); await f.runFeatures(r => window.report(r)); });
-    current.end();
+    await done();
 
     // the special days: every date with its message, the moving ones included; then two whole boots on a fake clock
     current = suite('Special days');
@@ -155,7 +172,9 @@ try {
       const p = await c.newPage();
       await p.goto(url); await p.keyboard.press('m');
       await p.waitForFunction(() => document.getElementById('out')?.innerText.includes('Welcome'), null, { timeout: 30000 });
-      current.add({ name, ok: await check(p), info: 'on ' + time });
+      const ok = await check(p);
+      current.add({ name, ok, info: 'on ' + time });
+      if (!ok) await evidence(p, 'special day ' + time);
       await c.close();
     }
     current.end();
@@ -192,6 +211,7 @@ try {
       current.add({ name: 'a stopped guest stays stopped', ok: !got.ha });
       current.add({ name: 'the incidents are remembered', ok: got.incidents === 1, info: `${got.incidents} incidents` });
       current.add({ name: 'every guest is on its home node again', ok: got.home });
+      if (current.failed()) await evidence(p, current.name);
       await c.close();
     }
     current.end();
@@ -217,8 +237,17 @@ try {
     current.add({ name: 'patience', ok: await has('patience'), info: 'two idle minutes did not unlock it' });
     current.add({ name: 'completionist', ok: await has('completionist'), info: 'everything else is unlocked, completionist is not' });
     current.end();
+    if (current.failed()) await evidence(fresh, current.name);
     await ctx.close();
   }
+} catch (e) {
+  // a suite that throws (a timeout, a page that never answers) counts as a failure, with every open page saved
+  console.log(red('\n' + (e.stack || e.message)));
+  const t = suite('Crashed');
+  t.add({ name: e.message.split('\n')[0], ok: false, info: e.stack });
+  t.end();
+  let i = 0;
+  for (const ctx of browser.contexts()) for (const p of ctx.pages()) await evidence(p, `crash ${++i}`);
 } finally {
   await browser.close();
   server.close();

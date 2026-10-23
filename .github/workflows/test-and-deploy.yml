@@ -2,7 +2,7 @@ name: tests and deploy
 
 # every push and pull request is tested, in three browser engines and on two phones; a push to main is deployed
 # to GitHub Pages only when every one of them passes. Each browser runs in two shards side by side: the
-# achievements (the slow part) and everything else.
+# achievements (the slow part) and everything else. A failed shard keeps a screenshot and the terminal text.
 # Needs Settings > Pages > Source: GitHub Actions (instead of "Deploy from a branch")
 on:
   push:
@@ -61,6 +61,14 @@ jobs:
           BROWSER: ${{ matrix.target.browser }}
           DEVICE: ${{ matrix.target.device }}
           SHARD: ${{ matrix.shard }}
+      - name: Keep the screenshot and terminal text of what failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.target.browser }}-${{ matrix.target.device }}-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
   deploy:
     needs: test
