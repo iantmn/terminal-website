@@ -3,11 +3,15 @@
 import { state, print, span, inrow, renderPrompt, focusInput } from './core.js';
 import { resolve, exportTmp, importTmp, clearTmp } from './filesystem.js';
 import { vars } from './shell.js';
+import { exportLab, importLab } from './commands/labstate.js';
 
 const KEY = 'iterm.session';
+// the homelab and the cluster have a key of their own: rebooting this terminal does not reset those machines
+const LAB_KEY = 'iterm.lab';
 let resuming = false;
 export function saveSession() {
   try { sessionStorage.setItem(KEY, JSON.stringify({ host: state.host, cwd: state.cwd, tmp: exportTmp(), vars })); } catch {}
+  try { sessionStorage.setItem(LAB_KEY, JSON.stringify(exportLab())); } catch {}
 }
 // a reboot: the tab forgets the session and /tmp is empty again
 export function forgetSession() {
@@ -21,6 +25,7 @@ function saved() {
 export async function resumeSession() {
   const s = saved();
   addEventListener('pagehide', saveSession);
+  try { importLab(JSON.parse(sessionStorage.getItem(LAB_KEY) || 'null')); } catch {}
   if (!s || resuming) return;
   resuming = true;
   importTmp(s.tmp);

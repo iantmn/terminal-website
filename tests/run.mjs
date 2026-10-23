@@ -155,6 +155,42 @@ try {
   }
   current.end();
 
+  // a reload keeps the lab as you left it: what you stopped, deployed and restored. A reboot of this terminal does too
+  current = suite('The lab after a reload');
+  {
+    const c = await browser.newContext(pageOpts);
+    const p = await c.newPage();
+    const start = async () => {
+      await p.keyboard.press('m');
+      await p.waitForFunction(() => document.getElementById('out')?.innerText.includes('Welcome'), null, { timeout: 30000 });
+      await p.waitForFunction(() => import('/js/core.js').then(m => !m.state.busy), null, { timeout: 30000 });
+    };
+    await p.goto(url); await start();
+    await p.evaluate(async () => {
+      const L = await import('/js/commands/labstate.js');
+      L.running.delete('monitoring-grafana-1'); L.stoppedAt['monitoring-grafana-1'] = Date.now() - 60000;
+      L.DEPLOYED.add('whoami'); L.running.add('whoami-whoami-1');
+      L.RESTORE.done = true; L.RESTORE.at = Date.now();
+      L.up.delete(101); L.INCIDENTS.push({ what: 'poweroff', at: Date.now() - 1000, secs: 12 });
+    });
+    await p.reload(); await start();
+    const got = await p.evaluate(async () => {
+      const L = await import('/js/commands/labstate.js');
+      const { buildLab } = await import('/js/fs/homelab.js');
+      const lab = buildLab(), mon = lab.children?.home?.children?.ian?.children?.stacks?.children?.monitoring?.children || {};
+      return { grafana: L.running.has('monitoring-grafana-1'), whoami: L.DEPLOYED.has('whoami') && L.running.has('whoami-whoami-1'), restore: L.RESTORE.done,
+        ha: L.up.has(101), incidents: L.INCIDENTS.length, yml: 'prometheus.yml' in mon, home: L.VMS.every(v => v.node === v.home) };
+    });
+    current.add({ name: 'a stopped container stays stopped', ok: !got.grafana });
+    current.add({ name: 'a deployed stack stays deployed', ok: got.whoami });
+    current.add({ name: 'the restore stays done, and prometheus.yml is there', ok: got.restore && got.yml, info: JSON.stringify(got) });
+    current.add({ name: 'a stopped guest stays stopped', ok: !got.ha });
+    current.add({ name: 'the incidents are remembered', ok: got.incidents === 1, info: `${got.incidents} incidents` });
+    current.add({ name: 'every guest is on its home node again', ok: got.home });
+    await c.close();
+  }
+  current.end();
+
   // every achievement, in a browser of its own that has never seen the site: on Halloween, at three at night
   current = suite('Every achievement can be unlocked');
   const ctx = await browser.newContext(pageOpts);

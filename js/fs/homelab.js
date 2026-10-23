@@ -3,6 +3,7 @@ import { saw } from '../achievements.js';
 import { PROFILE } from '../content.js';
 import { esc, span, cmd, link } from '../core.js';
 import { dir, file } from './nodes.js';
+import { RESTORE, PROMETHEUS_YML } from '../commands/labstate.js';
 
 export function buildLab() {
   const labFile = (lines, extra) => file(lines, { own: 'ian', ...extra });
@@ -176,7 +177,9 @@ export function buildLab() {
               '  grafana:',
             ]),
             'config.alloy': labFile(['// Alloy: the logs of every container, to Loki', 'discovery.docker "containers" { host = "unix:///var/run/docker.sock" }', 'loki.source.docker "logs" {', '  host    = "unix:///var/run/docker.sock"', '  targets = discovery.docker.containers.targets', '  forward_to = [loki.write.local.receiver]', '}']),
-            // prometheus.yml is missing on purpose: the restore puzzle. scp from pve puts it back, so ian may write here
+            // prometheus.yml is missing on purpose: the restore puzzle. scp from pve puts it back, so ian may write here.
+            // Restored before a reload? Then it is simply there again
+            ...(RESTORE.done ? { 'prometheus.yml': labFile(PROMETHEUS_YML) } : {}),
           }, { own: 'ian', writable: true }),
           whoami: dir({
             'docker-compose.yml': labFile([

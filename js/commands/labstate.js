@@ -63,3 +63,31 @@ export const CTS = [
 export const stoppedSince = {};
 export const up = new Set([...VMS.filter(v => v.pid).map(v => v.id), ...CTS.filter(c => !c.stopped).map(c => c.id)]);
 export const guestDownSince = id => up.has(id) ? null : stoppedSince[id] ?? Date.now();
+
+// every guest prefers the node it started on: once that node is up again, HA moves it back there (failback)
+[...VMS, ...CTS].forEach(g => { g.home = g.node; });
+
+// ---- the lab across a reload: what you stopped, moved, deployed and restored stays that way for this tab ----
+export function exportLab() {
+  return {
+    running: [...running], stoppedAt, deployed: [...DEPLOYED], restore: RESTORE, alert: ALERT,
+    up: [...up], stoppedSince,
+    incidents: INCIDENTS, backups: MY_BACKUPS,
+  };
+}
+export function importLab(d) {
+  if (!d || typeof d !== 'object') return;
+  const list = x => Array.isArray(x) ? x : null, obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : null;
+  const names = new Set(Object.entries(STACKS).flatMap(([s, svcs]) => svcs.map(v => `${s}-${v}-1`)));
+  if (list(d.deployed)) { DEPLOYED.clear(); d.deployed.filter(s => STACKS[s]).forEach(s => DEPLOYED.add(s)); }
+  if (list(d.running)) { running.clear(); d.running.filter(n => names.has(n)).forEach(n => running.add(n)); }
+  if (obj(d.stoppedAt)) for (const [k, v] of Object.entries(d.stoppedAt)) if (names.has(k) && typeof v === 'number') stoppedAt[k] = v;
+  if (obj(d.restore)) Object.assign(RESTORE, { done: !!d.restore.done, at: +d.restore.at || 0 });
+  if (obj(d.alert)) Object.assign(ALERT, { fired: !!d.alert.fired, full: !!d.alert.full, resolved: !!d.alert.resolved });
+  // where a guest runs is not saved: after a reload all three nodes are up, so with failback every guest is home again
+  const guests = [...VMS, ...CTS];
+  if (list(d.up)) { up.clear(); d.up.filter(id => guests.some(g => g.id === id)).forEach(id => up.add(id)); }
+  if (obj(d.stoppedSince)) for (const [k, v] of Object.entries(d.stoppedSince)) if (typeof v === 'number') stoppedSince[k] = v;
+  if (list(d.incidents)) INCIDENTS.splice(0, INCIDENTS.length, ...d.incidents.filter(i => i && typeof i.what === 'string' && typeof i.at === 'number').slice(-20));
+  if (list(d.backups)) MY_BACKUPS.splice(0, MY_BACKUPS.length, ...d.backups.filter(b => b && typeof b.id === 'number' && typeof b.at === 'number').slice(-20));
+}
