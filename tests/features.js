@@ -226,6 +226,16 @@ export async function runFeatures(onResult = () => {}) {
     for (const c of pve.filter(c => !['exit', 'logout', 'help'].includes(c))) if (!new RegExp(`^  ${c} `, 'm').test(pveHelp)) missing.push('pve1 ' + c);
     return { ok: !missing.length && labHelp.includes('Docker') && pveHelp.includes('Guests and backups') && pveHelp.includes('Usage: qm'), info: missing.join(', ') };
   });
+  await check('ls -l: ian:ian on the homelab, root:root on pve1', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    for (const l of ['ls -l ~/stacks', 'id', 'ssh -i ~/.ssh/ansible_pve root@pve1', 'ls -l /root', 'exit', 'exit']) await send(l);
+    await done; await idle();
+    const o = since(b), [lab, pve] = o.split('root@pve1:~# ls -l /root');
+    return { ok: / ian +ian +\d+ .* terminal/.test(lab) && !/guest/.test(lab.replace(/^.*guest@.*$/m, '')) && lab.includes('999(docker)') && / root +root +\d+ .* notes\.txt/.test(pve) && !/ guest /.test(pve),
+      info: o.split('\n').filter(l => / (ian|root|guest) /.test(l)).slice(0, 3).join(' | ') };
+  });
   await check('who and last on pve1 show your own sessions', async () => {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };

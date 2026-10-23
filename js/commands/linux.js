@@ -477,7 +477,9 @@ def('id', 'more', 'who you are, as numbers', args => {
   const [o, [who = state.asRoot ? 'root' : state.user]] = getopt(args);
   const u = USERS[who];
   if (!u) return print(span('e', `id: '${esc(who)}': no such user`));
-  const [uid, groups] = u, names = o.n || o.name;
+  const [uid, own] = u, names = o.n || o.name;
+  // on the homelab ian may talk to Docker without sudo
+  const groups = state.host === 'homelab' && who === 'ian' ? [...own, [999, 'docker']] : own;
   if (o.u || o.user) return print(names ? who : String(uid));
   if (o.g || o.group) return print(names ? groups[0][1] : String(groups[0][0]));
   if (o.G || o.groups) return print(groups.map(([id, n]) => names ? n : id).join(' '));

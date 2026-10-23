@@ -69,7 +69,8 @@ export function lsLong(name, node, { humanSizes = false } = {}) {
   const links = dir ? 2 + Object.values(node.children).filter(c => c.type === 'dir').length : 1;
   const date = `${d.toLocaleString('en', { month: 'short' })} ${String(d.getDate()).padStart(2)}  ${d.getFullYear()}`;
   const owner = node.owner ? node.owner() : node.own || 'ian';
-  const group = node.own === 'root' ? 'root' : 'guest';
+  // here Ian's files are shared with the guest group; on the homelab and pve1 every user has a group of their own
+  const group = node.group || (owner === 'root' ? 'root' : state.host === 'iantiemann' ? 'guest' : owner);
   return span('m', `${perm} ${String(links).padStart(2)} ${pad(owner, 5)} ${pad(group, 5)} ${(humanSizes ? human(size) : String(size)).padStart(5)} ${date}`) + ' ';
 }
 
