@@ -212,6 +212,20 @@ export async function runFeatures(onResult = () => {}) {
     const { unlocked } = await import('/js/achievements.js');
     return { ok: (unlocked.has('threetwoone') || o.includes('nightly job')) && (unlocked.has('closet') || o.includes('pve1 is one of three nodes')), info: o.split('\n').filter(l => l.includes('💡')).join(' | ') };
   });
+  // help on the homelab and pve1: by topic, and no command of the machine left out
+  await check('help on the homelab and pve1 lists every command, by topic', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const { commandsHere } = await import('/js/shell.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const missing = [], b = n(), done = labSession();
+    await send('help'); const lab = commandsHere();
+    await send('ssh -i ~/.ssh/ansible_pve root@pve1'); await send('help'); await send('help qm'); const pve = commandsHere();
+    await send('exit'); await send('exit'); await done; await idle();
+    const [labHelp, pveHelp] = since(b).split('root@pve1:~# help\n');
+    for (const c of lab.filter(c => !['exit', 'logout', 'help'].includes(c))) if (!new RegExp(`^  ${c} `, 'm').test(labHelp)) missing.push('homelab ' + c);
+    for (const c of pve.filter(c => !['exit', 'logout', 'help'].includes(c))) if (!new RegExp(`^  ${c} `, 'm').test(pveHelp)) missing.push('pve1 ' + c);
+    return { ok: !missing.length && labHelp.includes('Docker') && pveHelp.includes('Guests and backups') && pveHelp.includes('Usage: qm'), info: missing.join(', ') };
+  });
   await check('who and last on pve1 show your own sessions', async () => {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };

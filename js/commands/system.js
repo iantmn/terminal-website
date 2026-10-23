@@ -14,6 +14,14 @@ import { startGlitch, THEMES, defaultTheme } from '../themes.js';
 import { banner, neofetch } from '../visuals.js';
 
 // about
+const MORE_TOPICS = [
+  ['Files and text', ['cp', 'diff', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'ln', 'mkdir', 'rmdir', 'touch', 'less']],
+  ['System', ['ps', 'systemctl', 'journalctl', 'dmesg', 'crontab', 'df', 'free', 'fsck', 'uptime', 'uname', 'hostname', 'id', 'env', 'which', 'watch', 'unalias', 'yes']],
+  ['Network', ['ip', 'netstat', 'dig', 'traceroute', 'ssh', 'netmap']],
+  ['The homelab', ['grafana', 'kubectl', 'deploy']],
+  ['People', ['who', 'last', 'finger', 'wall', 'mail', 'hello', 'github', 'linkedin']],
+  ['Odds and ends', ['cal', 'calc', 'beep', 'lolcat']],
+];
 def(['help', 'h', '?'], 'system', 'show this help', args => {
   // help grep is grep --help; a hidden command nobody found yet stays hidden, like an unknown topic in bash
   if (args[0]) {
@@ -31,8 +39,15 @@ def(['help', 'h', '?'], 'system', 'show this help', args => {
   }
   // the rest only by name; each one explains itself with --help
   const names = list => list.map(c => cmd(c.name)).join('  ');
-  print(span('w b', 'More commands'));
-  print('  ' + names(Object.values(C).filter(c => c.group === 'more' && !c.alias).sort((a, b) => a.name.localeCompare(b.name))));
+  // by topic; one that is in none of them still shows up, under Other
+  const more = Object.values(C).filter(c => c.group === 'more' && !c.alias).sort((a, b) => a.name.localeCompare(b.name));
+  const left = new Set(more);
+  print(span('w b', 'More commands') + span('m', ', by topic (each one explains itself with --help)'));
+  for (const [topic, list] of [...MORE_TOPICS, ['Other', null]]) {
+    const here = more.filter(c => left.has(c) && (!list || list.includes(c.name)));
+    here.forEach(c => left.delete(c));
+    if (here.length) print(`  ${span('w', pad(topic, 18))} ${names(here)}`);
+  }
   print('');
   // hidden ones (an achievement or a puzzle) join the list once you used them
   const hidden = Object.values(C).filter(c => !c.group && !c.alias), mine = hidden.filter(c => found.has(c.name)).sort((a, b) => a.name.localeCompare(b.name));

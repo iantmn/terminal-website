@@ -64,11 +64,53 @@ const HOST_COMMANDS = {
   homelab: [new Set([...BASE_COMMANDS, 'docker', 'wg', 'ansible', 'ansible-playbook', 'nmap']), 'A lean install.'],
   pve1: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool', 'proxmox-file-restore', 'scp', 'vzdump', 'pvecm', 'pvesr', 'ha-manager', 'cp', 'rm', 'mkdir', 'touch']), 'The hypervisor: everything runs on this, so tread lightly.'],
 };
+// help on the homelab and pve1: by topic, one short line each. What a command does on the main terminal is not
+// always what it does here, so some get their own line
+const FILES = ['ls', 'cd', 'pwd', 'cat', 'less', 'find', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'tree', 'cp', 'rm', 'mkdir', 'touch'];
+const HOST_HELP = {
+  homelab: [
+    ['Docker', ['docker']], ['Ansible', ['ansible', 'ansible-playbook']],
+    ['Network', ['ip', 'wg', 'nmap', 'netstat', 'netmap', 'mtr', 'ssh']],
+    ['Logs and health', ['grafana', 'journalctl', 'dmesg', 'systemctl', 'ps', 'top', 'df', 'free', 'uptime', 'who', 'last', 'crontab']],
+    ['Files', FILES],
+  ],
+  pve1: [
+    ['Guests and backups', ['qm', 'pct', 'vzdump', 'proxmox-file-restore']],
+    ['Cluster', ['pvecm', 'ha-manager', 'pvesr', 'pvesh', 'pveversion']],
+    ['Storage', ['zpool', 'pvesm', 'df']],
+    ['Network', ['ip', 'netstat', 'netmap', 'mtr', 'ssh', 'scp']],
+    ['Logs and health', ['grafana', 'journalctl', 'dmesg', 'systemctl', 'ps', 'top', 'free', 'uptime', 'who', 'last', 'crontab']],
+    ['Files', FILES],
+  ],
+};
+const HOST_DESC = {
+  docker: 'the containers: ps, compose, logs, stop, start, system df', uptime: 'how long this machine has been up', last: 'who logged in here, and when',
+  who: 'who is logged in here', reboot: 'restart this machine, and what runs on it', shutdown: 'power this machine off',
+  cp: 'copy a file', mkdir: 'make a directory', touch: 'make an empty file', crontab: 'the scheduled jobs of this machine', ps: 'the processes of this machine',
+  grafana: 'the dashboards, in sparklines', whoami: 'the user you are here', neofetch: 'this machine, at a glance',
+};
+function hostHelp(only, about) {
+  const left = new Set(only), rows = [];
+  const line = n => { left.delete(n); const c = C[n]; return `  ${cmd(n, pad(n, 22))} ${span('m', esc(HOST_DESC[n] || c?.desc || ''))}`; };
+  for (const [title, names] of HOST_HELP[state.host]) {
+    const here = names.filter(n => only.has(n));
+    if (here.length) rows.push(span('w b', title), ...here.map(line), '');
+  }
+  const rest = [...left].sort();
+  if (rest.length) rows.push(span('w b', 'System'), ...rest.map(line), '');
+  return [span('w b', `${state.host}`) + span('m', ` · ${about}`), '', ...rows, span('m', 'Every command takes ') + span('a2', '--help') + span('m', ', and ') + span('a2', 'man') + span('m', ' knows more. ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')];
+}
 function invoke(c, name, args, line) {
   const remote = HOST_COMMANDS[state.host];
   if (remote) {
     const [only, about] = remote;
-    if (c.name === 'help') return printLines([span('w b', state.host), '  ' + [...only].sort().map(n => cmd(n)).join('  '), '', span('m', about + ' ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')]);
+    if (c.name === 'help') {
+      if (!args.length) return printLines(hostHelp(only, about));
+      // help qm: the usage of a command of this machine; one from elsewhere is not installed here
+      const t = args[0].toLowerCase();
+      if (only.has(t) && C[t]) return printLines(helpLines(C[t], t));
+      return print(span('e', `help: no help topics match '${esc(args[0])}'.`) + span('m', ' Try ') + cmd('help'));
+    }
     if (!only.has(c.name)) return notFound(name);
   }
   // qm and friends only exist on the Proxmox nodes
