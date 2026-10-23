@@ -167,12 +167,14 @@ export const SOLUTIONS = {
     await p; await idle();
     await until(() => unlocked.has('closet'), 30000);
   },
-  // the second time: VM 102 is on pve2 by now, so you are only thrown back to the homelab, and Ian wakes pve1 from his phone
+  // the second time: failback put VM 102 back on pve1, so the site goes down again, and Ian wakes pve1 from his phone
   wol: async () => {
+    const { VMS } = await import('/js/commands/labstate.js');
+    if (VMS.find(v => v.id === 102).node !== 'pve1') throw new Error('no failback: VM 102 is not back on pve1');
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
     await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('poweroff');
+    await p; await idle();
     await until(() => unlocked.has('wol'), 30000);
-    await answer('exit'); await p; await idle();
   },
   // the two other nodes, the one with VM 102 last: pve1 is alone, has no quorum, and fences itself
   blackout: async () => {

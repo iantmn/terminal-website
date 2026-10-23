@@ -376,7 +376,14 @@ let kicked = null;
 const ha = g => !g.template && (CTS.includes(g) ? !g.stopped : g.pid !== 0);
 const macOf = n => `b4:2e:99:0a:14:${10 + NODES.findIndex(x => x[0] === n)}`;
 let storyRun = 0;
-const nodeBack = n => { CLUSTER.down.delete(n); delete CLUSTER.since[n]; };
+// a node comes back: HA moves what prefers it (its home, /etc/pve/ha/groups.cfg) back there, live. Returns what moved
+const nodeBack = n => {
+  CLUSTER.down.delete(n); delete CLUSTER.since[n];
+  const moved = [...VMS, ...CTS].filter(g => g.home === n && g.node !== n && !CLUSTER.down.has(g.node));
+  return moved.map(g => { const from = g.node; g.node = n; return { g, from }; });
+};
+const failback = moved => moved.map(({ g, from }) => span('m', `pve-ha-crm: ${n0(g)} ${g.id} (${g.name}) prefers ${g.node}: migrating back from ${from}, live${g.id === 102 ? '. The site stays up' : ''}`));
+const n0 = g => VMS.includes(g) ? 'VM' : 'CT';
 export async function nodeDown(n, { what, reboot = false, self = false }) {
   if (self) {
     printLines(['', span('w', `Broadcast message from ${state.user}@${n} on pts/0 (${new Date().toString().slice(0, 24)}):`), '', span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
@@ -415,7 +422,16 @@ export async function nodeDown(n, { what, reboot = false, self = false }) {
   await outage(what, { kind: 'cluster', events, wol, where: state.host === 'pve1' ? 'pve1' : 'the homelab' });
   // by the end of the outage Ian has them all back, and what starts on boot runs again
   NODES.forEach(([x]) => nodeBack(x));
+  [...VMS, ...CTS].forEach(g => { g.node = g.home; });
   [...VMS, ...CTS].filter(ha).forEach(g => up.add(g.id));
+}
+// a node that rebooted is back by itself, and gets its guests back
+async function rebooted(n, run) {
+  await pause(4000);
+  if (run !== storyRun) return;
+  const cap = state.capture; state.capture = null;
+  printLines([span('m', `${n} rebooted and rejoined the cluster: 3 of 3 votes.`), ...failback(nodeBack(n))]);
+  state.capture = cap;
 }
 // Ian's side of it: told, the walk (or the magic packet), the logs. Never inside the output of a pipe, and cancelled
 // when something bigger happens in the meantime
@@ -432,7 +448,7 @@ async function nodeStory(n, run) {
       await say(1500, span('w', `📟 Uptime Kuma → Ian: ${n} is not running.`));
       await say(2500, span('m', '☕ Ian grabs his coffee and walks to the cluster.'));
       await say(3500, span('a', `🔌 Ian presses the power button of ${n}. It boots and rejoins the cluster: 3 of 3 votes.`));
-      nodeBack(n);
+      { const moved = nodeBack(n); if (moved.length) await say(1200, failback(moved).join('\n')); }
       await say(2500, span('m', `🔍 Ian reads the logs to see why ${n} went down: a shutdown, by root, from the homelab. That was you. He is not happy with you.`));
       await say(2500, span('m', '🛠️ Ian sets up Wake-on-LAN on all three nodes. He is not walking to that closet again.'));
       CLUSTER.wol = true; store.set('wol', true);
@@ -441,7 +457,7 @@ async function nodeStory(n, run) {
       await say(1500, span('w', `📟 Uptime Kuma → Ian: ${n} is not running. Again.`));
       await say(2500, span('m', `📱 Ian sends a magic packet from his phone: wakeonlan ${macOf(n)}`));
       await say(2500, span('a', `⚡ ${n} wakes up and rejoins the cluster: 3 of 3 votes. Ian did not even put his coffee down.`));
-      nodeBack(n);
+      { const moved = nodeBack(n); if (moved.length) await say(1200, failback(moved).join('\n')); }
       await say(2000, span('m', '🔍 Ian reads the logs: root, from the homelab, again.'));
       // and he says so, to every terminal on the machine you are on
       await say(1500, ['', span('w b', esc(`Broadcast message from ian@${state.host} (pts/1) (${new Date().toString().slice(0, 24)}):`)), '', span('w', 'testing Wake-on-LAN, are we?'), ''].join('\n'));
@@ -519,10 +535,11 @@ export async function labSession(resume = null) {
   }
   if (down?.kind === 'host') {
     note('🖥️', `HA moved this site to ${down.to}`,
-      `${after}: ${down.node} went down, and VM 102 with it. The other two kept the quorum, HA started the VM on ${down.to} from its replica, and Docker brought the stacks back. It stays on ${down.to} now: ${cmd('pvesh get /cluster/resources')}`,
+      `${after}: ${down.node} went down, and VM 102 with it. The other two kept the quorum, HA started the VM on ${down.to} from its replica, and Docker brought the stacks back. Once ${down.node} is back, HA moves it home again: ${cmd('cat /etc/pve/ha/groups.cfg')}`,
       'Root on a cluster node, and you used it to pull the plug. That is exactly what the other two are for.');
     // the node itself is still off: somebody has to do something about that
     if (!down.reboot) nodeStory(down.node, storyRun);
+    else rebooted(down.node, storyRun);
     return;
   }
   if (down) return note('🖥️', `Proxmox ${down.reboot ? 'rebooted' : 'started'} the Docker VM again`,

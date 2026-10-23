@@ -27,7 +27,11 @@ export function buildPve() {
         'corosync.conf': conf(['totem {', '  cluster_name: homelab', '  config_version: 3', '  ip_version: ipv4-6', '  link_mode: passive', '}', '', 'nodelist {',
           ...NODES.flatMap(([n, ip], i) => ['  node {', `    name: ${n}`, `    nodeid: ${i + 1}`, '    quorum_votes: 1', `    ring0_addr: ${ip}`, '  }']), '}', '', 'quorum {', '  provider: corosync_votequorum', '}']),
         'replication.cfg': conf(VMS.filter(v => v.pid || v.id === 104).flatMap(v => [`local: ${v.id}-0`, `        target ${v.node === 'pve1' ? 'pve2' : v.node === 'pve2' ? 'pve3' : 'pve2'}`, '        schedule */15', ''])),
-        ha: dir({ 'resources.cfg': conf([...VMS.filter(v => v.pid), ...CTS.filter(c => !c.stopped)].flatMap(g => [`${VMS.includes(g) ? 'vm' : 'ct'}: ${g.id}`, '        state started', ''])) }),
+        // every guest has a group that prefers its own node: when that node is back, HA moves the guest home (failback)
+        ha: dir({
+          'resources.cfg': conf([...VMS.filter(v => v.pid), ...CTS.filter(c => !c.stopped)].flatMap(g => [`${VMS.includes(g) ? 'vm' : 'ct'}: ${g.id}`, `        group prefer-${g.home}`, '        state started', ''])),
+          'groups.cfg': conf(NODES.flatMap(([n]) => [`group: prefer-${n}`, `        nodes ${[n + ':2', ...NODES.map(x => x[0]).filter(x => x !== n).map(x => x + ':1')].join(',')}`, '        nofailback 0', '        comment the guests that live on ' + n + ', and go back there once it is up', ''])),
+        }),
         'jobs.cfg': conf(['vzdump: backup-6b1f2c9e', '        schedule 03:00', '        all 1', '        mode snapshot', '        storage pbs', '        prune-backups keep-daily=7,keep-weekly=4,keep-monthly=6', '        notes-template {{guestname}}']),
         'storage.cfg': conf(['dir: local', '        path /var/lib/vz', '        content iso,vztmpl', '', 'zfspool: local-zfs', '        pool rpool/data', '        content images,rootdir', '        sparse 1', '        nodes pve1,pve2,pve3', '', 'pbs: pbs', '        server 10.20.0.30', '        datastore main', '        content backup', '        encryption-key 1']),
       }),
