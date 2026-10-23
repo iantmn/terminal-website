@@ -1,7 +1,8 @@
 name: tests and deploy
 
 # every push and pull request is tested, in three browser engines and on two phones; a push to main is deployed
-# to GitHub Pages only when every one of them passes.
+# to GitHub Pages only when every one of them passes. Each browser runs in two shards side by side: the
+# achievements (the slow part) and everything else.
 # Needs Settings > Pages > Source: GitHub Actions (instead of "Deploy from a branch")
 on:
   push:
@@ -18,36 +19,48 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.browser }}, ${{ matrix.device }})
+    name: test (${{ matrix.target.browser }}, ${{ matrix.target.device }}, ${{ matrix.shard }})
     if: github.event_name != 'workflow_dispatch' || inputs.run_tests == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: ${{ matrix.informational == true }}
+    continue-on-error: ${{ matrix.target.informational == true }}
     strategy:
       # one browser failing still shows how the others did
       fail-fast: false
       matrix:
-        include:
+        target:
           - { browser: chromium, device: desktop }
           - { browser: chromium, device: phone }
           # not run locally yet: they report, but do not stop a deploy until they have passed once
           - { browser: firefox, device: desktop, informational: true }
           - { browser: webkit, device: desktop, informational: true }
           - { browser: webkit, device: phone, informational: true }
+        shard: [main, achievements]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install Playwright and ${{ matrix.browser }}
+      # the browser itself comes from the cache after the first run; the system libraries it needs do not
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.49.1-${{ matrix.target.browser }}
+      - name: Install Playwright and ${{ matrix.target.browser }}
         run: |
           npm install --no-save playwright@1.49.1
-          npx playwright install --with-deps ${{ matrix.browser }}
-      - name: Every command, flag and feature, in a headless browser
+          if [ "${{ steps.browsers.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps ${{ matrix.target.browser }}
+          else
+            npx playwright install --with-deps ${{ matrix.target.browser }}
+          fi
+      - name: Every command, flag and feature, in a headless browser (${{ matrix.shard }})
         run: node tests/run.mjs
         env:
-          BROWSER: ${{ matrix.browser }}
-          DEVICE: ${{ matrix.device }}
+          BROWSER: ${{ matrix.target.browser }}
+          DEVICE: ${{ matrix.target.device }}
+          SHARD: ${{ matrix.shard }}
 
   deploy:
     needs: test
