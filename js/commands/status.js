@@ -34,7 +34,7 @@ const MONITORS = [
 const monitors = () => MONITORS.map(([group, ms]) => [group, group === 'Docker VM' && DEPLOYED.has('whoami') ? [...ms, { name: 'whoami', type: 'HTTP', ms: 3, on: 'vm', down: container('whoami-whoami-1') }] : ms]);
 const hits = m => INCIDENTS.filter(i => i.kind === 'host' || i.kind === 'cluster' ? m.on : i.kind === 'stack' ? m.site : m.on === 'vm');
 
-def('status', 'me', 'is my homelab up? (an Uptime Kuma page)', () => {
+def(['status', 'kuma'], 'me', 'is my homelab up? (an Uptime Kuma page)', () => {
   // as many beats (0.9 characters wide each, css/style.css) as fit next to the name, uptime and state (about 50 characters); the note only on wide screens
   const now = Date.now(), cpl = charsPerLine(), show = Math.min(BEATS, Math.floor((cpl - 52) / 0.9)), wide = cpl >= 130;
   const MON = monitors();

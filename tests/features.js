@@ -246,6 +246,16 @@ export async function runFeatures(onResult = () => {}) {
     const html = [...document.querySelectorAll('#out .ln')].slice(b).map(l => l.innerHTML).join('\n');
     return { ok: /<span class="m"># set up in March/.test(html) && /<span class="a2">services<\/span>:/.test(html) && /<span class="a2">image<\/span>: traefik\/whoami/.test(html), info: html.split('\n').filter(l => l.includes('image')).join(' | ') };
   });
+  // Uptime Kuma runs on the homelab: status works there too, and so does its alias kuma
+  await check('status and kuma on the homelab', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    for (const l of ['status', 'kuma', 'exit']) await send(l);
+    await done; await idle();
+    const o = since(b), [, st, ku] = o.split(/ian@homelab:~\$ (?:status|kuma)\n/);
+    return { ok: !!st && !!ku && st.includes('Uptime Kuma') && ku.includes('Uptime Kuma') && !o.includes('command not found'), info: o.split('\n').slice(-4).join(' | ') };
+  });
   await check('who and last on pve1 show your own sessions', async () => {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
