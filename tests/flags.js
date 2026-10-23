@@ -3,7 +3,8 @@
 import { run } from '/js/input.js';
 
 // the output of a command, without the achievement lines a fresh browser gets on the first try
-const out = async c => { const b = document.querySelectorAll('#out .ln').length; await run(c); return [...document.querySelectorAll('#out .ln')].slice(b + 1).map(l => l.innerText).filter(l => !l.startsWith('★ achievement unlocked')).join('\n'); };
+// WebKit gives an empty line as a newline in innerText, Chromium as nothing: the same text in both
+const out = async c => { const b = document.querySelectorAll('#out .ln').length; await run(c); return [...document.querySelectorAll('#out .ln')].slice(b + 1).map(l => l.innerText.replace(/\n$/, '')).filter(l => !l.startsWith('★ achievement unlocked')).join('\n'); };
 const lines = s => s.split('\n').filter(l => l.trim());
 const count = (s, re) => (s.match(re) || []).length;
 
