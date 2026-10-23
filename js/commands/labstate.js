@@ -1,6 +1,6 @@
 // what is running on the homelab and the Proxmox cluster, for this visit. Small on purpose: status reads it
 // without loading the machines themselves, which only load on the first ssh (homelab.js, pve.js)
-import { store } from '../core.js';
+import { store, esc } from '../core.js';
 export const STACKS = { terminal: ['traefik', 'terminal'], monitoring: ['prometheus', 'grafana', 'loki', 'alloy'], automation: ['n8n', 'postgres'], whoami: ['whoami'] };
 // the stacks that exist as containers; whoami is a compose file that was never started, until you do
 export const DEPLOYED = new Set(['terminal', 'monitoring', 'automation']);
@@ -17,6 +17,26 @@ export const INCIDENTS = [];
 
 // what ps, df, ip and friends show on each machine behind ssh; homelab.js and pve.js fill it in when they load
 export const HOSTS = {};
+
+// ---- what happened on each machine during this visit: journalctl, /var/log/syslog and auth.log show it after the
+// old lines. auth: a login or logout, which goes to auth.log instead of syslog ----
+export const VISIT_LOG = { homelab: [], pve1: [] };
+export function logEvent(host, unit, pid, msg, auth = false) {
+  const l = VISIT_LOG[host];
+  if (!l) return;
+  l.push({ at: Date.now(), unit, pid, msg, auth });
+  if (l.length > 200) l.shift();
+}
+// the old lines of a machine come before the visit: one every so many minutes, up to its start (kept across a reload)
+const VISIT = { since: Date.now() };
+export const logStamp = at => { const s = new Date(at).toString(); return s.slice(4, 10) + s.slice(15, 24); };
+export function logRows(host, old, { auth = null, every = 36e5 } = {}) {
+  const before = old.map(([unit, pid, msg], i) => ({ at: VISIT.since - (old.length - i) * every, unit, pid, msg }));
+  return [...before, ...(VISIT_LOG[host] || []).filter(e => auth === null || e.auth === auth)];
+}
+// /var/log/syslog and auth.log: old lines like 'sshd[3311]: Accepted ...', a few minutes apart, then the visit
+export const logFile = (host, old, auth) => () => logRows(host, old.map(l => { const [, unit, pid, msg] = l.match(/^([\w.-]+)\[(\d+)\]: (.*)$/); return [unit, pid, msg]; }), { auth, every: 9e5 })
+  .map(e => esc(`${logStamp(e.at)} ${host} ${e.unit}[${e.pid}]: ${e.msg}`));
 
 // ---- the restore puzzle: stacks/monitoring/prometheus.yml went at 22:14 last night, the 03:00 backup ran without it ----
 export const RESTORE = { done: false, at: 0 };
@@ -72,7 +92,7 @@ export function exportLab() {
   return {
     running: [...running], stoppedAt, deployed: [...DEPLOYED], restore: RESTORE, alert: ALERT,
     up: [...up], stoppedSince,
-    incidents: INCIDENTS, backups: MY_BACKUPS,
+    incidents: INCIDENTS, backups: MY_BACKUPS, log: VISIT_LOG, since: VISIT.since,
   };
 }
 export function importLab(d) {
@@ -89,5 +109,7 @@ export function importLab(d) {
   if (list(d.up)) { up.clear(); d.up.filter(id => guests.some(g => g.id === id)).forEach(id => up.add(id)); }
   if (obj(d.stoppedSince)) for (const [k, v] of Object.entries(d.stoppedSince)) if (typeof v === 'number') stoppedSince[k] = v;
   if (list(d.incidents)) INCIDENTS.splice(0, INCIDENTS.length, ...d.incidents.filter(i => i && typeof i.what === 'string' && typeof i.at === 'number').slice(-20));
+  if (typeof d.since === 'number' && d.since < VISIT.since) VISIT.since = d.since;
+  if (obj(d.log)) for (const h of Object.keys(VISIT_LOG)) if (list(d.log[h])) VISIT_LOG[h].splice(0, VISIT_LOG[h].length, ...d.log[h].filter(e => e && typeof e.at === 'number' && typeof e.unit === 'string' && typeof e.msg === 'string').slice(-200));
   if (list(d.backups)) MY_BACKUPS.splice(0, MY_BACKUPS.length, ...d.backups.filter(b => b && typeof b.id === 'number' && typeof b.at === 'number').slice(-20));
 }

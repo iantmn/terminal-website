@@ -2,7 +2,7 @@
 // /etc/pve is the cluster filesystem: the same on all three nodes, with a folder per node for its guests
 import { span, cmd } from '../core.js';
 import { dir, file } from './nodes.js';
-import { VMS, CTS, NODES } from '../commands/labstate.js';
+import { VMS, CTS, NODES, logFile } from '../commands/labstate.js';
 
 export function buildPve() {
   const conf = (lines, extra) => file(lines, { own: 'root', ...extra });
@@ -57,7 +57,8 @@ export function buildPve() {
     }),
     var: dir({ log: dir({
       vzdump: dir({ 'qemu-102.log': file(['INFO: starting new backup job: vzdump 102 --mode snapshot --storage pbs', 'INFO: VM Name: homelab', "INFO: include disk 'scsi0' 'local-zfs:vm-102-disk-0' 64G", "INFO: include disk 'scsi1' 'local-zfs:vm-102-disk-1' 500G", 'INFO: issuing guest-agent \'fs-freeze\' command', 'INFO: issuing guest-agent \'fs-thaw\' command', 'INFO: using fast incremental mode (dirty-bitmap), 3.1 GiB dirty of 564.0 GiB total', 'INFO: backup was done incrementally, reused 560.9 GiB (99%)', 'INFO: Finished Backup of VM 102 (00:16:44)']) }),
-      syslog: file(['pvescheduler[1290]: starting task vzdump', 'pvescheduler[1290]: replication job 102-0 to pve2 finished', 'corosync[940]: [QUORUM] Members[3]: 1 2 3', 'pvestatd[1144]: status update time (0.412 seconds)', 'sshd[3402]: Accepted publickey for root from 10.20.0.20 port 40412 ssh2: ED25519 ansible@homelab', 'zed[690]: eid=42 class=scrub_finish pool=rpool']),
+      syslog: file(logFile('pve1', ['pvescheduler[1290]: starting task vzdump', 'pvescheduler[1290]: replication job 102-0 to pve2 finished', 'corosync[940]: [QUORUM] Members[3]: 1 2 3', 'pvestatd[1144]: status update time (0.412 seconds)', 'zed[690]: eid=42 class=scrub_finish pool=rpool'], false)),
+      'auth.log': file(logFile('pve1', ['sshd[3402]: Accepted publickey for root from 10.20.0.20 port 40412 ssh2: ED25519 ansible@homelab', 'sshd[3402]: pam_unix(sshd:session): session opened for user root(uid=0)', 'sshd[3402]: pam_unix(sshd:session): session closed for user root'], true)),
     }) }),
   });
 }

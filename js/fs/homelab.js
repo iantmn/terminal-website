@@ -3,7 +3,7 @@ import { saw } from '../achievements.js';
 import { PROFILE } from '../content.js';
 import { esc, span, cmd, link } from '../core.js';
 import { dir, file } from './nodes.js';
-import { RESTORE, PROMETHEUS_YML } from '../commands/labstate.js';
+import { RESTORE, PROMETHEUS_YML, logFile } from '../commands/labstate.js';
 
 export function buildLab() {
   const labFile = (lines, extra) => file(lines, { own: 'ian', ...extra });
@@ -238,6 +238,6 @@ export function buildLab() {
         '.bash_history': labFile(['docker compose pull && docker compose up -d', 'docker system df', 'docker image prune -af', 'vim docker-compose.yml', span('m', '# how do I exit this thing'), 'cd ~/stacks/monitoring', 'rm prometheus.yml', span('m', '# wrong tab. that was not /tmp'), 'exit']),
       }, { own: 'ian' }),
     }),
-    var: dir({ log: dir({ 'auth.log': file(['sshd[3311]: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key id_homelab', 'sshd[3311]: pam_unix(sshd:session): session opened for user ian', 'sshd[2981]: Connection closed by 192.0.2.66 port 22 [preauth]']), syslog: file(['systemd[1]: Started qemu-guest-agent.service - QEMU Guest Agent.', 'systemd[1]: Started docker.service - Docker Application Container Engine.', 'qemu-ga: info: guest-ping called', 'ian: logged in from 10.42.0.12', 'CRON[2210]: (ian) CMD (/home/ian/stacks/terminal/watchdog.sh)']) }) }),
+    var: dir({ log: dir({ 'auth.log': file(logFile('homelab', ['sshd[2981]: Connection closed by 192.0.2.66 port 22 [preauth]', 'sshd[3311]: Accepted publickey for ian from 10.42.0.12 port 52144 ssh2: ED25519 key id_homelab', 'sshd[3311]: pam_unix(sshd:session): session opened for user ian(uid=1000)'], true)), syslog: file(logFile('homelab', ['systemd[1]: Started qemu-guest-agent.service - QEMU Guest Agent.', 'systemd[1]: Started docker.service - Docker Application Container Engine.', 'qemu-ga[640]: info: guest-ping called', 'CRON[2210]: (ian) CMD (/home/ian/stacks/terminal/watchdog.sh)'], false)) }) }),
   });
 }

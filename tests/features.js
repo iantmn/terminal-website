@@ -195,5 +195,16 @@ export async function runFeatures(onResult = () => {}) {
     const o = since(b);
     return { ok: o.includes('interface: wg0') && o.includes('Nmap scan report for pve1.lan') && o.includes('root@pve1:~# qm list') && o.includes('102 homelab') && state.host === 'iantiemann', info: o.split('\n').slice(-2).join(' | ') };
   });
+  // the logs of the machines show this visit: your logins on both, and what you did there
+  await check('journalctl and auth.log show your visit', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    for (const l of ['docker restart monitoring-loki-1', 'ssh -i ~/.ssh/ansible_pve root@pve1', 'exit', 'journalctl -u dockerd -n 3', 'cat /var/log/auth.log', 'ssh -i ~/.ssh/ansible_pve root@pve1', 'grep root /var/log/auth.log', 'exit', 'exit']) await send(l);
+    await done; await idle();
+    const o = since(b);
+    return { ok: o.includes('container monitoring-loki-1 started') && /homelab sshd\[\d+\]: Accepted publickey for ian from 172\.18\.0\.3/.test(o)
+      && /pve1 sshd\[\d+\]: pam_unix\(sshd:session\): session closed for user root/.test(o), info: o.split('\n').filter(l => /sshd|dockerd/.test(l)).slice(-3).join(' | ') };
+  });
   return results;
 }

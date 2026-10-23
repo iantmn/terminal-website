@@ -5,7 +5,7 @@ import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
-import { HOSTS, all } from './labstate.js';
+import { HOSTS, all, logRows, logStamp, VISIT_LOG } from './labstate.js';
 import { routeTo } from './network.js';
 import { forgetSession } from '../session.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped, vars, envVars } from '../shell.js';
@@ -723,20 +723,26 @@ const LIVE = [['coffee', 128, 'Brewing cup {n} of many'], ['nginx', 1233, 'GET /
 def('journalctl', 'more', 'system logs', async args => {
   const [o] = getopt(args, ['n', 'u', 'lines', 'unit']);
   const unit = o.u ?? o.unit, n = o.n ?? o.lines;
-  const stamp = at => { const s = at.toString(); return s.slice(4, 10) + s.slice(15, 24); };
-  const fmt = (name, pid, msg, at = new Date()) => `${span('m', esc(stamp(at)))} ${state.host} ${esc(`${name}[${pid}]: ${typeof msg === 'function' ? msg() : msg}`)}`;
-  let rows = (onLab() ? here().journal : JOURNAL).filter(([name]) => !unit || name === unit.replace('.service', ''));
+  const fmt = (name, pid, msg, at = Date.now()) => `${span('m', esc(logStamp(at)))} ${state.host} ${esc(`${name}[${pid}]: ${typeof msg === 'function' ? msg() : msg}`)}`;
+  // on the homelab and pve1: the old lines an hour apart, then what happened there during this visit
+  const mine = name => !unit || name === unit.replace('.service', '');
+  let rows = onLab() ? logRows(state.host, here().journal).map(e => [e.unit, e.pid, e.msg, e.at]) : JOURNAL.map((r, i) => [...r, BOOT_TIME + i * 1000]);
+  rows = rows.filter(([name]) => mine(name));
   if (n !== undefined) rows = rows.slice(-parseInt(n, 10) || 0);
   if (o.r || o.reverse) rows = [...rows].reverse();
   if (rows.some(r => r[0] === 'treasure')) saw('frag1');
   print(span('m', '-- Logs begin at boot --'));
-  const start = onLab() ? Date.now() - 6 * 36e5 : BOOT_TIME;
-  rows.forEach((r, i) => print(fmt(...r, new Date(start + i * (onLab() ? 36e5 : 1000)))));
+  rows.forEach(r => print(fmt(...r)));
   if (!rows.length) print(span('m', '-- No entries --'));
   if (!(o.f || o.follow)) return;
   // follow: new lines keep coming until Ctrl+C (or 30 of them)
-  for (let i = 0, cup = 2; i < 30; i++) {
+  const seen = (VISIT_LOG[state.host] || []).length;
+  for (let i = 0, cup = 2, shown = seen; i < 30; i++) {
     await sleep(1500 + Math.random() * 1500);
+    // what happens on this machine meanwhile comes first
+    const fresh = (VISIT_LOG[state.host] || []).slice(shown).filter(e => mine(e.unit));
+    shown = (VISIT_LOG[state.host] || []).length;
+    if (fresh.length) { fresh.forEach(e => print(fmt(e.unit, e.pid, e.msg, e.at))); continue; }
     const live = (onLab() ? here().live : LIVE).filter(([name]) => !unit || name === unit.replace('.service', ''));
     if (!live.length) continue;
     const [name, pid, msg] = live[Math.floor(Math.random() * live.length)];

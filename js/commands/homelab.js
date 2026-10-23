@@ -8,7 +8,7 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS, NODES, CLUSTER, onlineNodes, up } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS, NODES, CLUSTER, onlineNodes, up, logEvent } from './labstate.js';
 
 addTree('homelab', buildLab());
 
@@ -22,7 +22,9 @@ const exitCode = {};
 // when a container was (re)started during this visit: its uptime counts from then
 const startedAt = {};
 const ago = t => { const sec = Math.max(1, Math.round((Date.now() - t) / 1000)); return sec < 60 ? `${sec} seconds` : `${Math.round(sec / 60)} minutes`; };
-const started = c => { running.add(c.name); startedAt[c.name] = Date.now(); };
+const started = c => { running.add(c.name); startedAt[c.name] = Date.now(); logEvent('homelab', 'dockerd', 902, `container ${c.name} started`); };
+// a container that stops: by you (0), or because it could not start or crashed (1)
+const stop = (c, code = 0) => { running.delete(c.name); stoppedAt[c.name] = Date.now(); exitCode[c.name] = code; logEvent('homelab', 'dockerd', 902, `container ${c.name} ${code ? `exited with code ${code}` : 'stopped'}`); };
 const ports = c => c.svc === 'traefik' ? '0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp' : c.svc === 'terminal' ? '80/tcp' : c.svc === 'grafana' ? '3000/tcp' : c.svc === 'prometheus' ? '9090/tcp' : c.svc === 'n8n' ? '5678/tcp' : '';
 const pause = ms => new Promise(r => setTimeout(r, ms));
 // the site is down when its proxy or its web server is
@@ -87,6 +89,13 @@ export async function outage(what, down = null) {
   await line('healthy. Reconnecting ...', 600);
   await pause(400);
   STACKS.terminal.forEach(s => running.add(`terminal-${s}-1`));
+  if (!down) logEvent('homelab', 'watchdog.sh', 2211, `terminal.iantiemann.nl was down after "${what}", docker compose up -d`);
+  else {
+    if (down.kind === 'guest' || down.kind === 'vm') logEvent('pve1', 'pve-ha-lrm', 1170, `service vm:102 ${down.reboot ? 'rebooted' : 'was stopped'}, starting it again`);
+    logEvent('homelab', 'kernel', 0, 'Linux version 6.1.0-25-amd64 (debian-kernel@lists.debian.org), booting');
+    logEvent('homelab', 'systemd', 1, 'Started docker.service - Docker Application Container Engine.');
+  }
+  STACKS.terminal.forEach(s => logEvent('homelab', 'dockerd', 902, `container terminal-${s}-1 started`));
   el.remove();
   restart = { what, down, seconds: Math.round((Date.now() - downAt) / 1000) };
   INCIDENTS.push({ what, kind: down?.kind || 'stack', at: downAt, seconds: restart.seconds });
@@ -95,6 +104,7 @@ export async function outage(what, down = null) {
 // shutdown, halt, poweroff or reboot on the Docker VM or on pve1: this site runs on both, so it goes down too
 export async function vmDown(what, reboot = false, kind = 'vm') {
   if (kind === 'host') return nodeDown('pve1', { what, reboot, self: true });
+  logEvent('homelab', 'systemd-logind', 598, `${what} by ${state.user}: the system is ${reboot ? 'rebooting' : 'powering down'}`);
   const host = 'homelab';
   printLines(['', span('w', `Broadcast message from ${state.user}@${host} on pts/0 (${new Date().toString().slice(0, 24)}):`), '',
     span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
@@ -110,7 +120,9 @@ export function fireAlert() {
   // only where you can see it, and not while something else is on the screen
   if (state.host !== 'homelab' || !state.asking) { alertTimer = setTimeout(fireAlert, 5000); return; }
   ALERT.fired = ALERT.full = true;
-  running.delete('monitoring-grafana-1'); stoppedAt['monitoring-grafana-1'] = Date.now(); exitCode['monitoring-grafana-1'] = 1;
+  logEvent('homelab', 'grafana', 1388, 'database write failed: no space left on device');
+  stop(all().find(c => c.name === 'monitoring-grafana-1'), 1);
+  logEvent('homelab', 'alertmanager', 1460, '[FIRING:1] ContainerDown monitoring-grafana-1, notified ian@homelab');
   bootSound('down');
   printLines(['', span('e b', '📟 [FIRING:1] ContainerDown') + span('m', '  alertmanager → ian@homelab'),
     span('e', '   monitoring-grafana-1 exited (1), 0 restarts left in its back-off.') + span('m', ' The dashboards are gone.'),
@@ -119,6 +131,7 @@ export function fireAlert() {
 function resolveAlert() {
   if (!ALERT.fired || ALERT.resolved || ALERT.full || !running.has('monitoring-grafana-1')) return;
   ALERT.resolved = true;
+  logEvent('homelab', 'alertmanager', 1460, '[RESOLVED] ContainerDown monitoring-grafana-1');
   printLines(['', span('a b', '✅ [RESOLVED] ContainerDown') + span('m', '  monitoring-grafana-1 is up, the dashboards are back.'), span('m', '   Postmortem, one line: prune old images every month, and alert on disk space before it reaches 100%.'), '']);
   unlock('firefighter');
 }
@@ -191,7 +204,7 @@ async function compose(args) {
   if (sub === 'restart') {
     for (const c of cs) {
       await pause(300);
-      if (cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] = Date.now(); print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
+      if (cannotStart(c)) { stop(c, 1); print(` ${span('e', '✘')} Container ${pad(c.name, 22)} Error`); print(span('e', esc(cannotStart(c)))); continue; }
       print(` ${span('a', '✔')} Container ${pad(c.name, 22)} Started`); started(c);
     }
     resolveAlert();
@@ -202,7 +215,7 @@ async function compose(args) {
     const word = sub === 'down' ? 'Removed' : 'Stopped';
     const steps = cs.length + (sub === 'down' && stack !== 'whoami' ? 1 : 0);
     print(`[+] ${sub === 'down' ? 'Running' : 'Stopping'} ${steps}/${steps}`);
-    for (const c of [...cs].reverse()) { await pause(350); print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${word}`); running.delete(c.name); stoppedAt[c.name] = Date.now(); }
+    for (const c of [...cs].reverse()) { await pause(350); print(` ${span('a', '✔')} Container ${pad(c.name, 22)} ${word}`); stop(c); }
     if (sub === 'down' && stack !== 'whoami') { await pause(200); print(` ${span('a', '✔')} Network ${pad(stack + '_default', 24)} Removed`); }
     if (sub === 'down' && stack === 'whoami') DEPLOYED.delete(stack);
     if (stack === 'terminal' && siteDown()) await outage(`docker compose ${sub}`);
@@ -233,7 +246,7 @@ export async function labDocker(args) {
     await pause(900);
     const freed = ALERT.full ? '212.4GB' : '1.1GB';
     printLines([esc('Deleted Images:'), ...['grafana/grafana:11.0.0', 'prom/prometheus:v2.52.0', 'traefik:v3.0', 'n8nio/n8n:1.48.2'].map(i => esc('untagged: ' + i)), span('m', '... and the rest'), esc(`Total reclaimed space: ${freed}`)]);
-    if (ALERT.full) { ALERT.full = false; print(span('a', 'The disk has room again.') + span('m', ' Grafana does not come back on its own though.')); }
+    if (ALERT.full) { ALERT.full = false; logEvent('homelab', 'dockerd', 902, 'image prune: deleted 23 images, total reclaimed space 18.2GB'); print(span('a', 'The disk has room again.') + span('m', ' Grafana does not come back on its own though.')); }
     return;
   }
   const find = n => all().find(c => c.name === n || idOf(c.name).startsWith(n) || (n.length >= 3 && c.name.startsWith(n)));
@@ -245,8 +258,8 @@ export async function labDocker(args) {
       if (sub === 'logs') { printLines(logsOf(c).map(esc)); continue; }
       if (c === PRINTER) { if (sub !== 'stop') print(span('e', 'Error response from daemon: printer-fix: printer not found. It never is.')); else print(esc(n)); continue; }
       await pause(400);
-      if (sub !== 'stop' && cannotStart(c)) { running.delete(c.name); stoppedAt[c.name] ??= Date.now(); exitCode[c.name] = 1; print(span('e', esc(cannotStart(c)))); continue; }
-      if (sub === 'stop') { running.delete(c.name); stoppedAt[c.name] = Date.now(); exitCode[c.name] = 0; } else started(c);
+      if (sub !== 'stop' && cannotStart(c)) { const since = stoppedAt[c.name]; stop(c, 1); if (since) stoppedAt[c.name] = since; print(span('e', esc(cannotStart(c)))); continue; }
+      if (sub === 'stop') stop(c); else started(c);
       print(esc(n));
       if (sub !== 'stop' && c.svc === 'grafana') resolveAlert();
     }
@@ -379,12 +392,15 @@ let storyRun = 0;
 // a node comes back: HA moves what prefers it (its home, /etc/pve/ha/groups.cfg) back there, live. Returns what moved
 const nodeBack = n => {
   CLUSTER.down.delete(n); delete CLUSTER.since[n];
+  logEvent('pve1', 'corosync', 940, n === 'pve1' ? 'pve1 booted and joined the cluster' : `[QUORUM] ${n} joined, Members[${onlineNodes().length}]: ${onlineNodes().map(x => x.slice(3)).join(' ')}`);
   const moved = [...VMS, ...CTS].filter(g => g.home === n && g.node !== n && !CLUSTER.down.has(g.node));
-  return moved.map(g => { const from = g.node; g.node = n; return { g, from }; });
+  return moved.map(g => { const from = g.node; g.node = n; logEvent('pve1', 'pve-ha-crm', 1160, `migrate service ${n0(g).toLowerCase()}:${g.id} back to its preferred node ${n} (failback), online`); return { g, from }; });
 };
 const failback = moved => moved.map(({ g, from }) => span('m', `pve-ha-crm: ${n0(g)} ${g.id} (${g.name}) prefers ${g.node}: migrating back from ${from}, live${g.id === 102 ? '. The site stays up' : ''}`));
 const n0 = g => VMS.includes(g) ? 'VM' : 'CT';
 export async function nodeDown(n, { what, reboot = false, self = false }) {
+  if (n === 'pve1') logEvent('pve1', 'systemd-logind', 812, `${what} by root: the system is ${reboot ? 'rebooting' : 'powering down'}`);
+  else logEvent('pve1', 'pvedaemon', 1110, `<root@pam> ${reboot ? 'reboot' : 'shutdown'} of node ${n}`);
   if (self) {
     printLines(['', span('w', `Broadcast message from ${state.user}@${n} on pts/0 (${new Date().toString().slice(0, 24)}):`), '', span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
     await pause(700);
@@ -401,10 +417,12 @@ export async function nodeDown(n, { what, reboot = false, self = false }) {
   }
   CLUSTER.down.add(n); CLUSTER.since[n] = Date.now();
   const left = onlineNodes();
+  if (n !== 'pve1') logEvent('pve1', 'corosync', 940, `[QUORUM] ${n} left, Members[${left.length}]: ${left.map(x => x.slice(3)).join(' ')}${left.length >= 2 ? '' : ', quorum lost'}`);
   if (left.length >= 2) {
     // two of three: quorum. HA starts what ran on the node on the others, VM 102 on the first of them
     const guests = [...VMS, ...CTS].filter(g => g.node === n && ha(g));
     guests.forEach((g, i) => { g.node = g.id === 102 ? left[0] : left[i % left.length]; });
+    if (n !== 'pve1') guests.forEach(g => logEvent('pve1', 'pve-ha-crm', 1160, `recover service ${n0(g).toLowerCase()}:${g.id} from fenced node ${n} to ${g.node}`));
     const run = ++storyRun;
     if (has102) return outage(what, { kind: 'host', node: n, to: vm102.node, where: n });
     if (self) kicked = n;
@@ -467,7 +485,13 @@ async function nodeStory(n, run) {
 }
 
 // ---- a shell on another machine, until exit, logout or Ctrl+D (or until the site goes down under it) ----
-export async function remoteShell({ host, user, home, root = false, banner, start = null }) {
+export async function remoteShell({ host, user, home, root = false, banner, start = null, from = '10.20.0.20', key = 'ED25519' }) {
+  // sshd writes the login down; after a reload it is the same session, so nothing new
+  const pid = 3400 + Math.floor(Math.random() * 600);
+  if (!start) {
+    logEvent(host, 'sshd', pid, `Accepted publickey for ${user} from ${from} port ${40000 + Math.floor(Math.random() * 20000)} ssh2: ${key}`, true);
+    logEvent(host, 'sshd', pid, `pam_unix(sshd:session): session opened for user ${user}(uid=${root ? 0 : 1000})`, true);
+  }
   const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot }, savedHome = [...HOME];
   state.host = host; state.user = user; state.asRoot = root;
   HOME.splice(0, HOME.length, ...home); state.cwd = [...HOME];
@@ -501,6 +525,7 @@ export async function remoteShell({ host, user, home, root = false, banner, star
     Object.assign(state, saved);
     resetHistoryCursor();
   }
+  if (!restart && kicked !== host) logEvent(host, 'sshd', pid, `pam_unix(sshd:session): session closed for user ${user}`, true);
   if (kicked === host) { kicked = null; print(span('m', `Connection to ${host} closed by remote host.`)); return; }
   if (!restart) { print('logout'); print(span('m', `Connection to ${host} closed.`)); }
 }
@@ -511,7 +536,7 @@ export async function labSession(resume = null) {
   unlock('homelab');
   armAlert();
   const back = resume && span('m', 'Connection restored after the reload.');
-  await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], start: resume && (async () => {
+  await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], from: '172.18.0.3', key: 'ED25519 key id_homelab', start: resume && (async () => {
     if (resume.host === 'pve1') return (await import('./pve.js')).pveSession(resume.cwd);
     if (resume.cwd && !resolve('/' + resume.cwd.join('/')).error) state.cwd = resume.cwd;
   }), banner: back ? [back] : ['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), ''] });

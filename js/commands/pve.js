@@ -6,7 +6,7 @@ import { resolve, addTree, writeFile } from '../filesystem.js';
 import { buildPve } from '../fs/pve.js';
 import { def, completes } from '../registry.js';
 import { remoteShell, outage, nodeDown } from './homelab.js';
-import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML, MY_BACKUPS, NODES, CLUSTER, onlineNodes } from './labstate.js';
+import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML, MY_BACKUPS, NODES, CLUSTER, onlineNodes, logEvent } from './labstate.js';
 
 // the node this shell is on, and what runs on it
 const LOCAL = 'pve1';
@@ -114,7 +114,7 @@ export async function labSsh(args) {
 // cwd: after a reload, the folder you were in
 export async function pveSession(cwd = null) {
   unlock('pve');
-  await remoteShell({ host: 'pve1', user: 'root', home: ['root'], root: true, start: cwd && (() => { if (!resolve('/' + cwd.join('/')).error) state.cwd = cwd; }), banner: cwd ? [span('m', 'Connection restored after the reload.')] : [
+  await remoteShell({ host: 'pve1', user: 'root', home: ['root'], root: true, from: '10.20.0.20', key: 'ED25519 ansible@homelab', start: cwd && (() => { if (!resolve('/' + cwd.join('/')).error) state.cwd = cwd; }), banner: cwd ? [span('m', 'Connection restored after the reload.')] : [
     'Linux pve1 6.8.12-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.8.12-1 x86_64', '',
     span('m', 'The programs included with the Debian GNU/Linux system are free software.'),
     span('m', `Last login: ${new Date(Date.now() - 6 * 864e5).toString().slice(0, 24)} from 10.20.0.20`), '',
@@ -145,6 +145,7 @@ async function guestAction(g, kind, sub) {
   if (sub === 'start') {
     if (up.has(g.id)) { state.failed = true; return print(span('e', `${what} ${g.id} already running`)); }
     up.add(g.id); delete stoppedSince[g.id];
+    logEvent('pve1', 'pvedaemon', 1110, `<root@pam> starting task UPID:${g.node}:${kind === 'qemu' ? 'qmstart' : 'vzstart'}:${g.id}:root@pam:`);
     return print(span('m', g.id === 104 ? `VM 104 started. ${g.note}` : g.id === 202 ? 'CT 202 started. Someone is going to ask for an invite.' : `${what} ${g.id} started on ${g.node}.`));
   }
   if (!up.has(g.id)) { state.failed = true; return print(span('e', `${what} ${g.id} not running`)); }
@@ -155,6 +156,7 @@ async function guestAction(g, kind, sub) {
   }
   if (sub === 'reboot') return print(span('m', `${what} ${g.id} rebooted.`));
   up.delete(g.id); stoppedSince[g.id] = Date.now();
+  logEvent('pve1', 'pvedaemon', 1110, `<root@pam> starting task UPID:${g.node}:${kind === 'qemu' ? 'qm' : 'vz'}${sub}:${g.id}:root@pam:`);
   print(span('m', g.id === 200 ? 'CT 200 stopped. The ads are back on every device in the house.' : `${what} ${g.id} (${g.name}) stopped. ${g.note || ''}`));
 }
 
@@ -436,6 +438,7 @@ def('proxmox-file-restore', null, 'get single files out of a VM backup', args =>
   const err = writeFile(target, text);
   if (err) { state.failed = true; return print(span('e', `Error: unable to write '${esc(target)}': ${err}`) + span('m', '  (/tmp is the place for it)')); }
   if (/prometheus\.yml$/.test(path)) saw('restore-extracted');
+  logEvent('pve1', 'proxmox-file-restore', 4810, `extracted ${path} from ${snap} to ${target}`);
   print(span('a', `Extracted ${esc(path.split('/').pop())} to ${esc(target)}.`) + span('m', ' Now it only has to go back where it came from.'));
 }, { hosts: ['pve1'], usage: 'list|extract <snapshot> <path> [target]', flags: [['list snapshot path', 'what is in a folder of the backup'], ['extract snapshot path target', 'copy one file out of the backup, to target on this host']] });
 
@@ -461,6 +464,7 @@ def('scp', null, 'copy a file to another machine', args => {
   try { err = writeFile(target, text); const w = resolve(target); if (!err && !w.error) w.node.own = 'ian'; } finally { state.host = saved.host; HOME.splice(0, HOME.length, ...saved.home); }
   if (err) { state.failed = true; return print(span('e', `scp: ${esc(target)}: ${err}`)); }
   print(`${esc(src.split('/').pop())}${' '.repeat(Math.max(1, 30 - src.split('/').pop().length))}100%  ${text.length}B   1.2MB/s   00:00`);
+  logEvent('homelab', 'sshd', 4122, `Accepted publickey for ian from 10.20.0.10 port 51022 ssh2: ED25519 root@pve1 (scp to ${target})`, true);
   if (target === '/home/ian/stacks/monitoring/prometheus.yml') {
     RESTORE.done = true; RESTORE.at = Date.now();
     unlock('restore');
@@ -517,6 +521,7 @@ def('vzdump', null, 'back up a VM or container', async args => {
     return print(span('w', '3-2-1 says no:') + span('m', ' that copy is on the same host as the VM. When this machine dies, both copies die with it. Try ') + cmd(`vzdump ${id} --storage pbs`));
   }
   MY_BACKUPS.push({ kind, id: +id, at: +at });
+  logEvent('pve1', 'vzdump', 20400 + MY_BACKUPS.length, `INFO: Finished Backup of ${kind === 'vm' ? 'VM' : 'CT'} ${id}, started by root@pam`);
   // the sync job on PBS takes every new backup offsite
   await sleep(500);
   print(span('m', `pbs: sync job 'hetzner' started for ${kind}/${id}/${stamp(at)}, encrypted`));
