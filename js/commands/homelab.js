@@ -617,18 +617,18 @@ async function tmuxAttach(readOnly) {
   const ianPrompt = 'ian@homelab:~/stacks/monitoring$ ';
   draw();
   try {
-    for (const line of ALERT_RULE) if (!await step(700, () => { pane.push(line); cmdline = '-- INSERT --'; })) return;
-    if (!await step(900, () => { cmdline = ':w'; })) return;
-    if (!await step(500, () => { cmdline = '"alerts.yml" 11L, 412B written'; })) return;
+    for (const line of ALERT_RULE) if (!await step(1100, () => { pane.push(line); cmdline = '-- INSERT --'; })) return;
+    if (!await step(1400, () => { cmdline = ':w'; })) return;
+    if (!await step(800, () => { cmdline = '"alerts.yml" 11L, 412B written'; })) return;
     // he notices: a second client on his session
-    if (!await step(1800, () => { status = '2 clients'; })) return;
-    if (!await step(1500, () => { cmdline = ':q'; })) return;
-    if (!await step(500, () => { mode = 'bash'; pane = [ianPrompt + 'tmux list-clients']; })) return;
-    if (!await step(700, () => pane.push('/dev/pts/1: 0 [80x24 xterm-256color] (utf8)', `/dev/pts/0: 0 [80x24 xterm-256color] (${readOnly ? 'read-only' : 'utf8'}) <- 172.18.0.3, the terminal container`))) return;
-    if (!await step(1600, () => pane.push(ianPrompt + 'echo "hi guest. nice find. this session was never meant to be shared"'))) return;
-    if (!await step(500, () => pane.push('hi guest. nice find. this session was never meant to be shared'))) return;
-    if (!await step(1600, () => pane.push(ianPrompt + 'tmux detach-client -t /dev/pts/0'))) return;
-    await pause(600);
+    if (!await step(2900, () => { status = '2 clients'; })) return;
+    if (!await step(2400, () => { cmdline = ':q'; })) return;
+    if (!await step(800, () => { mode = 'bash'; pane = [ianPrompt + 'tmux list-clients']; })) return;
+    if (!await step(1100, () => pane.push('/dev/pts/1: 0 [80x24 xterm-256color] (utf8)', `/dev/pts/0: 0 [80x24 xterm-256color] (${readOnly ? 'read-only' : 'utf8'}) <- 172.18.0.3, the terminal container`))) return;
+    if (!await step(2600, () => pane.push(ianPrompt + 'echo "hi guest. nice find. this session was never meant to be shared"'))) return;
+    if (!await step(800, () => pane.push('hi guest. nice find. this session was never meant to be shared'))) return;
+    if (!await step(2600, () => pane.push(ianPrompt + 'tmux detach-client -t /dev/pts/0'))) return;
+    await pause(1000);
     if (gone) return;
     // he kicks you, kills the shared session, and keeps tmux on his laptop from now on
     store.set('tmux-closed', true);

@@ -265,7 +265,7 @@ export async function runFeatures(onResult = () => {}) {
     key('b', { ctrlKey: true }); key('d'); await wait(300);
     await send('tmux ls'); const open = since(b).includes('0: 1 windows');
     await send('tmux attach -r');
-    const t = Date.now(); while (!state.asking && Date.now() - t < 30000) await wait(100);
+    const t = Date.now(); while (!state.asking && Date.now() - t < 45000) await wait(100);
     await send('tmux ls'); await send('tmux attach'); await send('exit'); await done; await idle();
     const o = since(b);
     return { ok: open && o.includes('DiskAlmostFull') && o.includes('tmux detach-client -t /dev/pts/0') && /no server running on \/tmp\/tmux-1000\/default[\s\S]*no server running/.test(o),
