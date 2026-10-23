@@ -31,6 +31,12 @@ export async function runHelp(onResult = () => {}) {
       // -x, --long, -x value, a lone - (cd -), and single-dash words like find -name or ip -br
       if (/^-/.test(f[0]) && !/^(-[\w?]+|--[\w-]+|-)([ =]\S+)?(, (-[\w?]+|--[\w-]+)([ =]\S+)?)*$/.test(f[0])) p.push(`flag ${f[0]} is not written like -x, --long or -x value`);
     }
+    // a flag the code reads (o.x, o['long']) is declared too: an undeclared one gives "invalid option" before it runs
+    if (c.flags?.some(([f]) => f.startsWith('-')) && !c.wrap && !c.anyFlags) {
+      const decl = new Set(['h', 'help', 'version', 'num']);
+      for (const [f] of c.flags) for (const part of f.split(/,\s*/)) { const m = part.match(/^--?([\w-]+)/); if (m) { decl.add(m[1]); if (!part.startsWith('--')) [...m[1]].forEach(ch => decl.add(ch)); } }
+      for (const m of c.run.toString().matchAll(/\bo\.([A-Za-z_]\w*)|\bo\['([\w-]+)'\]/g)) if (!decl.has(m[1] || m[2])) p.push(`reads flag ${m[1] || m[2]}, but does not declare it`);
+    }
     // --help shows the description and every flag
     const help = htmlToText(helpLines(c)).join('\n');
     if (c.desc && !help.toLowerCase().includes(c.desc.toLowerCase())) p.push('--help leaves out the description');

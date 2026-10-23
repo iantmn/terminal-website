@@ -74,7 +74,7 @@ def('echo', 'system', 'print text', (args, raw) => {
   text = text.replace(/^(["'])(.*)\1$/, '$2');
   if (escapes) text = text.replace(/\\([ntb\\])/g, (_, c) => ({ n: '\n', t: '\t', b: '', '\\': '\\' }[c]));
   print(esc(text));
-}, { usage: '[-e] <text>', flags: [['-n', 'no trailing newline'], ['-e', 'interpret \\n, \\t and \\\\'], ['-E', 'do not interpret them (default)']] });
+}, { usage: '[-e] <text>', flags: [['-n', 'no trailing newline'], ['-e', 'interpret \\n, \\t and \\\\'], ['-E', 'do not interpret them (default)']], anyFlags: true });
 
 // strftime, the parts people actually use
 function strftime(fmt, d, utc) {

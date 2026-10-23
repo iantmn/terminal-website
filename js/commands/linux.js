@@ -68,7 +68,7 @@ def('rm', null, 'remove files', async args => {
   // post numbers shift when the feed adds new posts, so look the guide up by url
   const backup = POSTS.find(p => p.url === '/posts/2026/7/PBSHetzner/');
   if (backup) print(span('m', 'Speaking of which: ') + cmd('read ' + backup.n, 'read my backup guide'));
-}, { usage: '[-rf] <path>', flags: [['-r, --recursive', 'remove directories and everything in them'], ['-f, --force', 'never ask'], ['-i', 'ask before every file']] });
+}, { usage: '[-rf] <path>', flags: [['-r, -R, --recursive', 'remove directories and everything in them'], ['-f, --force', 'never ask'], ['-i', 'ask before every file']] });
 def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, 'edit a file (good luck leaving)', async (a, raw) => {
   const ed = raw.trim().split(/\s+/)[0];
   if (ed === 'emacs') return print(span('m', 'emacs: a great operating system, lacking only a decent text editor. Try ') + span('a2','vim') + span('m','?'));
@@ -402,7 +402,7 @@ def('ps', 'more', 'list processes', args => {
     ...list.map(p => `${String(p.pid).padStart(5)} ${pad(tty(p), 8)} ${p.pid === 2016 ? 'S   ' : 'R   '}  ${esc(o.e || /a|x/.test(bsd) ? p.cmd : proc(p))}`),
     ...(list === all ? [] : [span('m', onLab() ? 'only yours. Everything: ' : 'only yours (and the coffee). Everything: ') + cmd('ps aux') + span('m', ' or ') + cmd('ps -ef')]),
   ]);
-}, { usage: '[aux | -ef]', flags: [['aux', 'every process, with user, CPU and memory'], ['-e, -A', 'every process'], ['-f', 'full format, with parent PIDs']] });
+}, { usage: '[aux | -ef]', flags: [['aux', 'every process, with user, CPU and memory'], ['-aux', 'the same as aux'], ['-e, -A', 'every process'], ['-f, -F', 'full format, with parent PIDs'], ['-u', 'with user, CPU and memory, like aux']] });
 const SIGNALS = ['HUP', 'INT', 'QUIT', 'ILL', 'TRAP', 'ABRT', 'BUS', 'FPE', 'KILL', 'USR1', 'SEGV', 'USR2', 'PIPE', 'ALRM', 'TERM'];
 def(['kill', 'killall', 'pkill'], null, 'stop a process', args => {
   if (args[0] === '-l' || args[0] === '--list') return printLines([
@@ -446,7 +446,7 @@ def('free', 'more', 'memory usage', args => {
     ...(o.t || o.total ? ['Total:' + [mem[0] + swap[0], mem[1] + swap[1], mem[2] + swap[2]].map(fmt).join('')] : []),
     span('m', onLab() ? here().memNote : 'buff/cache is 80% browser tabs I will read later.'),
   ]);
-}, { flags: [['-h, --human', 'sizes like 16Gi (the default here)'], ['-b, -k, -m, -g', 'in bytes, KiB, MiB or GiB'], ['-t, --total', 'add a line with RAM + swap']] });
+}, { flags: [['-h, --human', 'sizes like 16Gi (the default here)'], ['-b, -k, -m, -g, --bytes, --kibi, --mebi, --gibi', 'in bytes, KiB, MiB or GiB'], ['-t, --total', 'add a line with RAM + swap']] });
 def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => {
   const [o, rest] = getopt(args);
   const sub = /^\s*ifconfig\b/.test(raw) ? 'a' : rest[0] || 'a';
@@ -463,7 +463,7 @@ def(['ip', 'ifconfig'], 'more', 'network interfaces and routes', (args, raw) => 
     ...ifs.flatMap(([n, , addr, fl, mtu], i) => [esc(`${i + 1}: ${n}: <${fl}> mtu ${mtu}`), `    inet ${addr}${n === 'eth0' ? ' brd 172.18.255.255' : ''} scope ${n === 'lo' ? 'host' : 'global'} ${n}`]),
     ...(onLab() ? [] : [span('m', 'eth0 is the terminal_default Docker network. This terminal is a container.')]),
   ]);
-}, { usage: '[-br] [a | route | link]', flags: [['a, addr', 'addresses (default)'], ['route', 'the routing table'], ['link', 'interfaces only'], ['-br', 'brief: one line per interface']] });
+}, { usage: '[-br] [a | route | link]', flags: [['a, addr', 'addresses (default)'], ['route', 'the routing table'], ['link', 'interfaces only'], ['-br, --brief', 'brief: one line per interface']] });
 def('hostname', 'more', 'the name of this machine', args => {
   const [o] = getopt(args);
   if (o.I || o['all-ip-addresses']) return print(onLab() ? here().ips : '172.18.0.3');
@@ -471,7 +471,7 @@ def('hostname', 'more', 'the name of this machine', args => {
   if (o.f || o.fqdn || o.long) return print(onLab() ? here().fqdn : 'terminal.iantiemann.nl');
   if (o.d || o.domain) return print(onLab() ? here().domain : 'iantiemann.nl');
   print(state.host);
-}, { flags: [['-s, --short', 'the short name (default)'], ['-f, --fqdn', 'the full name with domain'], ['-d, --domain', 'only the domain'], ['-i', 'its IP address'], ['-I', 'every IP address']] });
+}, { flags: [['-s, --short', 'the short name (default)'], ['-f, --fqdn, --long', 'the full name with domain'], ['-d, --domain', 'only the domain'], ['-i, --ip-address', 'its IP address'], ['-I, --all-ip-addresses', 'every IP address']] });
 const USERS = { guest: [1001, [[1001, 'guest'], [27, 'curious'], [42, 'coffee']]], ian: [1000, [[1000, 'ian'], [27, 'sudo'], [42, 'coffee']]], root: [0, [[0, 'root']]] };
 def('id', 'more', 'who you are, as numbers', args => {
   const [o, [who = state.asRoot ? 'root' : state.user]] = getopt(args);
@@ -750,7 +750,7 @@ def('journalctl', 'more', 'system logs', async args => {
     const [name, pid, msg] = live[Math.floor(Math.random() * live.length)];
     print(fmt(name, pid, msg.replace('{n}', () => cup++)));
   }
-}, { usage: '[-n lines] [-u unit] [-f] [-r]', flags: [['-n lines', 'only the last lines'], ['-u unit', 'one service, like -u coffee'], ['-f, --follow', 'keep printing new lines (Ctrl+C stops)'], ['-r, --reverse', 'newest first']] });
+}, { usage: '[-n lines] [-u unit] [-f] [-r]', flags: [['-n, --lines lines', 'only the last lines'], ['-u, --unit unit', 'one service, like -u coffee'], ['-f, --follow', 'keep printing new lines (Ctrl+C stops)'], ['-r, --reverse', 'newest first']] });
 def(['dig', 'nslookup', 'host'], 'more', 'look up a DNS record', (args, raw) => {
   const tool = raw.trim().split(/\s+/)[0].toLowerCase();
   const host = args.find(a => !a.startsWith('-') && !a.startsWith('+') && !/^(A|AAAA|MX|TXT|NS|CNAME)$/i.test(a)) || 'iantiemann.nl';
@@ -1006,7 +1006,7 @@ def('cal', 'more', 'a calendar', args => {
 }, { usage: '[-3y] [[month] year]', flags: [['-3', 'last month, this month and next month'], ['-y, --year', 'the whole year'], ['month year', 'a specific month, like cal 12 2026']] });
 
 const FILTER_INFO = {
-  grep: ['search files or the input for a pattern', '[-rlicvnowxF] <pattern> [file...]', [['-r, --recursive', 'search every file in the folders too'], ['-l, --files-with-matches', 'only the names of files that match'], ['-i, --ignore-case', 'ignore case (lowercase patterns already do)'], ['-v, --invert-match', 'lines that do not match'], ['-c, --count', 'only the number of matching lines'], ['-n, --line-number', 'show line numbers'], ['-o, --only-matching', 'only the matching part'], ['-w, --word-regexp', 'whole words only'], ['-x, --line-regexp', 'whole lines only'], ['-F, --fixed-strings', 'the pattern is text, not a regex'], ['-e pattern', 'the pattern, even if it starts with -']]],
+  grep: ['search files or the input for a pattern', '[-rlicvnowxF] <pattern> [file...]', [['-r, -R, --recursive', 'search every file in the folders too'], ['-l, --files-with-matches', 'only the names of files that match'], ['-i, --ignore-case', 'ignore case (lowercase patterns already do)'], ['-v, --invert-match', 'lines that do not match'], ['-c, --count', 'only the number of matching lines'], ['-n, --line-number', 'show line numbers'], ['-o, --only-matching', 'only the matching part'], ['-w, --word-regexp', 'whole words only'], ['-x, --line-regexp', 'whole lines only'], ['-F, --fixed-strings', 'the pattern is text, not a regex'], ['-e pattern', 'the pattern, even if it starts with -']]],
   head: ['the first lines of the input', '[-n lines] [-c bytes]', [['-n lines, -N', 'how many lines (default 10)'], ['-c bytes', 'the first bytes instead']]],
   tail: ['the last lines of the input', '[-n lines] [-c bytes]', [['-n lines, -N', 'how many lines (default 10)'], ['-n +N', 'everything from line N'], ['-c bytes', 'the last bytes instead']]],
   wc: ['count lines, words and bytes', '[-lwmc]', [['-l, --lines', 'lines'], ['-w, --words', 'words'], ['-m, --chars', 'characters'], ['-c, --bytes', 'bytes']]],

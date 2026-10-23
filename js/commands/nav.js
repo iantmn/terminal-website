@@ -281,7 +281,7 @@ def(['cp', 'mv'], 'more', 'copy or move files (into /tmp)', (args, raw) => {
     if (e) { state.failed = true; print(span('e', `${tool}: ${e[1].startsWith('-r') || e[1].startsWith('cannot') ? '' : `cannot ${e[0] === src ? (e[1] === 'Permission denied' ? 'open' : 'stat') : 'create'} '${esc(e[0])}': `}${esc(e[1])}`) + (e[1] === 'Read-only file system' ? TMP_NOTE : '')); continue; }
     if (tool === 'mv') removeNode(src, { recursive: true });
   }
-}, { usage: '[-r] <source>... <destination>', flags: [['-r, --recursive', 'cp: folders and everything in them'], ['destination', 'in /tmp: a new name, or a folder to put them in']] });
+}, { usage: '[-r] <source>... <destination>', flags: [['-r, -R, --recursive', 'cp: folders and everything in them'], ['destination', 'in /tmp: a new name, or a folder to put them in']] });
 def('ln', 'more', 'link files (read-only here)', args => {
   print(span('e', `ln: failed to create link '${esc(args.filter(a => !a.startsWith('-')).pop() || '.')}': Read-only file system`) + TMP_NOTE);
 });

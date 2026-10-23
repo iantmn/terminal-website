@@ -100,6 +100,39 @@ function hostHelp(only, about) {
   if (rest.length) rows.push(span('w b', 'System'), ...rest.map(line), '');
   return [span('w b', `${state.host}`) + span('m', ` · ${about}`), '', ...rows, span('m', 'Every command takes ') + span('a2', '--help') + span('m', ', and ') + span('a2', 'man') + span('m', ' knows more. ') + span('a2', 'exit') + span('m', ' or Ctrl+D goes back.')];
 }
+// a flag the command does not know gets the error GNU tools give, worked out from the flags it declares. Only the
+// options before the first argument: after it, they can belong to a subcommand (docker ps -a, git log --oneline)
+function badFlag(c, args) {
+  // anyFlags: echo prints a flag it does not know, like the real one
+  // and a command whose list has no flags at all, only keys or subcommands (htop, git), is left alone
+  if (!c.flags?.some(([f]) => f.startsWith('-')) || c.wrap || c.anyFlags) return null;
+  const longs = new Set(['help', 'version']), shorts = new Set(['h']), words = new Set(), valued = new Set();
+  for (const [spec] of c.flags) for (const part of spec.split(/,\s*/)) {
+    const m = part.trim().match(/^(--?)([\w-]+)([ =]\S+)?/);
+    if (!m) continue;
+    if (m[1] === '--') longs.add(m[2]);
+    else if (m[2].length === 1) shorts.add(m[2]);
+    else words.add(m[2]);
+    if (m[3]) valued.add(m[1] + m[2]);
+  }
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--' || !a.startsWith('-') || a === '-' || /^-\d/.test(a)) return null;
+    if (a.startsWith('--')) {
+      const k = a.slice(2).split('=')[0];
+      if (!longs.has(k)) return `unrecognized option '${a.split('=')[0]}'`;
+      if (valued.has('--' + k) && !a.includes('=')) i++;
+      continue;
+    }
+    // find -name, and the like: one dash, a whole word
+    if (words.has(a.slice(1))) { if (valued.has(a)) i++; continue; }
+    for (let j = 1; j < a.length; j++) {
+      if (!shorts.has(a[j])) return `invalid option -- '${a[j]}'`;
+      if (valued.has('-' + a[j])) { if (j === a.length - 1) i++; break; }
+    }
+  }
+  return null;
+}
 function invoke(c, name, args, line) {
   const remote = HOST_COMMANDS[state.host];
   if (remote) {
@@ -118,6 +151,8 @@ function invoke(c, name, args, line) {
   noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
   if (wantsHelp(c, own)) return printLines(helpLines(c, name));
+  const bad = badFlag(c, own);
+  if (bad) { state.code = 2; return printLines([span('e', esc(`${name}: ${bad}`)), span('m', `Try '${esc(name)} --help' for more information.`)]); }
   if (own.includes('--version') && !c.version) return printLines([`${esc(name)} (IanOS) 2.6 (Rubber Duck)`, span('m', 'Written by Ian Tiemann. Runs on coffee.')]);
   return c.run(args, line);
 }

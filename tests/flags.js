@@ -70,6 +70,13 @@ export const T = [
   ['echo -n hi', o => o === 'hi'],
   ['echo -ne "x\\ty"', o => o === 'x\ty'],
   ['echo -x', o => o === '-x'],
+  // a flag a command does not declare: the GNU error, and the way to --help
+  ['ls -z', o => o.includes("ls: invalid option -- 'z'") && o.includes("Try 'ls --help'")],
+  ['ls -laz', o => o.includes("invalid option -- 'z'")],
+  ['grep --frobnicate x', o => o.includes("grep: unrecognized option '--frobnicate'")],
+  ['journalctl --lines 1', o => !o.includes('unrecognized') && o.includes('-- Logs begin')],
+  ['head -2 /etc/hostname', o => !o.includes('invalid')],
+  ['ps -aux', o => !o.includes('invalid')],
   // date
   ['date', o => /^\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \S+ \d{4}$/.test(o)],
   ['date +%Y-%m-%d', o => /^\d{4}-\d\d-\d\d$/.test(o)],
