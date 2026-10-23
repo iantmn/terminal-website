@@ -5,7 +5,7 @@ import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt } from '../core.js';
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
-import { HOSTS, all, logRows, logStamp, VISIT_LOG } from './labstate.js';
+import { HOSTS, all, logRows, logStamp, VISIT_LOG, SESSIONS } from './labstate.js';
 import { routeTo } from './network.js';
 import { forgetSession } from '../session.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped, vars, envVars } from '../shell.js';
@@ -775,7 +775,11 @@ const when = t => new Date(t).toString().slice(0, 21);
 const hhmm = ms => { const m = Math.max(0, Math.round(ms / 60000)); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 // Ian is logged in too, on pts/1: that is where the wall messages come from
 const IAN_SINCE = Date.now() - 3 * 36e5 - 17 * 6e4;
-def('who', 'more', 'who is logged in', () => printLines([
+// on the homelab and pve1: the ssh sessions of this visit, and on the homelab Ian's tmux from the laptop
+const remoteWho = () => [...SESSIONS.filter(x => x.host === state.host && !x.end).map((x, i) => ({ ...x, tty: 'pts/' + i })),
+  ...(state.host === 'homelab' ? [{ user: 'ian', tty: 'pts/' + SESSIONS.filter(x => x.host === 'homelab' && !x.end).length, from: '10.42.0.12', start: IAN_SINCE, ian: true }] : [])];
+const isoMin = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+def('who', 'more', 'who is logged in', () => onLab() ? printLines(remoteWho().map(x => esc(`${pad(x.user, 9)}${pad(x.tty, 13)}${isoMin(x.start)} (${x.from})`) + (x.ian ? span('m', '  # Ian, tmux on the laptop') : ''))) : printLines([
   `${pad(state.user, 9)}pts/0        ${when(currentLogin()?.start || BOOT_TIME).slice(4)} (your browser)`,
   esc(`${pad('ian', 9)}pts/1        ${when(IAN_SINCE).slice(4)} (10.42.0.12)`) + span('m', '  # tmux, on the laptop'),
 ]));
@@ -789,6 +793,7 @@ def('wall', 'more', 'send a message to everyone logged in', (args, raw) => {
 }, { usage: '<message>' });
 def('last', 'more', 'your earlier visits', args => {
   const [o] = getopt(args, ['n']);
+  if (onLab()) return remoteLast(o.n ? parseInt(o.n, 10) || 10 : 10);
   const now = currentLogin();
   const rows = [...visits.logins].reverse().slice(0, o.n ? parseInt(o.n, 10) || 10 : 10);
   printLines([
@@ -800,6 +805,24 @@ def('last', 'more', 'your earlier visits', args => {
     '', span('m', `wtmp begins ${when(visits.first)}`),
   ]);
 }, { usage: '[-n count]', flags: [['-n count', 'only the last visits']] });
+// last on the homelab and pve1: your sessions (also the ones the machine dropped under you), its boots, and older logins
+function remoteLast(count) {
+  const boots = (VISIT_LOG[state.host] || []).filter(e => /^Linux version|booted and joined/.test(e.msg)).map(e => ({ boot: true, start: e.at }));
+  const latest = Math.max(0, ...boots.map(b => b.start));
+  const old = state.host === 'homelab' ? [{ user: 'ian', from: '10.42.0.12', start: Date.now() - 2 * 864e5, end: Date.now() - 2 * 864e5 + 47 * 6e4, how: 'logout' }, { user: 'ian', from: '10.42.0.12', start: IAN_SINCE, end: 0, tty: 'pts/1' }]
+    : [{ user: 'root', from: '10.20.0.20', start: Date.now() - 6 * 864e5, end: Date.now() - 6 * 864e5 + 3 * 6e4, how: 'logout' }];
+  const kernel = state.host === 'homelab' ? '6.1.0-25-amd64' : '6.8.12-1-pve';
+  const rows = [...SESSIONS.filter(x => x.host === state.host), ...boots, ...old].sort((a, b) => b.start - a.start).slice(0, count);
+  printLines([
+    ...rows.map(x => {
+      if (x.boot) return esc(`${pad('reboot', 9)}${pad('system boot', 13)}${pad(kernel, 17)}${when(x.start)}`) + (x.start === latest ? span('m', '   still running') : '');
+      const tail = !x.end ? span('a', '   still logged in')
+        : esc(` - ${x.how === 'down' ? 'down ' : x.how === 'reload' ? 'gone ' : when(x.end).slice(16)}  (${hhmm(x.end - x.start)})`) + (x.how === 'down' ? span('m', '  # the machine went down under you') : x.how === 'reload' ? span('m', '  # the page reloaded') : '');
+      return esc(`${pad(x.user, 9)}${pad(x.tty || 'pts/0', 13)}${pad(x.from, 17)}${when(x.start)}`) + tail;
+    }),
+    '', span('m', `wtmp begins ${when(old[0].start - 30 * 864e5)}`),
+  ]);
+}
 const PEOPLE = {
   guest: () => [
     'Login: guest                            Name: You, the curious visitor',

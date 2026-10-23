@@ -34,6 +34,8 @@ export function logRows(host, old, { auth = null, every = 36e5 } = {}) {
   const before = old.map(([unit, pid, msg], i) => ({ at: VISIT.since - (old.length - i) * every, unit, pid, msg }));
   return [...before, ...(VISIT_LOG[host] || []).filter(e => auth === null || e.auth === auth)];
 }
+// every ssh session of this visit, for who and last: { host, user, from, start, end, how: 'logout' | 'down' | 'reload' }
+export const SESSIONS = [];
 // /var/log/syslog and auth.log: old lines like 'sshd[3311]: Accepted ...', a few minutes apart, then the visit
 export const logFile = (host, old, auth) => () => logRows(host, old.map(l => { const [, unit, pid, msg] = l.match(/^([\w.-]+)\[(\d+)\]: (.*)$/); return [unit, pid, msg]; }), { auth, every: 9e5 })
   .map(e => esc(`${logStamp(e.at)} ${host} ${e.unit}[${e.pid}]: ${e.msg}`));
@@ -92,7 +94,7 @@ export function exportLab() {
   return {
     running: [...running], stoppedAt, deployed: [...DEPLOYED], restore: RESTORE, alert: ALERT,
     up: [...up], stoppedSince,
-    incidents: INCIDENTS, backups: MY_BACKUPS, log: VISIT_LOG, since: VISIT.since,
+    incidents: INCIDENTS, backups: MY_BACKUPS, log: VISIT_LOG, since: VISIT.since, sessions: SESSIONS,
   };
 }
 export function importLab(d) {
@@ -111,5 +113,7 @@ export function importLab(d) {
   if (list(d.incidents)) INCIDENTS.splice(0, INCIDENTS.length, ...d.incidents.filter(i => i && typeof i.what === 'string' && typeof i.at === 'number').slice(-20));
   if (typeof d.since === 'number' && d.since < VISIT.since) VISIT.since = d.since;
   if (obj(d.log)) for (const h of Object.keys(VISIT_LOG)) if (list(d.log[h])) VISIT_LOG[h].splice(0, VISIT_LOG[h].length, ...d.log[h].filter(e => e && typeof e.at === 'number' && typeof e.unit === 'string' && typeof e.msg === 'string').slice(-200));
+  // a session that was open during the reload ends there; the resume opens a fresh one
+  if (list(d.sessions)) SESSIONS.splice(0, SESSIONS.length, ...d.sessions.filter(x => x && VISIT_LOG[x.host] && typeof x.start === 'number').slice(-50).map(x => x.end ? x : { ...x, end: Date.now(), how: 'reload' }));
   if (list(d.backups)) MY_BACKUPS.splice(0, MY_BACKUPS.length, ...d.backups.filter(b => b && typeof b.id === 'number' && typeof b.at === 'number').slice(-20));
 }

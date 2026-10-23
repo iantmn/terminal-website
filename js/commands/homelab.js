@@ -8,7 +8,7 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS, NODES, CLUSTER, onlineNodes, up, logEvent } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS, NODES, CLUSTER, onlineNodes, up, logEvent, SESSIONS } from './labstate.js';
 
 addTree('homelab', buildLab());
 
@@ -488,6 +488,8 @@ async function nodeStory(n, run) {
 export async function remoteShell({ host, user, home, root = false, banner, start = null, from = '10.20.0.20', key = 'ED25519' }) {
   // sshd writes the login down; after a reload it is the same session, so nothing new
   const pid = 3400 + Math.floor(Math.random() * 600);
+  const session = { host, user, from, start: Date.now(), end: 0, how: '' };
+  SESSIONS.push(session);
   if (!start) {
     logEvent(host, 'sshd', pid, `Accepted publickey for ${user} from ${from} port ${40000 + Math.floor(Math.random() * 20000)} ssh2: ${key}`, true);
     logEvent(host, 'sshd', pid, `pam_unix(sshd:session): session opened for user ${user}(uid=${root ? 0 : 1000})`, true);
@@ -525,6 +527,7 @@ export async function remoteShell({ host, user, home, root = false, banner, star
     Object.assign(state, saved);
     resetHistoryCursor();
   }
+  Object.assign(session, { end: Date.now(), how: restart || kicked === host ? 'down' : 'logout' });
   if (!restart && kicked !== host) logEvent(host, 'sshd', pid, `pam_unix(sshd:session): session closed for user ${user}`, true);
   if (kicked === host) { kicked = null; print(span('m', `Connection to ${host} closed by remote host.`)); return; }
   if (!restart) { print('logout'); print(span('m', `Connection to ${host} closed.`)); }

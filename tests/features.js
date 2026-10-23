@@ -206,5 +206,15 @@ export async function runFeatures(onResult = () => {}) {
     return { ok: o.includes('container monitoring-loki-1 started') && /homelab sshd\[\d+\]: Accepted publickey for ian from 172\.18\.0\.3/.test(o)
       && /pve1 sshd\[\d+\]: pam_unix\(sshd:session\): session closed for user root/.test(o), info: o.split('\n').filter(l => /sshd|dockerd/.test(l)).slice(-3).join(' | ') };
   });
+  await check('who and last on pve1 show your own sessions', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    for (const l of ['ssh -i ~/.ssh/ansible_pve root@pve1', 'exit', 'ssh -i ~/.ssh/ansible_pve root@pve1', 'who', 'last -n 3', 'exit', 'who', 'exit']) await send(l);
+    await done; await idle();
+    const o = since(b);
+    return { ok: /root +pts\/0 +\d{4}-\d\d-\d\d \d\d:\d\d \(10\.20\.0\.20\)/.test(o) && /root +pts\/0 +10\.20\.0\.20 .* still logged in/.test(o)
+      && /root +pts\/0 +10\.20\.0\.20 .* - \d\d:\d\d/.test(o) && /ian +pts\/0 .*\(172\.18\.0\.3\)/.test(o) && o.includes('Ian, tmux on the laptop'), info: o.split('\n').filter(l => /pts\//.test(l)).join(' | ') };
+  });
   return results;
 }
