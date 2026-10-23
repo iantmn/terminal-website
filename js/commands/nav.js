@@ -2,7 +2,7 @@
 import { unlock, track } from '../achievements.js';
 import { PROFILE, SITE, POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
-import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode, writeFile, isMine, didYouMean } from '../filesystem.js';
+import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode, writeFile, isMine, didYouMean, colourConfig } from '../filesystem.js';
 import { htmlToText } from '../shell.js';
 import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
@@ -93,7 +93,7 @@ def(['cat', 'bat'], 'nav', 'print a file', args => {
     if (r.error === 'denied') { print(span('e', `cat: ${esc(a)}: Permission denied`)); continue; }
     if (r.error) { print(span('e', `cat: ${esc(a)}: No such file or directory`) + didYouMean(a)); continue; }
     if (r.node.type === 'dir') { print(span('e', `cat: ${esc(a)}: Is a directory`)); continue; }
-    let lines = r.node.read();
+    let lines = colourConfig(a, r.node.read());
     if (squeeze) lines = lines.filter((l, i) => l !== '' || lines[i - 1] !== '');
     if (numberAll || numberFull) lines = lines.map(l => numberFull && l === '' ? l : span('m', String(++n).padStart(6) + '  ') + l);
     printLines(lines);
@@ -224,7 +224,7 @@ def(['less', 'more'], 'nav', 'read a file one page at a time', async args => {
   const r = resolve(files[0]);
   if (r.error) { state.failed = true; return print(span('e', `${esc(files[0])}: ${r.error === 'denied' ? 'Permission denied' : 'No such file or directory'}`) + (r.error === 'denied' ? '' : didYouMean(files[0]))); }
   if (r.node.type === 'dir') { state.failed = true; return print(span('e', `${esc(files[0])} is a directory`)); }
-  await pager(r.node.read(), files[0], { numbers: o.N || o['LINE-NUMBERS'] });
+  await pager(colourConfig(files[0], r.node.read()), files[0], { numbers: o.N || o['LINE-NUMBERS'] });
 }, { usage: '[-N] <file>', flags: [['-N, --LINE-NUMBERS', 'number every line'], ['space / b', 'a page down / up'], ['j / k', 'a line down / up'], ['g / G', 'the top / the end'], ['/word, n, N', 'search, next, previous'], ['q', 'quit']] });
 
 // touch, mkdir and rmdir: in /tmp they do what they say, everywhere else the filesystem is read-only

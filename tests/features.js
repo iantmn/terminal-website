@@ -236,6 +236,16 @@ export async function runFeatures(onResult = () => {}) {
     return { ok: / ian +ian +\d+ .* terminal/.test(lab) && !/guest/.test(lab.replace(/^.*guest@.*$/m, '')) && lab.includes('999(docker)') && / root +root +\d+ .* notes\.txt/.test(pve) && !/ guest /.test(pve),
       info: o.split('\n').filter(l => / (ian|root|guest) /.test(l)).slice(0, 3).join(' | ') };
   });
+  // config files in colour: keys, comments and strings, in cat and in less
+  await check('cat colours a config file', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = document.querySelectorAll('#out .ln').length, done = labSession();
+    for (const l of ['cat ~/stacks/whoami/docker-compose.yml', 'exit']) await send(l);
+    await done; await idle();
+    const html = [...document.querySelectorAll('#out .ln')].slice(b).map(l => l.innerHTML).join('\n');
+    return { ok: /<span class="m"># set up in March/.test(html) && /<span class="a2">services<\/span>:/.test(html) && /<span class="a2">image<\/span>: traefik\/whoami/.test(html), info: html.split('\n').filter(l => l.includes('image')).join(' | ') };
+  });
   await check('who and last on pve1 show your own sessions', async () => {
     const { labSession } = await import('/js/commands/homelab.js');
     const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };

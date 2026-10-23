@@ -218,3 +218,31 @@ export function importTmp(data) {
 }
 export function clearTmp() { const t = tmpRoot(); for (const [n, c] of Object.entries(t.children)) if (c.mine) delete t.children[n]; }
 export const isMine = p => { const r = resolve(p); return !r.error && !!r.node.mine; };
+
+// ---- colour for config files in cat and less: comments dim, keys and sections stand out, strings in the accent ----
+// The lines come escaped (or as html already, which stays as it is), so quotes are &quot; and &#39; here
+const CONFIG = /(\.ya?ml|\.conf|\.cfg|\.ini|\.alloy|\.env|\.toml|\.service)$/i;
+export const isConfig = name => CONFIG.test(String(name).replace(/\/+$/, ''));
+const strings = t => t.replace(/(&quot;.*?&quot;|&#39;.*?&#39;)/g, m => span('a', m));
+function colourLine(l, cfg) {
+  if (!l || /<(span|a|div|b)\b/.test(l)) return l;
+  // a whole line of comment: # or // or ;
+  if (/^\s*(#|\/\/|;)/.test(l)) return span('m', l);
+  let m;
+  // [section] (ini, toml)
+  if ((m = l.match(/^(\s*)(\[[^\]]+\])\s*$/))) return m[1] + span('w b', m[2]);
+  // a block that opens: corosync's totem {, alloy's loki.write "local" {
+  if ((m = l.match(/^(\s*)([\w.-]+)((?: &quot;[^&]*&quot;)?)( \{)$/))) return m[1] + span('w', m[2]) + strings(m[3]) + m[4];
+  // and a comment at the end of a line, after a space
+  let tail = '';
+  const c = l.match(/^(.*?\s)(#\s.*)$/);
+  if (c && !/&quot;[^&]*$/.test(c[1])) { l = c[1]; tail = span('m', c[2]); }
+  // key: value (yaml, corosync, the Proxmox .cfg files), with or without a - in front
+  if ((m = l.match(/^(\s*(?:-\s+)?)([\w./-]+)(:)(\s.*|)$/))) return m[1] + span('a2', m[2]) + m[3] + strings(m[4]) + tail;
+  // key = value, KEY=value (alloy, ini, .env, and the labels in a compose file)
+  if ((m = l.match(/^(\s*(?:-\s+)?)([\w.-]+)(\s*=\s*)(.*)$/))) return m[1] + span('a2', m[2]) + m[3] + strings(m[4]) + tail;
+  // the Proxmox .cfg style: an indented key, a space, the value
+  if (cfg && (m = l.match(/^(\s+)([\w-]+)( .*)$/))) return m[1] + span('a2', m[2]) + strings(m[3]) + tail;
+  return strings(l) + tail;
+}
+export const colourConfig = (name, lines) => isConfig(name) ? lines.map(l => colourLine(l, /\.cfg$/i.test(name))) : lines;
