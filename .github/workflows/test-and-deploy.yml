@@ -91,10 +91,13 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - name: Only the files the site needs (no tests, README or workflows)
+      - name: Only the files the site needs (no tests, design, README or workflows)
         run: |
           mkdir _site
-          cp -r index.html CNAME sw.js manifest.webmanifest css js icons _site/
+          cp -r index.html CNAME sw.js manifest.webmanifest css js icons fonts _site/
+      # a cache of its own for every deploy: the service worker installs fresh and throws the old one away
+      - name: Stamp the service worker cache with this commit
+        run: sed -i "s/const CACHE = 'terminal-dev'/const CACHE = 'terminal-${GITHUB_SHA::7}'/" _site/sw.js && grep -q "terminal-${GITHUB_SHA::7}" _site/sw.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
