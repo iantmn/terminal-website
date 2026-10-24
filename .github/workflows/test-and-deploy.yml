@@ -21,7 +21,7 @@ jobs:
   test:
     name: test (${{ matrix.target.browser }}, ${{ matrix.target.device }}, ${{ matrix.shard }})
     if: github.event_name != 'workflow_dispatch' || inputs.run_tests == true
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.target.os || 'ubuntu-latest' }}
     timeout-minutes: 20
     continue-on-error: ${{ matrix.target.informational == true }}
     strategy:
@@ -33,8 +33,10 @@ jobs:
           - { browser: chromium, device: phone }
           # not run locally yet: they report, but do not stop a deploy until they have passed once
           - { browser: firefox, device: desktop, informational: true }
-          - { browser: webkit, device: desktop, informational: true }
-          - { browser: webkit, device: phone, informational: true }
+          # WebKit on 24.04: Playwright 1.49 installs its libraries by their 24.04 names (libicu74, libxml2, libvpx9,
+          # libx264-164), which Ubuntu 26.04 (ubuntu-latest now) no longer has. Move up together with a newer Playwright
+          - { browser: webkit, device: desktop, informational: true, os: ubuntu-24.04 }
+          - { browser: webkit, device: phone, informational: true, os: ubuntu-24.04 }
         shard: [main, achievements]
     steps:
       - uses: actions/checkout@v4
