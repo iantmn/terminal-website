@@ -1,6 +1,6 @@
 // / on the terminal container: /etc, /dev, /proc, /var and the rest around ~
-import { unlock, unlocked, saw } from '../achievements.js';
-import { PROFILE, SITE } from '../content.js';
+import { unlock, unlocked, saw, seasonOn } from '../achievements.js';
+import { PROFILE, SITE, POSTS, EXPERIENCE, EDUCATION, SKILLS } from '../content.js';
 import { esc, span, cmd, link, state, uptime } from '../core.js';
 import { C } from '../registry.js';
 import { dayMessage } from '../days.js';
@@ -70,8 +70,7 @@ export function buildRoot(FS) {
     dev: dir({
       // empty, except on Halloween: the day message says something lurks in here
       null: file(() => {
-        const d = new Date();
-        if (d.getMonth() !== 9 || d.getDate() !== 31) return [];
+        if (!seasonOn('ghost')) return [];
         unlock('ghost');
         return [
           ...['     .-.', '    (o o)   boo!', '    | O \\', '     \\   \\', "      `~~~'"].map(l => span('w', esc(l))),
@@ -148,7 +147,16 @@ export function buildRoot(FS) {
           'sudo: ian : TTY=pts/1 ; PWD=/home/ian ; USER=root ; COMMAND=/usr/bin/chmod 600 /home/ian/.ssh/id_homelab   # the homelab key, locked down',
         ].map(esc))),
       }),
-      www: dir({ 'iantiemann.nl': dir({ 'index.html': file(() => [esc('<!-- a working copy. The live one runs on the homelab, in ~/stacks/terminal/site -->'), 'Source: ' + link(PROFILE.repo)]) }) }),
+      www: dir({ 'iantiemann.nl': dir({
+        'index.html': file(() => [esc('<!-- a working copy. The live one runs on the homelab, in ~/stacks/terminal/site -->'), 'Source: ' + link(PROFILE.repo)]),
+        // JSON for jq (please sudo apt install jq), and for anyone who would rather read it this way
+        api: dir({
+          'posts.json': file(() => JSON.stringify(POSTS.map(p => ({ n: p.n, title: p.title, type: p.type, date: p.date, url: SITE + p.url, stack: p.stack || [] })), null, 2).split('\n').map(esc)),
+          'profile.json': file(() => JSON.stringify({ name: PROFILE.name, role: PROFILE.role, location: PROFILE.location, links: { site: SITE, github: PROFILE.github, linkedin: PROFILE.linkedin, rss: PROFILE.rss },
+            experience: EXPERIENCE.map(e => ({ role: e.role, org: e.org, period: e.period })), education: EDUCATION.map(e => ({ title: e.title, org: e.org, year: e.year })),
+            skills: Object.fromEntries(SKILLS.map(g => [g.title, g.rows.map(([k]) => k)])) }, null, 2).split('\n').map(esc)),
+        }),
+      }) }),
     }),
   });
 }

@@ -18,7 +18,7 @@ export function buildLab() {
       ian: dir({
         '.ssh': dir({
           authorized_keys: labFile(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK7q3vRw0mXbQ2fN8sYp1Lc4Hj6Td9Ue5Ga2Zo3Wn7Rk ian@laptop (id_homelab)']),
-          known_hosts: labFile(['pve1,10.20.0.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDp4Fq8Lr2Xw9Kc1Vm6Ns3Bt7Hy0Ja5Ge4Uo2Zi8Qe1Ps', 'pve2,10.20.0.11 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHk2Nr7Ls1Qw8Bc4Xm9Pt5Gy3Vj0Fa6De2Uo7Zi1Kq3Rs', 'pve3,10.20.0.12 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJw5Ts2Mr8Lk1Pv7Bx4Nc9Gh3Qd6Fy0Ea2Ui5Zo8Ws1Lp']),
+          known_hosts: labFile(['pve1,10.20.0.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDp4Fq8Lr2Xw9Kc1Vm6Ns3Bt7Hy0Ja5Ge4Uo2Zi8Qe1Ps', 'pve2,10.20.0.11 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHk2Nr7Ls1Qw8Bc4Xm9Pt5Gy3Vj0Fa6De2Uo7Zi1Kq3Rs', 'pve3,10.20.0.12 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJw5Ts2Mr8Lk1Pv7Bx4Nc9Gh3Qd6Fy0Ea2Ui5Zo8Ws1Lp', 'pbs,10.20.0.30 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRt8Wq3Ld6Xn1Fj4Bm9Sk2Ph7Vc0Gy5Ua3Ze8Ko1Ti6Nr']),
           ansible_pve: labFile(['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW', '(no passphrase: Ansible runs it at six in the morning, when nobody is awake to type one)', '-----END OPENSSH PRIVATE KEY-----'], { mode: () => '-rw-------' }),
           'ansible_pve.pub': labFile(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMv2Wq7Xr4Lp9Ns1Kb6Hc3Tj8Yd0Fg5Ue2Zm7Qo4Ra ansible@homelab']),
         }, { own: 'ian', mode: () => 'drwx------' }),

@@ -1,7 +1,8 @@
 // about Ian: experience, education, skills, posts
 import { unlock } from '../achievements.js';
 import { ABOUT, EXPERIENCE, EDUCATION, CERTS, POSTS, PROFILE, SKILLS } from '../content.js';
-import { print, printLines, span, esc, cmd, pad, kv, sleep, ask, state, inrow, charsPerLine } from '../core.js';
+import { print, printLines, span, esc, cmd, link, absUrl, pad, kv, sleep, ask, state, inrow, charsPerLine, getopt } from '../core.js';
+import { pager } from '../pager.js';
 import { refreshFeed, feedReady } from '../feed.js';
 import { C, def, completes } from '../registry.js';
 import { found } from '../shell.js';
@@ -103,13 +104,26 @@ def(['projects', 'portfolio'], 'me', 'projects I worked on', async () => { await
 
 def(['read', 'summary'], 'me', 'summary of a post', async args => {
   await feedReady;
-  const { post, list } = findPost(args);
-  if (list) return printLines(postChoices(list, 'read'));
-  if (!post) return print(span('e', args.length ? `read: no post matches '${esc(args.join(' '))}'` : 'usage: read &lt;n|name&gt;') + span('m', '  (see ') + cmd('articles') + span('m', ' or ') + cmd('projects') + span('m', ')'));
-  printLines(fmtPost(post));
-}, { usage: '<n|name>', flags: [['n', 'the number from articles or projects'], ['name', 'words from the title, like read traefik']] });
+  const [o, words] = getopt(args);
+  const { post, list } = findPost(words);
+  if (list) return printLines(postChoices(list, 'read' + (o.f || o.full ? ' -f' : '')));
+  if (!post) return print(span('e', words.length ? `read: no post matches '${esc(words.join(' '))}'` : 'usage: read [-f] &lt;n|name&gt;') + span('m', '  (see ') + cmd('articles') + span('m', ' or ') + cmd('projects') + span('m', ')'));
+  if (!(o.f || o.full)) return printLines([...fmtPost(post), span('m', 'The whole thing, here: ') + cmd('read -f ' + post.n)]);
+  // the whole article, from the main site: in the pager, or as lines when it goes into a pipe
+  print(span('m', `fetching ${esc(post.url)} ...`));
+  const { lines, error } = await (await import('../article.js')).fullPost(post);
+  if (error) { state.failed = true; return print(span('e', `read: ${esc(error)}.`) + span('m', ' The summary is here: ') + cmd('read ' + post.n) + span('m', ', the article on ') + link(absUrl(post.url), 'the site')); }
+  fmtPost(post);
+  const page = [span('a b', `# ${post.icon} ${esc(post.title)}`), span('m', `${post.date} · ${link(absUrl(post.url))}`), '', ...lines];
+  return state.capture ? printLines(page) : pager(page, post.title);
+}, { usage: '[-f] <n|name>', flags: [['-f, --full', 'the whole article, from the site, instead of the summary'], ['n', 'the number from articles or projects'], ['name', 'words from the title, like read traefik']] });
 
-def(['cv', 'resume'], 'me', 'my CV', () => printLines(cvLines()));
+def(['cv', 'resume'], 'me', 'my CV', async args => {
+  if (!args.includes('-p') && !args.includes('--print')) return printLines([...cvLines(), span('m', 'On paper, or as a PDF: ') + cmd('cv --print')]);
+  if (state.capture) return print(span('e', 'cv: --print needs a screen, not a pipe'));
+  (await import('../printcv.js')).printCv();
+  print(span('a', 'Opened the print dialog.') + span('m', ' Pick "Save as PDF" for a file. The printed version leaves the terminal out.'));
+}, { flags: [['-p, --print', 'a clean one-page CV for paper or PDF, through the print dialog']] });
 def(['contact', 'socials', 'social'], 'me', 'how to reach me', () => printLines(contactLines()));
 // tldr: me on one screen, for people with ten minutes and forty tabs. Everything comes from content.js.
 // tldr <command> is what the real tldr does: the short version of a command

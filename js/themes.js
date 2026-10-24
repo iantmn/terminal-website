@@ -1,4 +1,26 @@
-import { term, out } from './core.js';
+import { term, out, store } from './core.js';
+
+// your own theme: theme set accent #ff79c6 starts one from the theme you are on. Kept in this browser
+export const CUSTOM_KEYS = ['bg', 'fg', 'muted', 'accent', 'accent2', 'link', 'warn', 'err', 'sel'];
+export const customTheme = () => { const c = store.get('customTheme', null); return c && typeof c === 'object' ? c : null; };
+// every theme change goes through here: the colours of a custom one, and the colour of the browser bar
+export function applyTheme(name) {
+  const b = document.body;
+  b.dataset.theme = name;
+  CUSTOM_KEYS.forEach(k => b.style.removeProperty('--' + k));
+  const c = name === 'custom' && customTheme();
+  if (c) for (const k of CUSTOM_KEYS) if (typeof c[k] === 'string' && CSS.supports('color', c[k])) b.style.setProperty('--' + k, c[k]);
+  // the address bar on a phone, and the title bar of the installed app, in the colour of the page
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = getComputedStyle(b).getPropertyValue('--bg').trim() || '#1b1b1e';
+}
+// any CSS colour (red, rgb(...), #abc) as #rrggbb, through a canvas, which knows them all
+let ctx = null;
+export function toHex(c) {
+  ctx ??= document.createElement('canvas').getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillStyle = c;
+  return /^#[0-9a-f]{6}$/i.test(ctx.fillStyle) ? ctx.fillStyle.toLowerCase() : null;
+}
 
 // the themes `theme` lists, in that order. gold (treasure hunt) and corrupt (hidden) come on top.
 // every theme needs a block in css/style.css

@@ -1,13 +1,14 @@
 // the help texts agree with each other: every command has a description in the same style, its flags are written
 // the same way, and --help, man and tldr show the same description and flags. Runs in the page (tests/run.mjs)
 import { run } from '/js/input.js';
-import { state } from '/js/core.js';
+import { state, screen } from '/js/core.js';
 import { C } from '/js/registry.js';
 import { helpLines, htmlToText } from '/js/shell.js';
 
-const out = async c => { const b = document.querySelectorAll('#out .ln').length; await run(c); return [...document.querySelectorAll('#out .ln')].slice(b + 1).map(l => l.innerText).filter(l => !l.startsWith('★ achievement unlocked')).join('\n'); };
+// lines over the whole visit: the scrollback cap takes old ones off the top (screen.trimmed counts them)
+const out = async c => { const b = screen.trimmed + document.querySelectorAll('#out .ln').length; await run(c); return [...document.querySelectorAll('#out .ln')].slice(b + 1 - screen.trimmed).map(l => l.innerText).filter(l => !l.startsWith('★ achievement unlocked')).join('\n'); };
 // commands that only exist on one machine; their man and tldr are checked there, not here
-const elsewhere = c => c.hosts && !c.hosts.includes(state.host);
+const elsewhere = c => (c.hosts && !c.hosts.includes(state.host)) || c.available?.() === false;
 
 export async function runHelp(onResult = () => {}) {
   const results = [];

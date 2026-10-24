@@ -1,10 +1,10 @@
-// pve1, the first node of the Proxmox cluster under the homelab: root only, after ssh -i ~/.ssh/ansible_pve root@pve1.
-// /etc/pve is the cluster filesystem: the same on all three nodes, with a folder per node for its guests
+// a node of the Proxmox cluster under the homelab: root only, after ssh -i ~/.ssh/ansible_pve root@pve1, and from there
+// ssh pve2 or pve3. /etc/pve is the cluster filesystem: the same on all three nodes, with a folder per node for its guests
 import { span, cmd } from '../core.js';
 import { dir, file } from './nodes.js';
 import { VMS, CTS, NODES, logFile } from '../commands/labstate.js';
 
-export function buildPve() {
+export function buildPve(n = 'pve1') {
   const conf = (lines, extra) => file(lines, { own: 'root', ...extra });
   const vmConf = v => conf([
     'agent: 1', 'boot: order=scsi0', `cores: ${v.cores}`, 'cpu: host', `memory: ${v.mem}`, `name: ${v.name}`, 'net0: virtio,bridge=vmbr0,firewall=1',
@@ -15,15 +15,15 @@ export function buildPve() {
   const guestsOf = (list, n, make) => dir(Object.fromEntries(list.filter(g => g.node === n).map(g => [g.id + '.conf', make(g)])));
   return dir({
     etc: dir({
-      hostname: file(['pve1']),
+      hostname: file([n]),
       'os-release': file(['PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"', 'NAME="Debian GNU/Linux"', 'VERSION_ID="12"', 'ID=debian', '# with Proxmox VE 8.2 on top. Nothing else on the nodes, on purpose']),
       hosts: file(['127.0.0.1    localhost', ...NODES.map(([n, ip]) => `${ip}   ${n}.lan ${n}`), '10.20.0.20   homelab.lan homelab', '10.20.0.30   pbs.lan pbs']),
       motd: file(['The programs included with the Debian GNU/Linux system are free software.', 'This is a cluster node. If the cluster breaks, everything breaks. Be boring here.']),
       pve: dir({
         // on a real node these two are links to nodes/<this node>/
-        'qemu-server': guestsOf(VMS, 'pve1', vmConf),
-        lxc: guestsOf(CTS, 'pve1', ctConf),
-        nodes: dir(Object.fromEntries(NODES.map(([n]) => [n, dir({ 'qemu-server': guestsOf(VMS, n, vmConf), lxc: guestsOf(CTS, n, ctConf) })]))),
+        'qemu-server': guestsOf(VMS, n, vmConf),
+        lxc: guestsOf(CTS, n, ctConf),
+        nodes: dir(Object.fromEntries(NODES.map(([x]) => [x, dir({ 'qemu-server': guestsOf(VMS, x, vmConf), lxc: guestsOf(CTS, x, ctConf) })]))),
         'corosync.conf': conf(['totem {', '  cluster_name: homelab', '  config_version: 3', '  ip_version: ipv4-6', '  link_mode: passive', '}', '', 'nodelist {',
           ...NODES.flatMap(([n, ip], i) => ['  node {', `    name: ${n}`, `    nodeid: ${i + 1}`, '    quorum_votes: 1', `    ring0_addr: ${ip}`, '  }']), '}', '', 'quorum {', '  provider: corosync_votequorum', '}']),
         'replication.cfg': conf(VMS.filter(v => v.pid || v.id === 104).flatMap(v => [`local: ${v.id}-0`, `        target ${v.node === 'pve1' ? 'pve2' : v.node === 'pve2' ? 'pve3' : 'pve2'}`, '        schedule */15', ''])),
@@ -38,7 +38,7 @@ export function buildPve() {
     }),
     tmp: dir({}, { mode: () => 'drwxrwxrwt', writable: true }),
     root: dir({
-      'notes.txt': file(() => [
+      'notes.txt': file(n !== 'pve1' ? () => nodeNotes(n) : () => [
         span('w b', 'the cluster'), '',
         '- three nodes: pve1, pve2 and pve3, each 12 cores and 64 GB. ' + cmd('pvecm status'),
         '- keep them boring: nothing runs on a node itself, everything is a VM or a container',
@@ -48,17 +48,42 @@ export function buildPve() {
         '- the other nodes, from here: ' + cmd('pvesh get /cluster/resources'),
         '- backups: every night at 03:00 to PBS (VM 103), synced offsite afterwards. ' + cmd('pvesh get /cluster/backup'),
         '- updates: Ansible, every Monday from the homelab. Never by hand. Well, almost never.',
-        '- one file out of a VM backup, without restoring the whole VM: ' + cmd('proxmox-file-restore --help'), '',
+        '- one file out of a VM backup, without restoring the whole VM: ' + cmd('proxmox-file-restore --help'),
+        '- the other two nodes trust root from here, no key needed: ' + cmd('ssh pve2') + ', ' + cmd('ssh pve3') + '. The backup server too: ' + cmd('ssh pbs'), '',
         span('a', 'You came all the way down. This is where the guides on my site live in real life.') + span('m', ' exit twice, then ') + cmd('contact') + span('m', '.'),
       ]),
-      '.bash_history': file(['pvecm status', 'qm list', 'pvesr status', 'apt update && apt dist-upgrade', 'pveversion', '# never install docker on a node. that is what VM 102 is for', 'exit']),
-      '.ssh': dir({ authorized_keys: file(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMv2Wq7Xr4Lp9Ns1Kb6Hc3Tj8Yd0Fg5Ue2Zm7Qo4Ra ansible@homelab']) }),
-      scripts: dir({ 'check-smart.sh': file(['#!/bin/sh', '# every Monday: ask the disks how they feel, mail Ian when one complains', 'for d in $(lsblk -dno NAME); do smartctl -H "/dev/$d" | grep -q PASSED || echo "$d on $(hostname)" | mail -s "disk trouble" ian; done'], { mode: () => '-rwxr-xr-x' }) }),
+      '.bash_history': file(n === 'pve1' ? ['pvecm status', 'qm list', 'pvesr status', 'apt update && apt dist-upgrade', 'pveversion', '# never install docker on a node. that is what VM 102 is for', 'exit']
+        : ['qm list', 'pct list', 'ha-manager status', ...(n === 'pve3' ? ['ssh pbs'] : ['qm start 104', 'qm stop 104', '# windows wanted 47 updates. again']), 'exit']),
+      // on a real node a link to /etc/pve/priv/authorized_keys: every node trusts the root of every other one
+      '.ssh': dir({ authorized_keys: file(['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMv2Wq7Xr4Lp9Ns1Kb6Hc3Tj8Yd0Fg5Ue2Zm7Qo4Ra ansible@homelab', ...NODES.map(([x], i) => `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC${['q7Lw2Xk9Tr4Mv8Pn1Bz6Hd3', 'Vc5Ns8Qe1Rt7Yu4Io2Pa9Sd', 'Mk3Fj6Gh9Lz2Xc5Vb8Nm1Qw'][i]} root@${x}`)]) }),
+      scripts: dir({ ...(n === 'pve2' ? { 'restore-test.sh': file(RESTORE_TEST) } : {}), 'check-smart.sh': file(['#!/bin/sh', '# every Monday: ask the disks how they feel, mail Ian when one complains', 'for d in $(lsblk -dno NAME); do smartctl -H "/dev/$d" | grep -q PASSED || echo "$d on $(hostname)" | mail -s "disk trouble" ian; done'], { mode: () => '-rwxr-xr-x' }) }),
     }),
     var: dir({ log: dir({
-      vzdump: dir({ 'qemu-102.log': file(['INFO: starting new backup job: vzdump 102 --mode snapshot --storage pbs', 'INFO: VM Name: homelab', "INFO: include disk 'scsi0' 'local-zfs:vm-102-disk-0' 64G", "INFO: include disk 'scsi1' 'local-zfs:vm-102-disk-1' 500G", 'INFO: issuing guest-agent \'fs-freeze\' command', 'INFO: issuing guest-agent \'fs-thaw\' command', 'INFO: using fast incremental mode (dirty-bitmap), 3.1 GiB dirty of 564.0 GiB total', 'INFO: backup was done incrementally, reused 560.9 GiB (99%)', 'INFO: Finished Backup of VM 102 (00:16:44)']) }),
-      syslog: file(logFile('pve1', ['pvescheduler[1290]: starting task vzdump', 'pvescheduler[1290]: replication job 102-0 to pve2 finished', 'corosync[940]: [QUORUM] Members[3]: 1 2 3', 'pvestatd[1144]: status update time (0.412 seconds)', 'zed[690]: eid=42 class=scrub_finish pool=rpool'], false)),
-      'auth.log': file(logFile('pve1', ['sshd[3402]: Accepted publickey for root from 10.20.0.20 port 40412 ssh2: ED25519 ansible@homelab', 'sshd[3402]: pam_unix(sshd:session): session opened for user root(uid=0)', 'sshd[3402]: pam_unix(sshd:session): session closed for user root'], true)),
+      vzdump: dir(n !== 'pve1' ? {} : { 'qemu-102.log': file(['INFO: starting new backup job: vzdump 102 --mode snapshot --storage pbs', 'INFO: VM Name: homelab', "INFO: include disk 'scsi0' 'local-zfs:vm-102-disk-0' 64G", "INFO: include disk 'scsi1' 'local-zfs:vm-102-disk-1' 500G", 'INFO: issuing guest-agent \'fs-freeze\' command', 'INFO: issuing guest-agent \'fs-thaw\' command', 'INFO: using fast incremental mode (dirty-bitmap), 3.1 GiB dirty of 564.0 GiB total', 'INFO: backup was done incrementally, reused 560.9 GiB (99%)', 'INFO: Finished Backup of VM 102 (00:16:44)']) }),
+      syslog: file(logFile(n, ['pvescheduler[1290]: starting task vzdump', n === 'pve1' ? 'pvescheduler[1290]: replication job 102-0 to pve2 finished' : 'pvescheduler[1290]: replication jobs finished', 'corosync[940]: [QUORUM] Members[3]: 1 2 3', 'pvestatd[1144]: status update time (0.412 seconds)', 'zed[690]: eid=42 class=scrub_finish pool=rpool'], false)),
+      'auth.log': file(logFile(n, [n === 'pve1' ? 'sshd[3402]: Accepted publickey for root from 10.20.0.20 port 40412 ssh2: ED25519 ansible@homelab' : 'sshd[3402]: Accepted publickey for root from 10.20.0.10 port 51744 ssh2: RSA root@pve1', 'sshd[3402]: pam_unix(sshd:session): session opened for user root(uid=0)', 'sshd[3402]: pam_unix(sshd:session): session closed for user root'], true)),
     }) }),
   });
+}
+
+// notes.txt on pve2 and pve3: what lives there, worked out from the guests
+// the restore test: on pve2 because that is where the scratch VM goes, and because pbs holds no keys to the nodes
+const RESTORE_TEST = ['#!/bin/sh',
+  '# first Sunday of the month: restore the newest backup of the Docker VM to a scratch VM, boot it, see it answer,',
+  '# throw it away. A backup nobody ever restored is a hope, not a backup. Run it yourself: sh /root/scripts/restore-test.sh',
+  'snap=$(proxmox-backup-client snapshot list vm/102 --repository pbs --output-format json | jq -r ".[-1].snapshot")',
+  'echo "restoring $snap as VM 999"',
+  'qmrestore pbs:backup/$snap 999 --unique && qm start 999 && sleep 3 && qm guest ping 999 && qm stop 999 && qm destroy 999 --purge && echo "restore test ok: $(date)" | mail -s "restore test" ian',
+  'echo "done, Ian has mail"'];
+function nodeNotes(n) {
+  const mine = [...VMS, ...CTS].filter(g => g.home === n), kind = g => VMS.includes(g) ? 'VM' : 'CT';
+  return [
+    span('w b', n), '',
+    `- lives here: ${mine.map(g => `${g.name} (${kind(g)} ${g.id})`).join(', ')}. ` + cmd('qm list') + ', ' + cmd('pct list'),
+    ...(n === 'pve2' ? ['- once a month this node restores the Docker VM from pbs, boots the copy and throws it away: ' + cmd('cat /root/scripts/restore-test.sh'), '- the HA manager is usually here: ' + cmd('ha-manager status'), '- win11-sandbox stays off. It only comes out when a client sends me a .exe'] : []),
+    ...(n === 'pve3' ? ['- PBS runs here, VM 103: every node backs up to it at 03:00. ' + cmd('ssh pbs'), '- the 4 TB disk is passed through to VM 103 whole. If it dies, the backups are still at Hetzner'] : []),
+    '- /etc/pve is not this node: it is the cluster, the same on all three. Change it here and pve1 sees it too',
+    '- nothing special about this node, and that is the point: any of the three can carry the others for a while', '',
+    span('m', 'exit goes back to the node you came from.'),
+  ];
 }

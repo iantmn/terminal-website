@@ -8,18 +8,58 @@ import { execChain, commandsHere } from './shell.js';
 
 export const hist = store.get('hist', []);
 // the homelab has a history of its own; everything below works on the one of the machine you are on
-const HIST = { iantiemann: ['hist', hist], homelab: ['labHist', store.get('labHist', [])], pve1: ['pveHist', store.get('pveHist', [])] };
+const HIST = { iantiemann: ['hist', hist], homelab: ['labHist', store.get('labHist', [])], pve1: ['pveHist', store.get('pveHist', [])], pve2: ['pve2Hist', store.get('pve2Hist', [])], pve3: ['pve3Hist', store.get('pve3Hist', [])], pbs: ['pbsHist', store.get('pbsHist', [])] };
 export const activeHist = () => (HIST[state.host] || HIST.iantiemann)[1];
 export const histKey = () => (HIST[state.host] || HIST.iantiemann)[0];
 let hIdx = hist.length;
+// what you had typed before going up the history: arrow-down past the newest line gives it back. And as long as you
+// only walk, up and down only stop at lines that start with it (type ssh, then up: only the ssh lines), like zsh
+let draft = null;
 // a line into the history of this machine, without repeating the last one
 export function remember(line) {
   const h = activeHist();
   if (h[h.length - 1] !== line) { h.push(line); h.splice(0, h.length - 200); store.set(histKey(), h); }
-  hIdx = h.length;
+  hIdx = h.length; draft = null;
 }
 // arrow-up starts from the newest line again, also right after switching machines
-export const resetHistoryCursor = () => { hIdx = activeHist().length; };
+export const resetHistoryCursor = () => { hIdx = activeHist().length; draft = null; };
+function walkHistory(dir) {
+  const h = activeHist();
+  // typing after walking makes that the new starting point
+  if (draft !== null && hIdx < h.length && kb.value !== h[hIdx]) { hIdx = h.length; draft = null; }
+  if (hIdx >= h.length) draft = kb.value;
+  const prefix = draft || '';
+  let i = hIdx;
+  // skip lines that do not match, and the same line twice in a row
+  do i += dir; while (i >= 0 && i < h.length && (!h[i].startsWith(prefix) || h[i] === kb.value));
+  if (i < 0) return;
+  if (i >= h.length) { hIdx = h.length; kb.value = draft ?? ''; draft = null; }
+  else { hIdx = i; kb.value = h[i]; }
+  moveEnd();
+}
+// readline: Ctrl+A and Ctrl+E jump to the start and end, Ctrl+U and Ctrl+K cut to there, Ctrl+Y pastes it back,
+// Alt+B and Alt+F move a word, Alt+D cuts the next word. Ctrl+W is the browser's (close tab), so that one is not here
+let killed = '';
+const at = () => kb.selectionStart ?? kb.value.length;
+const caret = p => kb.setSelectionRange(p, p);
+const wordBack = p => { const s = kb.value.slice(0, p).replace(/\s+$/, ''); return s.search(/\S+$/) < 0 ? 0 : s.search(/\S+$/); };
+const wordFwd = p => { const m = kb.value.slice(p).match(/^\s*\S+/); return m ? p + m[0].length : kb.value.length; };
+function readlineKey(e) {
+  const k = e.key.toLowerCase(), alt = e.altKey && !e.ctrlKey && !e.metaKey, code = e.code;
+  const cut = (from, to) => { killed = kb.value.slice(from, to); kb.value = kb.value.slice(0, from) + kb.value.slice(to); caret(from); };
+  if (onlyCtrl(e) && k === 'a') caret(0);
+  else if (onlyCtrl(e) && k === 'e') caret(kb.value.length);
+  else if (onlyCtrl(e) && k === 'u') cut(0, at());
+  else if (onlyCtrl(e) && k === 'k') cut(at(), kb.value.length);
+  else if (onlyCtrl(e) && k === 'y') { const p = at(); kb.value = kb.value.slice(0, p) + killed + kb.value.slice(p); caret(p + killed.length); }
+  // by e.code: on a Mac, Option+B types a character instead of a b
+  else if (alt && code === 'KeyB') caret(wordBack(at()));
+  else if (alt && code === 'KeyF') caret(wordFwd(at()));
+  else if (alt && code === 'KeyD') cut(at(), wordFwd(at()));
+  else return false;
+  e.preventDefault();
+  return true;
+}
 
 // bash history expansion: !! the last command, !42 number 42 in history, !-2 the one before last, !git the last one starting with git
 export function expandHistory(raw) {
@@ -54,6 +94,8 @@ export async function run(raw, { echo = true } = {}) {
     print(a.q + esc(raw));
     return a.resolve(raw);
   }
+  // you ran something: back to the bottom, even if you were reading further up
+  scrollDown(true);
   if (echo) print(promptHTML() + esc(raw));
   if (!raw) return;
   state.bang = false;
@@ -180,9 +222,10 @@ function searchKey(e) {
 
 kb.addEventListener('keydown', e => {
   if (searchKey(e)) return;
-  if (e.key === 'Enter') { e.preventDefault(); if (state.busy && !state.asking) return; const v = kb.value; kb.value = ''; run(v); }
-  else if (e.key === 'ArrowUp') { const h = activeHist(); if (hIdx > 0) { kb.value = h[--hIdx]; } e.preventDefault(); moveEnd(); }
-  else if (e.key === 'ArrowDown') { const h = activeHist(); if (hIdx < h.length - 1) kb.value = h[++hIdx]; else { hIdx = h.length; kb.value = ''; } e.preventDefault(); }
+  if (readlineKey(e)) return;
+  if (e.key === 'Enter') { e.preventDefault(); if (state.busy && !state.asking) return; const v = kb.value; kb.value = ''; draft = null; run(v); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); walkHistory(-1); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); walkHistory(1); }
   else if (e.key === 'Tab') { e.preventDefault(); if (kb.value.trim()) unlock('tab'); complete(e.shiftKey); }
   else if (cycle && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) cycle = null;
   else if (onlyCtrl(e) && e.key.toLowerCase() === 'l') { e.preventDefault(); out.innerHTML = ''; }
@@ -191,6 +234,13 @@ kb.addEventListener('keydown', e => {
   else if (onlyCtrl(e) && e.key.toLowerCase() === 'c' && !getSelection().toString()) { e.preventDefault(); print((state.asking ? state.asking.q : promptHTML()) + esc(kb.value) + span('e', '^C')); kb.value = ''; if (state.asking) { const a = state.asking; state.asking = null; a.resolve(null); } }
 });
 const moveEnd = () => requestAnimationFrame(() => kb.setSelectionRange(kb.value.length, kb.value.length));
+// a clicked command: on the prompt, cursor at the end, the screen down at the prompt
+export function typeCommand(c) {
+  kb.value = c; draft = null; resetHistoryCursor();
+  scrollDown(true);
+  kb.focus({ preventScroll: true });
+  kb.setSelectionRange(c.length, c.length);
+}
 
 addEventListener('keydown', e => {
   if (state.busy && onlyCtrl(e) && e.key.toLowerCase() === 'c') { state.cancelled = true; e.preventDefault(); }
@@ -246,7 +296,8 @@ try {
 } catch {}
 
 term.addEventListener('click', e => {
+  // a command link types the command at the prompt, ready to run: you look at it, change it if you like, press Enter
   const a = e.target.closest('a[data-cmd]');
-  if (a) { e.preventDefault(); if (!state.busy) run(a.dataset.cmd); return; }
+  if (a) { e.preventDefault(); typeCommand(a.dataset.cmd); return; }
   if (!e.target.closest('a')) focusInput();
 });

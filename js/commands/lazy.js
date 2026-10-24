@@ -11,6 +11,11 @@ def(['calc', 'bc'], 'more', 'a calculator (the same tiny Python)', later('./pyth
 def('qr', 'me', 'a QR code, to open a page on your phone', later('./qr.js', 'qr'),
   { usage: '[page|text]', flags: [['terminal', 'this terminal (the default)'], ['site, linkedin, github, repo, cv, rss', 'my pages'], ['text', 'any link or text, like qr https://example.com']] });
 completes('qr', args => args.length ? null : Object.keys(QR_PAGES()));
-def('guestbook', 'me', 'read or sign the guestbook', later('./guestbook.js', 'guestbook'),
-  { usage: '[sign]', flags: [['sign', 'leave a message yourself']] });
-completes('guestbook', args => args.length ? null : ['sign']);
+// the guestbook is switched off until its backend runs (see js/commands/guestbook.js and the README): no command,
+// no help line, no Tab completion. Set this to true once PROFILE.guestbook points at a working endpoint
+const GUESTBOOK = false;
+if (GUESTBOOK) {
+  def('guestbook', 'me', 'read or sign the guestbook', later('./guestbook.js', 'guestbook'),
+    { usage: '[sign]', flags: [['sign', 'leave a message yourself']] });
+  completes('guestbook', args => args.length ? null : ['sign']);
+}

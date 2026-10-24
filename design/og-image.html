@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- the share image (icons/og-image.png): the IT logo as a terminal. Rendered at 1200x630 by design/render.mjs -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>og-image</title>
+<style>
+  @font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url(../fonts/JetBrainsMono-Regular.woff2) format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; font-weight: 700; src: url(../fonts/JetBrainsMono-Bold.woff2) format("woff2"); }
+  :root { --navy: #122033; --deep: #0a121e; --blue: #3d84e6; --sky: #9dc4f5; --text: #e6edf6; --muted: #7f93ad; --line: #22385a; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    font-family: "JetBrains Mono", monospace; color: var(--text);
+    background: radial-gradient(ellipse 80% 70% at 18% 0%, rgba(61,132,230,.22), transparent 65%), var(--deep);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .win { width: 1080px; height: 520px; background: var(--navy); border: 2px solid var(--line); border-radius: 22px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(157,196,245,.06) inset; display: flex; flex-direction: column; }
+  .bar { height: 54px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: #0f1b2c; border-bottom: 2px solid var(--line); }
+  .dot { width: 16px; height: 16px; border-radius: 50%; background: #2a3e5c; }
+  .bar .title { margin-left: 18px; color: var(--muted); font-size: 21px; }
+  .body { flex: 1; padding: 36px 48px; display: flex; flex-direction: column; justify-content: space-between; }
+  .prompt { font-size: 28px; color: var(--muted); }
+  .prompt .u { color: var(--blue); font-weight: 700; } .prompt .p { color: var(--sky); }
+  .prompt .c { color: var(--text); }
+  .logo { display: flex; align-items: center; gap: 44px; }
+  /* the badge: the rounded IT square of the logo, drawn with box characters */
+  .badge { font-size: 54px; line-height: 1.08; font-weight: 700; color: var(--line); white-space: pre; letter-spacing: 0; }
+  .badge .i { color: var(--blue); } .badge .t { color: var(--sky); }
+  .name { font-size: 86px; font-weight: 700; letter-spacing: -2px; line-height: 1; }
+  .role { margin-top: 14px; font-size: 27px; color: var(--muted); }
+  .cursor { display: inline-block; width: .6em; height: 1.05em; vertical-align: -.18em; background: var(--blue); margin-left: 4px; }
+  .foot { display: flex; justify-content: space-between; align-items: baseline; }
+  .url { font-size: 26px; color: var(--sky); font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="win">
+    <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">guest@iantiemann: ~</span></div>
+    <div class="body">
+      <div class="prompt"><span class="u">guest@iantiemann</span>:<span class="p">~</span>$ <span class="c">whoami</span></div>
+      <div class="logo">
+        <div class="badge">╭──────╮
+│  <span class="i">I</span><span class="t">T</span>  │
+╰──────╯</div>
+        <div>
+          <div class="name">Ian Tiemann</div>
+          <div class="role">Project engineer · IT · development</div>
+        </div>
+      </div>
+      <div class="foot">
+        <div class="prompt"><span class="u">guest@iantiemann</span>:<span class="p">~</span>$ <span class="c">help</span><span class="cursor"></span></div>
+        <div class="url">terminal.iantiemann.nl</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

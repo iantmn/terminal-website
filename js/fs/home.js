@@ -26,6 +26,24 @@ export const DIARY = {
   ]) : (saw('diary-locked'), [span('e', 'cat: diary.txt: Permission denied') + span('m', '  (who owns it? ') + cmd('ls -l') + span('m', ')')]),
 };
 
+// ~/.bashrc: the one file in ~ that is yours. It is kept in this browser and runs at the start of every visit (tools.js)
+export const BASHRC_DEFAULT = [
+  '# ~/.bashrc: runs at the start of every visit, line by line. zsh reads it too, here.',
+  '# Change it with nano ~/.bashrc, or add a line: echo "theme nord" >> ~/.bashrc',
+  '',
+  "# alias ll='ls -la'",
+  '# theme dracula',
+  '# echo "welcome back, $USER"',
+].join('\n') + '\n';
+export const BASHRC = {
+  type: 'file', mine: true, own: 'guest', keep: true, mode: () => '-rw-r--r--',
+  get text() { return store.get('bashrc', BASHRC_DEFAULT); },
+  set text(t) { store.set('bashrc', t); store.set('bashrcTime', Date.now()); },
+  get mtime() { return new Date(store.get('bashrcTime', Date.now() - 864e5 * 30)); },
+  set mtime(d) { store.set('bashrcTime', +d); },
+  read() { return this.text.replace(/\n$/, '').split('\n').map(esc); },
+};
+
 function buildFS() {
   const dir = o => ({ type:'dir', children:o });
   const file = fn => ({ type:'file', read:fn });
@@ -39,6 +57,7 @@ function buildFS() {
     'skills.txt':  file(() => skillLines('all')),
     'cv.txt':      file(cvLines),
     'diary.txt':   DIARY,
+    '.bashrc':     BASHRC,
     'experience':  dir(exp),
     'education':   dir(edu),
     'articles':    dir(arts),

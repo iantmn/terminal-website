@@ -1,3 +1,8 @@
+/* JetBrains Mono, from this site instead of Google Fonts: no third party on every visit, and the service worker has it
+   offline from the start. The full font, so the box drawing (tree, bars, the desk) uses its glyphs too. OFL, see fonts/OFL.txt */
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(../fonts/JetBrainsMono-Regular.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url(../fonts/JetBrainsMono-Bold.woff2) format("woff2"); }
+
 :root, body[data-theme="default"], body[data-theme="corrupt"] {
   --bg:#1b1b1e; --fg:#d4d4d8; --muted:#8b8b94; --accent:#50fa7b; --accent2:#8be9fd;
   --warn:#f1fa8c; --err:#ff5555; --link:#bd93f9; --sel:#3f3f46; --glow:transparent;
@@ -42,7 +47,8 @@ body[data-theme="github"]     { --bg:#ffffff; --fg:#1f2328; --muted:#636c76; --a
 html, body { margin:0; height:100%; }
 body {
   background:var(--bg); color:var(--fg);
-  font:15px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* --fs is what font + and font - change */
+  font:var(--fs, 15px)/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   -webkit-font-smoothing:antialiased; overflow:hidden;
   /* JetBrains Mono joins --- and === into ligatures, which makes typed text vanish in the input */
   font-variant-ligatures:none; font-feature-settings:"liga" 0, "calt" 0;
@@ -130,5 +136,46 @@ body[data-theme="light"] .qr .qr-dark, body[data-theme="github"] .qr .qr-dark { 
 #keys button { flex:1; min-width:0; font:inherit; color:var(--fg); background:var(--sel); border:1px solid var(--muted); border-radius:4px; padding:2px 0; min-height:30px; font-size:.9em; }
 #keys button:active { background:var(--accent); color:var(--bg); }
 @media (hover: none) and (pointer: coarse) { #keys { display:flex; } }
-@media (max-width:600px) { body { font-size:13px; } #term { padding:12px 12px 40px; } }
+@media (max-width:600px) { body { font-size:var(--fs, 13px); } #term { padding:12px 12px 40px; } }
 @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
+
+/* achievement toasts, in the corner, above everything that goes full screen */
+#toasts { position:fixed; right:16px; bottom:16px; z-index:40; display:flex; flex-direction:column; gap:8px; align-items:flex-end; pointer-events:none; max-width:calc(100vw - 32px); }
+.toast { display:flex; flex-direction:column; gap:2px; background:var(--bg); border:1px solid var(--warn); border-radius:6px; padding:.5em .9em; box-shadow:0 6px 24px rgba(0,0,0,.35); animation:toast-in .25s ease-out; transition:opacity .4s, transform .4s; }
+.toast.out { opacity:0; transform:translateY(8px); }
+@keyframes toast-in { from { opacity:0; transform:translateY(8px); } }
+/* nano */
+#nano { position:fixed; inset:0; z-index:25; background:var(--bg); color:var(--fg); display:flex; flex-direction:column; }
+#nano .top { display:flex; justify-content:space-between; padding:2px 1ch; white-space:pre; }
+#nano .top .name { overflow:hidden; text-overflow:ellipsis; }
+#nano textarea { flex:1; resize:none; border:0; outline:0; margin:0; padding:6px 1ch; background:transparent; color:var(--fg); font:inherit; caret-color:var(--accent); tab-size:4; white-space:pre; overflow:auto; }
+#nano .msg { text-align:center; min-height:1.5em; color:var(--warn); }
+#nano .ask { display:none; gap:1ch; padding:0 1ch; background:var(--sel); }
+#nano .ask.on { display:flex; }
+#nano .ask input { flex:1; min-width:0; background:transparent; border:0; outline:0; color:var(--fg); font:inherit; }
+#nano .keys { display:flex; flex-wrap:wrap; gap:2px 1.5ch; padding:2px 1ch calc(4px + env(safe-area-inset-bottom)); }
+#nano .keys button { font:inherit; color:var(--fg); background:transparent; border:0; padding:2px 0; cursor:pointer; }
+#nano .keys .inv { padding:0 .3ch; }
+/* cv --print: only on paper */
+#printcv { display:none; }
+@media print {
+  body > :not(#printcv) { display:none !important; }
+  html, body { height:auto; overflow:visible; background:#fff !important; color:#111; }
+  #printcv { display:block; font:10.5pt/1.45 "JetBrains Mono", ui-monospace, monospace; color:#111; }
+  #printcv h1 { font-size:20pt; margin:0; }
+  #printcv h2 { font-size:11pt; margin:14pt 0 4pt; padding-bottom:2pt; border-bottom:1px solid #999; text-transform:uppercase; letter-spacing:.06em; }
+  #printcv .role, #printcv .links { margin:2pt 0; color:#444; }
+  #printcv a { color:#111; border:0; text-decoration:none; }
+  #printcv .intro { margin:10pt 0 0; }
+  #printcv section { break-inside:avoid; margin-bottom:6pt; }
+  #printcv .row { display:flex; justify-content:space-between; gap:1em; }
+  #printcv .row span { color:#555; white-space:nowrap; }
+  #printcv ul { margin:2pt 0 0; padding-left:1.4em; }
+  #printcv .certs { list-style:none; padding:0; }
+  #printcv .certs span { color:#555; margin-right:.6em; }
+  #printcv dl { display:grid; grid-template-columns:max-content 1fr; gap:3pt 1em; margin:0; }
+  #printcv dt { font-weight:700; }
+  #printcv dd { margin:0; }
+  #printcv footer { margin-top:16pt; color:#777; font-size:8.5pt; }
+  @page { margin:16mm 16mm; }
+}

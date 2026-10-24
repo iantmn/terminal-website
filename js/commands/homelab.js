@@ -9,7 +9,7 @@ import { bootSound } from '../sound.js';
 import { addTree, resolve } from '../filesystem.js';
 import { forgetSession } from '../session.js';
 import { buildLab } from '../fs/homelab.js';
-import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS, NODES, CLUSTER, onlineNodes, up, logEvent, SESSIONS } from './labstate.js';
+import { STACKS, IMAGES, PRINTER, all, running, stoppedAt, INCIDENTS, HOSTS, RESTORE, ALERT, DEPLOYED, VMS, CTS, NODES, CLUSTER, onlineNodes, up, stoppedSince, logEvent, SESSIONS } from './labstate.js';
 
 addTree('homelab', buildLab());
 
@@ -92,7 +92,7 @@ export async function outage(what, down = null) {
   STACKS.terminal.forEach(s => running.add(`terminal-${s}-1`));
   if (!down) logEvent('homelab', 'watchdog.sh', 2211, `terminal.iantiemann.nl was down after "${what}", docker compose up -d`);
   else {
-    if (down.kind === 'guest' || down.kind === 'vm') logEvent('pve1', 'pve-ha-lrm', 1170, `service vm:102 ${down.reboot ? 'rebooted' : 'was stopped'}, starting it again`);
+    if (down.kind === 'guest' || down.kind === 'vm') logEvent(VMS.find(v => v.id === 102).node, 'pve-ha-lrm', 1170, `service vm:102 ${down.reboot ? 'rebooted' : 'was stopped'}, starting it again`);
     logEvent('homelab', 'kernel', 0, 'Linux version 6.1.0-25-amd64 (debian-kernel@lists.debian.org), booting');
     logEvent('homelab', 'systemd', 1, 'Started docker.service - Docker Application Container Engine.');
   }
@@ -102,9 +102,11 @@ export async function outage(what, down = null) {
   INCIDENTS.push({ what, kind: down?.kind || 'stack', at: downAt, seconds: restart.seconds });
 }
 
-// shutdown, halt, poweroff or reboot on the Docker VM or on pve1: this site runs on both, so it goes down too
+// shutdown, halt, poweroff or reboot on the Docker VM or on a node: this site runs on both, so it can go down too.
+// On pbs only the backup server goes, and HA starts it again
 export async function vmDown(what, reboot = false, kind = 'vm') {
-  if (kind === 'host') return nodeDown('pve1', { what, reboot, self: true });
+  if (kind === 'host') return nodeDown(state.host, { what, reboot, self: true });
+  if (kind === 'pbs') return pbsDown(what, reboot);
   logEvent('homelab', 'systemd-logind', 598, `${what} by ${state.user}: the system is ${reboot ? 'rebooting' : 'powering down'}`);
   const host = 'homelab';
   printLines(['', span('w', `Broadcast message from ${state.user}@${host} on pts/0 (${new Date().toString().slice(0, 24)}):`), '',
@@ -112,6 +114,24 @@ export async function vmDown(what, reboot = false, kind = 'vm') {
   await pause(700);
   print(span('m', `Connection to ${host} closed by remote host.`));
   await outage(what, { kind, reboot, where: kind === 'host' ? 'pve1' : 'the homelab' });
+}
+
+// poweroff on pbs: VM 103 goes, the site does not notice. It is an HA guest, so a few seconds later it is back
+async function pbsDown(what, reboot) {
+  logEvent('pbs', 'systemd-logind', 598, `${what} by root: the system is ${reboot ? 'rebooting' : 'powering down'}`);
+  printLines(['', span('w', `Broadcast message from root@pbs on pts/0 (${new Date().toString().slice(0, 24)}):`), '', span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
+  await pause(700);
+  if (!reboot) { up.delete(103); stoppedSince[103] = Date.now(); }
+  kicked = 'pbs';
+  setTimeout(() => {
+    const node = VMS.find(v => v.id === 103).node;
+    if (!reboot) logEvent(node, 'pve-ha-lrm', 1170, 'service vm:103 was stopped, starting it again');
+    up.add(103); delete stoppedSince[103];
+    logEvent('pbs', 'kernel', 0, 'Linux version 6.8.12-1-pve (build@proxmox), booting');
+    const cap = state.capture; state.capture = null;
+    print(span('m', reboot ? 'pbs rebooted. Nothing was backing up, so nobody noticed.' : `pve-ha-lrm on ${node}: VM 103 (pbs) should be running, started it again. Tonight's backup has somewhere to go after all.`));
+    state.capture = cap;
+  }, 5000);
 }
 
 // ---- the live alert: some time after you log in to the homelab, Grafana goes down on a full disk ----
@@ -381,8 +401,12 @@ export const LAB = {
 
 HOSTS.homelab = LAB;
 
-// a remote shell ends when the machine it is on goes off under it
+// a remote shell ends when the machine it is on goes off under it, or one it came through
 let kicked = null;
+// the machines you are logged in to, outermost first: homelab, pve1, pve2
+const chain = [];
+export const cameThrough = host => chain.includes(host);
+const dropped = depth => !!kicked && chain.indexOf(kicked) > -1 && chain.indexOf(kicked) <= depth;
 
 // ---- the cluster: a node goes off. While two of three keep the quorum, HA moves its guests and Ian gets it
 // running again (the first time on foot, after that with Wake-on-LAN). With one node left there is no quorum:
@@ -393,15 +417,19 @@ let storyRun = 0;
 // a node comes back: HA moves what prefers it (its home, /etc/pve/ha/groups.cfg) back there, live. Returns what moved
 const nodeBack = n => {
   CLUSTER.down.delete(n); delete CLUSTER.since[n];
-  logEvent('pve1', 'corosync', 940, n === 'pve1' ? 'pve1 booted and joined the cluster' : `[QUORUM] ${n} joined, Members[${onlineNodes().length}]: ${onlineNodes().map(x => x.slice(3)).join(' ')}`);
+  // the node itself booted (last shows that), the others see it join
+  logEvent(n, 'corosync', 940, `${n} booted and joined the cluster`);
+  onlineNodes().filter(x => x !== n).forEach(x => logEvent(x, 'corosync', 940, `[QUORUM] ${n} joined, Members[${onlineNodes().length}]: ${onlineNodes().map(y => y.slice(3)).join(' ')}`));
   const moved = [...VMS, ...CTS].filter(g => g.home === n && g.node !== n && !CLUSTER.down.has(g.node));
-  return moved.map(g => { const from = g.node; g.node = n; logEvent('pve1', 'pve-ha-crm', 1160, `migrate service ${n0(g).toLowerCase()}:${g.id} back to its preferred node ${n} (failback), online`); return { g, from }; });
+  return moved.map(g => { const from = g.node; g.node = n; clusterLog('pve-ha-crm', 1160, `migrate service ${n0(g).toLowerCase()}:${g.id} back to its preferred node ${n} (failback), online`); return { g, from }; });
 };
 const failback = moved => moved.map(({ g, from }) => span('m', `pve-ha-crm: ${n0(g)} ${g.id} (${g.name}) prefers ${g.node}: migrating back from ${from}, live${g.id === 102 ? '. The site stays up' : ''}`));
 const n0 = g => VMS.includes(g) ? 'VM' : 'CT';
+// what the whole cluster sees goes in the log of every node that is up
+const clusterLog = (unit, pid, msg) => onlineNodes().forEach(x => logEvent(x, unit, pid, msg));
 export async function nodeDown(n, { what, reboot = false, self = false }) {
-  if (n === 'pve1') logEvent('pve1', 'systemd-logind', 812, `${what} by root: the system is ${reboot ? 'rebooting' : 'powering down'}`);
-  else logEvent('pve1', 'pvedaemon', 1110, `<root@pam> ${reboot ? 'reboot' : 'shutdown'} of node ${n}`);
+  if (self || n === 'pve1') logEvent(n, 'systemd-logind', 812, `${what} by root: the system is ${reboot ? 'rebooting' : 'powering down'}`);
+  else logEvent(NODES.some(([x]) => x === state.host) ? state.host : 'pve1', 'pvedaemon', 1110, `<root@pam> ${reboot ? 'reboot' : 'shutdown'} of node ${n}`);
   if (self) {
     printLines(['', span('w', `Broadcast message from ${state.user}@${n} on pts/0 (${new Date().toString().slice(0, 24)}):`), '', span('w', `The system will ${reboot ? 'reboot' : 'power off'} now!`), '']);
     await pause(700);
@@ -411,22 +439,22 @@ export async function nodeDown(n, { what, reboot = false, self = false }) {
   // a reboot: HA moves the site first if it is on there; the node is back by itself
   if (reboot) {
     if (has102) return outage(what, { kind: 'host', node: n, to: (vm102.node = others[0]), reboot: true, where: n });
-    if (self) kicked = n;
+    if (chain.includes(n)) kicked = n;
     print(span('m', `${n} is rebooting.`));
     setTimeout(() => print(span('m', `${n} rebooted and rejoined the cluster: 3 of 3 votes.`)), 6000);
     return;
   }
   CLUSTER.down.add(n); CLUSTER.since[n] = Date.now();
   const left = onlineNodes();
-  if (n !== 'pve1') logEvent('pve1', 'corosync', 940, `[QUORUM] ${n} left, Members[${left.length}]: ${left.map(x => x.slice(3)).join(' ')}${left.length >= 2 ? '' : ', quorum lost'}`);
+  clusterLog('corosync', 940, `[QUORUM] ${n} left, Members[${left.length}]: ${left.map(x => x.slice(3)).join(' ')}${left.length >= 2 ? '' : ', quorum lost'}`);
   if (left.length >= 2) {
     // two of three: quorum. HA starts what ran on the node on the others, VM 102 on the first of them
     const guests = [...VMS, ...CTS].filter(g => g.node === n && ha(g));
     guests.forEach((g, i) => { g.node = g.id === 102 ? left[0] : left[i % left.length]; });
-    if (n !== 'pve1') guests.forEach(g => logEvent('pve1', 'pve-ha-crm', 1160, `recover service ${n0(g).toLowerCase()}:${g.id} from fenced node ${n} to ${g.node}`));
+    guests.forEach(g => clusterLog('pve-ha-crm', 1160, `recover service ${n0(g).toLowerCase()}:${g.id} from fenced node ${n} to ${g.node}`));
     const run = ++storyRun;
     if (has102) return outage(what, { kind: 'host', node: n, to: vm102.node, where: n });
-    if (self) kicked = n;
+    if (chain.includes(n)) kicked = n;
     printLines([span('m', `corosync: ${n} left, ${left.join(' and ')} keep the quorum (2 of 3 votes)`),
       ...guests.map(g => span('m', `pve-ha-crm: ${VMS.includes(g) ? 'VM' : 'CT'} ${g.id} (${g.name}) started on ${g.node}`))]);
     nodeStory(n, run);
@@ -438,7 +466,7 @@ export async function nodeDown(n, { what, reboot = false, self = false }) {
   const events = [`${n}: powered off`, `corosync: ${alone} is alone with 1 of 3 votes, quorum lost`, `${alone}: the HA watchdog fences the node, and every guest goes down with it`];
   NODES.forEach(([x]) => { CLUSTER.down.add(x); CLUSTER.since[x] ??= Date.now(); });
   const wol = CLUSTER.wol;
-  await outage(what, { kind: 'cluster', events, wol, where: state.host === 'pve1' ? 'pve1' : 'the homelab' });
+  await outage(what, { kind: 'cluster', events, wol, where: state.host === 'homelab' ? 'the homelab' : state.host });
   // by the end of the outage Ian has them all back, and what starts on boot runs again
   NODES.forEach(([x]) => nodeBack(x));
   [...VMS, ...CTS].forEach(g => { g.node = g.home; });
@@ -496,6 +524,8 @@ export async function remoteShell({ host, user, home, root = false, banner, star
     logEvent(host, 'sshd', pid, `pam_unix(sshd:session): session opened for user ${user}(uid=${root ? 0 : 1000})`, true);
   }
   const saved = { host: state.host, user: state.user, cwd: state.cwd, asRoot: state.asRoot }, savedHome = [...HOME];
+  const depth = chain.push(host) - 1;
+  let gone = false;
   state.host = host; state.user = user; state.asRoot = root;
   HOME.splice(0, HOME.length, ...home); state.cwd = [...HOME];
   resetHistoryCursor();
@@ -503,7 +533,7 @@ export async function remoteShell({ host, user, home, root = false, banner, star
   try {
     // a session after a reload: back in the folder you were in, or one machine further
     if (start) await start();
-    while (!restart && kicked !== host) {
+    while (!restart && !dropped(depth)) {
       state.busy = false; inrow.style.visibility = '';
       let line = await ask(promptHTML());
       // Ctrl+D logs out, Ctrl+C just gives a new prompt
@@ -521,16 +551,19 @@ export async function remoteShell({ host, user, home, root = false, banner, star
       state.busy = true; state.cancelled = false; inrow.style.visibility = 'hidden';
       try { await execChain(line); }
       catch (e) { if (e.message === 'SIGINT') print(span('e', '^C')); else { print(span('e', 'error: ' + esc(e.message))); console.error(e); } }
-      if (restart || kicked === host) break;
+      if (restart || dropped(depth)) break;
     }
   } finally {
+    gone = dropped(depth);
+    chain.splice(depth);
     HOME.splice(0, HOME.length, ...savedHome);
     Object.assign(state, saved);
     resetHistoryCursor();
   }
-  Object.assign(session, { end: Date.now(), how: restart || kicked === host ? 'down' : 'logout' });
-  if (!restart && kicked !== host) logEvent(host, 'sshd', pid, `pam_unix(sshd:session): session closed for user ${user}`, true);
-  if (kicked === host) { kicked = null; print(span('m', `Connection to ${host} closed by remote host.`)); return; }
+  Object.assign(session, { end: Date.now(), how: restart || gone ? 'down' : 'logout' });
+  if (!restart && !gone) logEvent(host, 'sshd', pid, `pam_unix(sshd:session): session closed for user ${user}`, true);
+  // one further in goes with it, quietly; the machine that went off says so
+  if (gone) { if (kicked === host) { kicked = null; print(span('m', `Connection to ${host} closed by remote host.`)); } return; }
   if (!restart) { print('logout'); print(span('m', `Connection to ${host} closed.`)); }
 }
 
@@ -541,7 +574,10 @@ export async function labSession(resume = null) {
   armAlert();
   const back = resume && span('m', 'Connection restored after the reload.');
   await remoteShell({ host: 'homelab', user: 'ian', home: ['home', 'ian'], from: '172.18.0.3', key: 'ED25519 key id_homelab', start: resume && (async () => {
+    // pve1, or a node behind it; pbs straight from here
     if (resume.host === 'pve1') return (await import('./pve.js')).pveSession(resume.cwd);
+    if (/^pve[23]$/.test(resume.host)) return (await import('./pve.js')).pveSession(null, resume);
+    if (resume.host === 'pbs') return (await import('./pbs.js')).pbsSession({ cwd: resume.cwd });
     if (resume.cwd && !resolve('/' + resume.cwd.join('/')).error) state.cwd = resume.cwd;
   }), banner: back ? [back] : ['Linux homelab 6.1.0-25-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 x86_64', '', span('m', 'The programs included with the Debian GNU/Linux system are free software.'), span('m', `Last login: ${new Date(Date.now() - 864e5 * 2).toString().slice(0, 24)} from 10.42.0.12`), '', 'Welcome to the homelab. Start with ' + cmd('cat README.md') + span('m', ', or help.'), ''] });
   disarmAlert();

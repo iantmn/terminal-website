@@ -1,20 +1,45 @@
 // parsing and running command lines: aliases, pipes, && and ;
-import { unlock, unlocked } from './achievements.js';
+import { unlock, unlocked, seasonal } from './achievements.js';
 import { esc, span, cmd, pad, print, printLines, state, store, getopt, pathStr, HOME, lev } from './core.js';
-import { resolve, cannotWrite, writeFile, TMP_NOTE, glob } from './filesystem.js';
+import { resolve, cannotWrite, writeFile, TMP_NOTE, glob, isExecutable, isDevNull } from './filesystem.js';
 import { C } from './registry.js';
 import { pager } from './pager.js';
+import { sha256, md5, utf8, toBase64, fromBase64 } from './hash.js';
 
+// words, like bash splits them: quotes keep spaces together, '' and "" are an empty word, and a backslash takes the
+// next character literally (echo a\ b). Inside double quotes only \" \\ \$ and \` lose theirs, inside single quotes none
 export function tokenize(s) {
-  const out = []; let cur = '', q = null;
-  for (const ch of s) {
+  const out = []; let cur = '', q = null, word = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q === "'") { if (ch === q) q = null; else cur += ch; continue; }
+    if (ch === '\\' && i + 1 < s.length) {
+      const next = s[++i];
+      cur += q === '"' && !'"\\$`'.includes(next) ? ch + next : next;
+      word = true;
+      continue;
+    }
     if (q) { if (ch === q) q = null; else cur += ch; }
-    else if (ch === '"' || ch === "'") q = ch;
-    else if (/\s/.test(ch)) { if (cur) { out.push(cur); cur = ''; } }
+    else if (ch === '"' || ch === "'") { q = ch; word = true; }
+    else if (/\s/.test(ch)) { if (cur || word) { out.push(cur); cur = ''; word = false; } }
     else cur += ch;
   }
-  if (cur) out.push(cur);
+  if (cur || word) out.push(cur);
   return out;
+}
+// where a $( ... ) or ` ... ` that starts at i ends (the index after it), quotes and nested ones included; -1 when it never closes
+export function substEnd(s, i) {
+  if (s[i] === '`') { for (let j = i + 1; j < s.length; j++) { if (s[j] === '\\') j++; else if (s[j] === '`') return j + 1; } return -1; }
+  let depth = 0, q = null;
+  for (let j = i + 1; j < s.length; j++) {
+    const ch = s[j];
+    if (ch === '\\' && q !== "'") { j++; continue; }
+    if (q) { if (ch === q) q = null; continue; }
+    if (ch === '"' || ch === "'") q = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return j + 1;
+  }
+  return -1;
 }
 
 // -h / --help and --version work for every command, built from what def() knows about it.
@@ -52,31 +77,47 @@ function noteFound(c) {
 }
 
 // a wrapper (sudo, please, watch) hands the rest of the line to another command, so only its first arg counts
-const BASE_COMMANDS = ['ls', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'ssh', 'netmap', 'grafana', 'mtr', 'who', 'last'];
+const BASE_COMMANDS = ['ls', 'jq', 'mail', 'cd', 'cat', 'pwd', 'tree', 'clear', 'echo', 'date', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'cut', 'tr', 'rev', 'nl', 'tee', 'xargs', 'base64', 'sha256sum', 'md5sum', 'true', 'false', 'sleep', 'seq', 'sh', 'bash', 'source', '.', 'nano', 'uuidgen', 'hostname', 'whoami', 'id', 'uname', 'uptime', 'ps', 'df', 'free', 'ip', 'systemctl', 'neofetch', 'man', 'history', 'top', 'kill', 'netstat', 'journalctl', 'dmesg', 'crontab', 'reboot', 'shutdown', 'find', 'less', 'ssh', 'netmap', 'grafana', 'mtr', 'who', 'last'];
 const HOST_COMMANDS = {
   // status: Uptime Kuma runs on the homelab, so its page is there too
   homelab: [new Set([...BASE_COMMANDS, 'status', 'tmux', 'docker', 'wg', 'ansible', 'ansible-playbook', 'nmap']), 'A lean install.'],
-  pve1: [new Set([...BASE_COMMANDS, 'qm', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool', 'proxmox-file-restore', 'scp', 'vzdump', 'pvecm', 'pvesr', 'ha-manager', 'cp', 'rm', 'mkdir', 'touch']), 'The hypervisor: everything runs on this, so tread lightly.'],
+  pve1: [new Set([...BASE_COMMANDS, 'qm', 'qmrestore', 'proxmox-backup-client', 'pct', 'pvesh', 'pvesm', 'pveversion', 'zpool', 'proxmox-file-restore', 'scp', 'vzdump', 'pvecm', 'pvesr', 'ha-manager', 'cp', 'rm', 'mkdir', 'touch']), 'The hypervisor: everything runs on this, so tread lightly.'],
+  pbs: [new Set([...BASE_COMMANDS, 'proxmox-backup-manager', 'proxmox-backup-client']), 'The backup server: what the cluster saves every night, and where it goes.'],
 };
+// the other nodes have the same install as pve1
+HOST_COMMANDS.pve2 = HOST_COMMANDS.pve3 = HOST_COMMANDS.pve1;
 // help on the homelab and pve1: by topic, one short line each. What a command does on the main terminal is not
 // always what it does here, so some get their own line
 const FILES = ['ls', 'cd', 'pwd', 'cat', 'less', 'find', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'tree', 'cp', 'rm', 'mkdir', 'touch'];
+// the shell itself is the same everywhere: the text tools, scripts and nano
+const SHELL_TOOLS = ['cut', 'tr', 'rev', 'nl', 'tee', 'xargs', 'base64', 'sha256sum', 'md5sum', 'true', 'false', 'sleep', 'seq', 'sh', 'source', 'nano', 'uuidgen'];
 const HOST_HELP = {
   homelab: [
     ['Docker', ['docker']], ['Ansible', ['ansible', 'ansible-playbook']],
     ['Network', ['ip', 'wg', 'nmap', 'netstat', 'netmap', 'mtr', 'ssh']],
     ['Logs and health', ['status', 'grafana', 'journalctl', 'dmesg', 'systemctl', 'ps', 'top', 'df', 'free', 'uptime', 'who', 'last', 'crontab']],
     ['Files', FILES],
+    ['Shell', SHELL_TOOLS],
   ],
   pve1: [
-    ['Guests and backups', ['qm', 'pct', 'vzdump', 'proxmox-file-restore']],
+    ['Guests and backups', ['qm', 'qmrestore', 'pct', 'vzdump', 'proxmox-backup-client', 'proxmox-file-restore']],
     ['Cluster', ['pvecm', 'ha-manager', 'pvesr', 'pvesh', 'pveversion']],
     ['Storage', ['zpool', 'pvesm', 'df']],
     ['Network', ['ip', 'netstat', 'netmap', 'mtr', 'ssh', 'scp']],
     ['Logs and health', ['grafana', 'journalctl', 'dmesg', 'systemctl', 'ps', 'top', 'free', 'uptime', 'who', 'last', 'crontab']],
     ['Files', FILES],
+    ['Shell', SHELL_TOOLS],
+  ],
+  pbs: [
+    ['Backups', ['proxmox-backup-manager', 'proxmox-backup-client']],
+    ['Storage', ['df']],
+    ['Network', ['ip', 'netstat', 'netmap', 'mtr', 'ssh']],
+    ['Logs and health', ['grafana', 'journalctl', 'dmesg', 'systemctl', 'ps', 'top', 'free', 'uptime', 'who', 'last', 'crontab']],
+    ['Files', FILES],
+    ['Shell', SHELL_TOOLS],
   ],
 };
+HOST_HELP.pve2 = HOST_HELP.pve3 = HOST_HELP.pve1;
 const HOST_DESC = {
   docker: 'the containers: ps, compose, logs, stop, start, system df', uptime: 'how long this machine has been up', last: 'who logged in here, and when',
   who: 'who is logged in here', reboot: 'restart this machine, and what runs on it', shutdown: 'power this machine off',
@@ -142,12 +183,16 @@ function invoke(c, name, args, line) {
   }
   // qm and friends only exist on the Proxmox nodes
   if (c.hosts && !c.hosts.includes(state.host)) return notFound(name);
+  // a command that exists here but is not installed (jq, until apt install jq): not found, not even as a secret
+  if (c.available && !c.available()) return notFound(name);
   noteFound(c);
   const own = c.wrap ? args.slice(0, 1) : args;
   if (wantsHelp(c, own)) return printLines(helpLines(c, name));
   const bad = badFlag(c, own);
   if (bad) { state.code = 2; return printLines([span('e', esc(`${name}: ${bad}`)), span('m', `Try '${esc(name)} --help' for more information.`)]); }
   if (own.includes('--version') && !c.version) return printLines([`${esc(name)} (IanOS) 2.6 (Rubber Duck)`, span('m', 'Written by Ian Tiemann. Runs on coffee.')]);
+  // today's seasonal achievement, if this is its command
+  seasonal(c.name, args, line);
   return c.run(args, line);
 }
 
@@ -158,14 +203,18 @@ export async function execLine(line) {
   return invoke(c, name, args, line);
 }
 
-// split on a separator outside quotes; seps are tried in order, so '&&' wins over '&'
+// split on a separator outside quotes; seps are tried in order, so '&&' wins over '&'. A backslash keeps the next
+// character (echo a\;b), and a $( ... ) or ` ... ` stays whole: echo $(date; whoami) is one command
 function splitOutside(str, seps) {
   const parts = []; let cur = '', q = null, op = null;
   for (let i = 0; i < str.length; i++) {
     const ch = str[i];
+    if (ch === '\\' && q !== "'") { cur += ch + (str[i + 1] ?? ''); i++; continue; }
+    if (q === "'") { if (ch === q) q = null; cur += ch; continue; }
+    if ((ch === '`' || str.startsWith('$(', i)) && substEnd(str, i) > 0) { const end = substEnd(str, i); cur += str.slice(i, end); i = end - 1; continue; }
     if (q) { if (ch === q) q = null; cur += ch; continue; }
     if (ch === '"' || ch === "'") { q = ch; cur += ch; continue; }
-    const sep = seps.find(sp => str.startsWith(sp, i) && !(sp === '|' && str[i + 1] === '|'));
+    const sep = seps.find(sp => str.startsWith(sp, i) && !(sp === '|' && str[i + 1] === '|') && !(sp === '&' && /[&>]/.test(str[i + 1] || '')));
     if (sep) { parts.push({ op, text: cur.trim() }); cur = ''; op = sep; i += sep.length - 1; continue; }
     cur += ch;
   }
@@ -182,14 +231,16 @@ export function envVars() {
     EDITOR: 'vim', COFFEE_LEVEL: 'high', ...vars,
   };
 }
-// $NAME, ${NAME}, $? and $$, anywhere but inside single quotes
+// $NAME, ${NAME}, $? and $$, anywhere but inside single quotes; in a script also $0, $1 ..., $# and $@
 function expandVars(line) {
   if (!line.includes('$')) return line;
-  const env = envVars();
+  const env = envVars(), argv = state.argv || ['zsh'];
   let out = '', q = null;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (q === "'") { if (ch === "'") q = null; out += ch; continue; }
+    // \$HOME stays $HOME
+    if (ch === '\\') { out += ch + (line[i + 1] ?? ''); i++; continue; }
     if (q === '"' && ch === '"') q = null;
     else if (!q && (ch === '"' || ch === "'")) q = ch;
     if (ch !== '$') { out += ch; continue; }
@@ -197,6 +248,9 @@ function expandVars(line) {
     let m;
     if (rest[0] === '?') { out += String(state.status); i++; }
     else if (rest[0] === '$') { out += '9000'; i++; }
+    else if (/^\d/.test(rest)) { out += argv[+rest[0]] ?? ''; i++; }
+    else if (rest[0] === '#') { out += String(argv.length - 1); i++; }
+    else if (rest[0] === '@' || rest[0] === '*') { out += argv.slice(1).join(' '); i++; }
     else if ((m = rest.match(/^\{(\w+)\}/) || rest.match(/^[A-Za-z_]\w*/))) { out += env[m[1] ?? m[0]] ?? ''; i += m[0].length; }
     else out += ch;
   }
@@ -207,8 +261,8 @@ function expandGlobs(line) {
   if (!/[*?]/.test(line)) return line;
   return line.replace(/(^|[\s|;&])([^\s"'|;&<>]*[*?][^\s"'|;&<>]*)(?=$|[\s|;&<>])/g, (all, pre, word, at) => {
     const before = line.slice(0, at + pre.length);
-    // inside quotes, or the first word of a command: leave it
-    if ((before.match(/"/g) || []).length % 2 || (before.match(/'/g) || []).length % 2) return all;
+    // inside quotes, escaped (\*), or the first word of a command: leave it
+    if ((before.match(/"/g) || []).length % 2 || (before.match(/'/g) || []).length % 2 || /\\[*?]/.test(word)) return all;
     if (!before.trim() || /[|;&]\s*$/.test(before)) return all;
     const hits = glob(word);
     return pre + (hits ? hits.join(' ') : word);
@@ -221,17 +275,17 @@ const PACKAGES = { nmap: 'nmap', wget: 'wget', tmux: 'tmux', screen: 'screen', n
   gcc: 'gcc', 'g++': 'g++', mtr: 'mtr-tiny', nc: 'netcat-openbsd', telnet: 'telnet', ifconfig: 'net-tools', iftop: 'iftop', ncdu: 'ncdu', jq: 'jq', rg: 'ripgrep',
   fzf: 'fzf', zip: 'zip', unzip: 'unzip', rsync: 'rsync', tcpdump: 'tcpdump', iperf3: 'iperf3', ansible: 'ansible', terraform: 'terraform', kubectl: 'kubectl', btop: 'btop', neovim: 'neovim', php: 'php', ruby: 'ruby', perl: 'perl' };
 // which machine has which command (the ones that are not everywhere)
-const ONLY_ON = { docker: 'homelab', wg: 'homelab', ansible: 'homelab', 'ansible-playbook': 'homelab', qm: 'pve1', pct: 'pve1', pvesh: 'pve1', pvesm: 'pve1', pveversion: 'pve1', zpool: 'pve1', pvecm: 'pve1', pvesr: 'pve1', 'ha-manager': 'pve1', vzdump: 'pve1' };
-const WHERE = { homelab: 'the homelab (the Docker VM)', pve1: 'the Proxmox cluster' };
+const ONLY_ON = { docker: 'homelab', wg: 'homelab', ansible: 'homelab', 'ansible-playbook': 'homelab', qm: 'pve1', qmrestore: 'pve1', pct: 'pve1', pvesh: 'pve1', pvesm: 'pve1', pveversion: 'pve1', zpool: 'pve1', pvecm: 'pve1', pvesr: 'pve1', 'ha-manager': 'pve1', vzdump: 'pve1', 'proxmox-backup-manager': 'pbs', 'proxmox-backup-client': 'pbs' };
+const WHERE = { homelab: 'the homelab (the Docker VM)', pve1: 'the Proxmox cluster', pbs: 'the backup server (pbs)' };
 // the commands on this machine: everything found on the container, the installed ones behind ssh
 export const commandsHere = () => { const h = HOST_COMMANDS[state.host]; return h ? [...h[0], 'exit', 'logout'] : commandNames(); };
-function notFound(name) {
+export function notFound(name) {
   state.failed = true; state.code = 127;
   const n = name.toLowerCase(), here = state.host, there = ONLY_ON[n];
   const say = (...m) => print(span('e', `${here === 'iantiemann' ? 'command not found: ' + esc(name) : esc(name) + ': command not found'}`) + span('m', ' ' + m.join('')));
   // it exists, just not here
-  if (there && there !== here) {
-    if (here === 'pve1' && n === 'docker') return say('- Docker runs in VM 102, not on the host. Keep the host boring: exit, and it is on the homelab.');
+  if (there && there !== here && !(there === 'pve1' && /^pve\d$/.test(here))) {
+    if (/^pve\d$/.test(here) && n === 'docker') return say('- Docker runs in VM 102, not on the host. Keep the host boring: exit, and it is on the homelab.');
     if (here === 'iantiemann') return say(`- ${esc(n)} lives on ${WHERE[there]}. This terminal is a container.`);
     return say(`- ${esc(n)} is on ${WHERE[there]}, not on ${here}.`);
   }
@@ -255,7 +309,16 @@ async function execOne(line) {
   const [name, ...args] = tokenize(line);
   if (!name) return;
   let c = C[name.toLowerCase()];
-  if (!c && name.includes('/')) { const r = resolve(name); if (!r.error && r.node.exec) c = C[r.node.exec]; }
+  // a path: a program in /usr/bin, or a script of yours once it has chmod +x
+  if (!c && name.includes('/')) {
+    const r = resolve(name);
+    if (!r.error && r.node.exec) c = C[r.node.exec];
+    else if (!r.error && isExecutable(r.node) && r.node.mine) return runScript(name, args);
+    else {
+      state.failed = true; state.code = r.error === 'missing' ? 127 : 126;
+      return print(span('e', `zsh: ${r.error === 'missing' ? 'no such file or directory' : 'permission denied'}: ${esc(name)}`) + (r.node?.mine && r.node.type === 'file' ? span('m', '  (make it a program first: ') + cmd(`chmod +x ${name}`) + span('m', ')') : ''));
+    }
+  }
   if (!c) return notFound(name);
   return invoke(c, name, args, line);
 }
@@ -344,59 +407,212 @@ export const FILTERS = {
       .map(g => (o.c || o.count ? span('a2', String(g.n).padStart(7)) + ' ' : '') + esc(g.line));
   },
   lolcat(args, lines) { return lines.map(rainbow); },
+  // cut -d: -f1,3 picks fields, cut -c1-5 characters. Lists like 1,3-5,7-
+  cut(args, lines) {
+    const [o] = getopt(args, ['d', 'f', 'c', 'delimiter', 'fields', 'characters']);
+    const list = o.f ?? o.fields ?? o.c ?? o.characters;
+    if (!list) return [span('e', 'cut: you must specify a list of bytes, characters, or fields')];
+    const want = n => String(list).split(',').some(r => { const [a, b] = r.split('-'); return r.includes('-') ? n >= (+a || 1) && n <= (b === '' ? Infinity : +b) : n === +a; });
+    if (o.c || o.characters) return lines.map(l => esc([...l].filter((_, i) => want(i + 1)).join('')));
+    const d = o.d ?? o.delimiter ?? '\t';
+    return lines.filter(l => !(o.s || o['only-delimited']) || l.includes(d)).map(l => esc(l.includes(d) ? l.split(d).filter((_, i) => want(i + 1)).join(d) : l));
+  },
+  // tr a-z A-Z, tr -d 0-9, tr -s ' ', and the classes like [:upper:]
+  tr(args, lines) {
+    const [o, sets] = getopt(args);
+    const expand = s => {
+      s = String(s ?? '').replace(/\[:(\w+):\]/g, (m, c) => ({ upper: 'A-Z', lower: 'a-z', digit: '0-9', alpha: 'a-zA-Z', alnum: 'a-zA-Z0-9', space: ' \t\n' }[c] ?? m))
+        .replace(/\\(.)/g, (m, c) => ({ n: '\n', t: '\t', '\\': '\\' }[c] ?? c));
+      const out = [];
+      for (let i = 0; i < s.length; i++) {
+        if (s[i + 1] === '-' && i + 2 < s.length) { for (let c = s.charCodeAt(i); c <= s.charCodeAt(i + 2); c++) out.push(String.fromCharCode(c)); i += 2; }
+        else out.push(s[i]);
+      }
+      return out;
+    };
+    const a = expand(sets[0]), b = expand(sets[1]);
+    if (!a.length) return [span('e', 'tr: missing operand')];
+    let text = lines.join('\n');
+    if (o.d) text = [...text].filter(c => !a.includes(c)).join('');
+    else if (b.length) text = [...text].map(c => { const i = a.indexOf(c); return i < 0 ? c : b[Math.min(i, b.length - 1)]; }).join('');
+    if (o.s) { const sq = b.length && !o.d ? b : a; text = [...text].filter((c, i, all) => !(i && c === all[i - 1] && sq.includes(c))).join(''); }
+    return text.split('\n').map(esc);
+  },
+  rev(args, lines) { return lines.map(l => esc([...l].reverse().join(''))); },
+  // nl numbers the lines that have text, like the real one; -b a numbers every line
+  nl(args, lines) {
+    const [o] = getopt(args, ['b', 'w']);
+    const all = o.b === 'a', w = parseInt(o.w ?? 6, 10) || 6;
+    let n = 0;
+    return lines.map(l => all || l.trim() ? span('m', String(++n).padStart(w)) + '\t' + esc(l) : '');
+  },
+  // tee: into the files, and on down the pipe
+  tee(args, lines) {
+    const [o, files] = getopt(args);
+    const errs = [];
+    for (const p of files) {
+      if (isDevNull(p)) continue;
+      const err = writeFile(p, lines.length ? lines.join('\n') + '\n' : '', o.a || o.append);
+      if (err) { state.failed = true; errs.push(span('e', `tee: ${esc(p)}: ${esc(err)}`)); }
+    }
+    return [...lines.map(esc), ...errs];
+  },
+  base64(args, lines) {
+    const [o] = getopt(args, ['w', 'wrap']);
+    if (o.d || o.decode) {
+      const text = fromBase64(lines.join(''));
+      if (text === null) { state.failed = true; return [span('e', 'base64: invalid input')]; }
+      return text.replace(/\n$/, '').split('\n').map(esc);
+    }
+    const b64 = toBase64(utf8(lines.join('\n') + '\n')), w = parseInt(o.w ?? o.wrap ?? 76, 10);
+    return (w > 0 ? b64.match(new RegExp(`.{1,${w}}`, 'g')) : [b64]).map(esc);
+  },
+  sha256sum(args, lines) { return [sha256(utf8(lines.join('\n') + '\n')) + '  -']; },
+  md5sum(args, lines) { return [md5(utf8(lines.join('\n') + '\n')) + '  -']; },
 };
 export const rainbow = (l, row) => [...l].map((ch, i) => ch === ' ' ? ' ' : `<span style="color:hsl(${(i * 9 + row * 14) % 360},95%,65%)">${esc(ch)}</span>`).join('');
 
-// a > outside quotes
-const hasRedirect = line => { let q = null; for (const ch of line) { if (q) { if (ch === q) q = null; } else if (ch === '"' || ch === "'") q = ch; else if (ch === '>') return true; } return false; };
-// cmd > file and cmd >> file: the output as plain text, into /tmp (the only place that takes it)
-async function execRedirect(line) {
-  const parts = splitOutside(line, ['>>', '>']);
-  // > file with nothing before it still makes the file, like in bash
-  const to = parts.find(p => p.op), command = parts[0]?.op ? '' : parts[0]?.text || '';
-  const op = to?.op, [target] = tokenize(to?.text || '');
-  if (!target) return print(span('e', "bash: syntax error near unexpected token `newline'"));
-  const err = cannotWrite(target);
-  if (err) { state.failed = true; return print(span('e', `bash: ${esc(target)}: ${err}`) + (err === 'Read-only file system' ? TMP_NOTE : '')); }
-  let html = [];
-  if (command) {
-    const prev = state.capture; state.capture = [];
-    try { await execPipeline(command); } finally { html = state.capture; state.capture = prev; }
+// ---- redirections: > >> 1> 2> 2>> &> &>> and 2>&1, per command, outside quotes ----
+// gives the command without them, where its output goes (out) and where its errors go (err: a file, or 'out' for 2>&1)
+export function parseRedirects(text) {
+  let rest = '', q = null, out = null, err = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\' && q !== "'") { rest += ch + (text[i + 1] ?? ''); i++; continue; }
+    if (q) { if (ch === q) q = null; rest += ch; continue; }
+    if (ch === '"' || ch === "'") { q = ch; rest += ch; continue; }
+    // a number or & in front only counts at the start of a word: echo a2>f sends a2 into f
+    const start = i === 0 || /\s/.test(text[i - 1]);
+    let fd = null, j = i;
+    if (ch === '>') fd = '1';
+    else if (start && /[12&]/.test(ch) && text[i + 1] === '>') { fd = ch; j = i + 1; }
+    if (!fd) { rest += ch; continue; }
+    const append = text[j + 1] === '>';
+    j += append ? 2 : 1;
+    // 2>&1: errors go wherever the output goes. >&2 (output to the errors) is left as output here
+    if (text[j] === '&' && /[12]/.test(text[j + 1] || '')) {
+      if (fd === '2' && text[j + 1] === '1') err = 'out';
+      i = j + 1; rest += ' '; continue;
+    }
+    while (/\s/.test(text[j] || '')) j++;
+    let k = j, wq = null;
+    for (; k < text.length; k++) {
+      const c = text[k];
+      if (c === '\\') { k++; continue; }
+      if (wq) { if (c === wq) wq = null; continue; }
+      if (c === '"' || c === "'") wq = c;
+      else if (/[\s|;&<>]/.test(c)) break;
+    }
+    const [path] = tokenize(text.slice(j, k));
+    if (!path) return { error: "bash: syntax error near unexpected token `newline'" };
+    const target = { path, append };
+    if (fd === '1') out = target;
+    else if (fd === '2') err = target;
+    else { out = target; err = 'out'; }
+    i = k - 1; rest += ' ';
   }
-  const lines = htmlToText(html).filter((l, i, a) => l.trim() || (i > 0 && i < a.length - 1));
-  writeFile(target, lines.length ? lines.join('\n') + '\n' : '', op === '>>');
+  return { text: rest.trim(), out, err };
+}
+// output as plain text lines for a file: the html of print() without its markup, and no empty first or last lines
+const asText = html => htmlToText(html).filter((l, i, a) => l.trim() || (i > 0 && i < a.length - 1));
+const writeLines = (t, lines) => writeFile(t.path, lines.length ? lines.join('\n') + '\n' : '', t.append);
+
+// one command of a pipeline. input is what the previous one printed: { html, lines }, or null for the first
+async function runStage(text, input) {
+  if (!input) return execOne(text);
+  const [name, ...args] = tokenize(text);
+  const n = (name || '').toLowerCase();
+  if (n === 'less' || n === 'more') { const [o] = getopt(args); return pager(input.html, 'stdin', { numbers: o.N || o['LINE-NUMBERS'] }); }
+  if (n === 'xargs') return xargs(text, input.lines);
+  const f = FILTERS[n];
+  if (f && C[n]?.available?.() !== false) return printLines(wantsHelp(C[n], args) ? helpLines(C[n], name) : f(args, input.lines));
+  // anything else gets the piped text as arguments: fortune | cowsay, echo hi | rot13
+  return execOne(`${text} ${input.lines.join(' ').replace(/\s+/g, ' ').trim()}`);
 }
 
 async function execPipeline(line) {
   const stages = splitOutside(line, ['|']).map(p => p.text);
-  if (stages.length === 1) return execOne(stages[0]);
-  unlock('pipe');
-  const prev = state.capture; state.capture = [];
-  let html;
-  try { await execOne(stages[0]); } finally { html = state.capture; state.capture = prev; }
-  let lines = htmlToText(html).filter((l, i, a) => l.trim() || (i > 0 && i < a.length - 1));
-  for (let i = 1; i < stages.length; i++) {
-    const [name, ...args] = tokenize(stages[i]);
-    const f = FILTERS[(name || '').toLowerCase()];
+  if (stages.length > 1) unlock('pipe');
+  let input = null;
+  for (let i = 0; i < stages.length; i++) {
     const last = i === stages.length - 1;
-    if (/^(less|more)$/i.test(name || '')) {
-      const [o] = getopt(args);
-      return pager(i === 1 ? html : lines.map(esc), 'stdin', { numbers: o.N || o['LINE-NUMBERS'] });
+    // the first command had its alias expanded with the rest of the line; the others get theirs here
+    const r = parseRedirects(i ? expandAlias(stages[i]) : stages[i]);
+    if (r.error) { state.failed = true; state.code = 2; return print(span('e', esc(r.error))); }
+    // a file that cannot be written stops the command before it runs, like in bash
+    for (const t of [r.out, r.err].filter(t => t && t !== 'out' && !isDevNull(t.path))) {
+      const err = cannotWrite(t.path);
+      if (err) { state.failed = true; return print(span('e', `bash: ${esc(t.path)}: ${err}`) + (err === 'Read-only file system' ? TMP_NOTE : '')); }
     }
-    if (f) {
-      const c = C[name.toLowerCase()];
-      const outLines = wantsHelp(c, args) ? helpLines(c, name) : f(args, lines);
-      if (last) return printLines(outLines);
-      lines = htmlToText(outLines);
-    } else {
-      // anything else gets the piped text as arguments: fortune | cowsay, echo hi | rot13
-      const next = `${stages[i]} ${lines.join(' ').replace(/\s+/g, ' ').trim()}`;
-      if (last) return execOne(next);
-      const p2 = state.capture; state.capture = [];
-      try { await execOne(next); } finally { html = state.capture; state.capture = p2; }
-      lines = htmlToText(html);
-    }
+    // the last command without > writes to the screen as it goes (ping, top); everything else is collected
+    const collect = !last || r.out;
+    const errs = r.err && r.err !== 'out' ? (isDevNull(r.err.path) ? 'drop' : []) : r.out && !r.err ? 'screen' : state.errSink;
+    const prev = { capture: state.capture, errSink: state.errSink };
+    if (collect) state.capture = [];
+    state.errSink = errs;
+    let html = [];
+    try { await runStage(r.text, input); } finally { if (collect) html = state.capture; Object.assign(state, prev); }
+    // only our own 2> file: a collector from further out (a script run with 2> file) writes its own
+    if (r.err && r.err !== 'out' && Array.isArray(errs)) writeLines(r.err, asText(errs));
+    if (r.out) { if (!isDevNull(r.out.path)) writeLines(r.out, asText(html)); html = []; }
+    // less took over the screen: the pipeline ends there
+    if (/^(less|more)\b/i.test(r.text) && i) return;
+    if (!last) input = { html, lines: i ? htmlToText(html) : asText(html) };
   }
+}
+
+// xargs: the lines of the pipe become arguments of a command. -n N runs it per N of them, -I {} once per line with
+// {} replaced, -t shows each command first. Without a command it echoes
+const quoteWord = w => /^[\w./:=@%+,-]+$/.test(w) ? w : `'${w.replace(/'/g, `'\\''`)}'`;
+async function xargs(text, lines) {
+  let rest = text.replace(/^\s*xargs\s*/i, ''), n = 0, rep = null, show = false;
+  for (let m; (m = rest.match(/^(?:-n\s*(\d+)|-I\s*(\S+)|(-t))\s*/));) {
+    if (m[1]) n = Math.max(1, +m[1]); else if (m[2]) rep = m[2]; else show = true;
+    rest = rest.slice(m[0].length);
+  }
+  const command = rest.trim() || 'echo';
+  const runs = rep
+    ? lines.filter(l => l.trim()).map(l => command.split(rep).join(quoteWord(l.trim())))
+    : (() => { const words = lines.join(' ').split(/\s+/).filter(Boolean), size = n || words.length || 1, out = [];
+      for (let i = 0; i < words.length || (i === 0 && !out.length); i += size) out.push(`${command} ${words.slice(i, i + size).map(quoteWord).join(' ')}`.trim());
+      return out; })();
+  for (const c of runs.slice(0, 100)) {
+    if (show) print(span('m', esc(c)));
+    await execOne(c);
+  }
+  if (runs.length > 100) print(span('w', `xargs: stopped after 100 commands (${runs.length} were waiting)`));
+}
+
+// $( ... ) and ` ... `: run it, and put what it printed in its place. Outside double quotes the lines become words,
+// and nothing in the output counts as a pipe, quote or variable: it is escaped
+async function expandSubst(line, depth) {
+  if (!line.includes('$(') && !line.includes('`')) return line;
+  let out = '', q = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q === "'") { if (ch === "'") q = null; out += ch; continue; }
+    if (ch === '\\') { out += ch + (line[i + 1] ?? ''); i++; continue; }
+    const end = (ch === '`' || line.startsWith('$(', i)) ? substEnd(line, i) : -1;
+    if (end < 0) {
+      if (q === '"' && ch === '"') q = null; else if (!q && (ch === '"' || ch === "'")) q = ch;
+      out += ch; continue;
+    }
+    const inner = ch === '`' ? line.slice(i + 1, end - 1) : line.slice(i + 2, end - 1);
+    i = end - 1;
+    if (depth > 6) { print(span('e', 'zsh: maximum nested function level reached')); continue; }
+    // only the output becomes the value; errors go to the screen, like stderr does in bash
+    const prev = { capture: state.capture, failed: state.failed, status: state.status, errSink: state.errSink };
+    state.capture = []; state.errSink = state.errSink || 'screen';
+    let html = [];
+    try { await execChain(inner, depth + 1); } finally { html = state.capture; Object.assign(state, prev); }
+    const text = htmlToText(html).join('\n').replace(/\n+$/, '');
+    // snap=$(...) is one word in bash, spaces and new lines included: no splitting right after NAME=
+    const assigning = !q && /(^|[;&|]\s*)\s*[A-Za-z_]\w*=\S*$/.test(out);
+    out += q === '"' ? text.replace(/["\\$`]/g, '\\$&')
+      : assigning ? text.replace(/[\s\\|;&<>"'$`*?()]/g, '\\$&')
+      : text.replace(/\s+/g, ' ').trim().replace(/[\\|;&<>"'$`*?()]/g, '\\$&');
+  }
+  return out;
 }
 
 export async function execChain(raw, depth = 0) {
@@ -406,14 +622,53 @@ export async function execChain(raw, depth = 0) {
     state.failed = false; state.code = null;
     const aliased = expandAlias(part.text);
     if (aliased !== part.text && depth < 3 && /;|&&/.test(aliased)) { await execChain(aliased, depth + 1); continue; }
-    const text = expandGlobs(expandVars(aliased));
-    // NAME=value on its own sets a variable
-    const set = text.match(/^([A-Za-z_]\w*)=(\S*|"[^"]*"|'[^']*')$/);
-    if (set) vars[set[1]] = set[2].replace(/^(["'])(.*)\1$/, '$2');
-    else if (hasRedirect(text)) await execRedirect(text);
+    const text = expandGlobs(expandVars(await expandSubst(aliased, depth)));
+    // NAME=value on its own sets a variable: one word, so "a b", a\ b and what $(...) gave all fit
+    const words = /^\s*[A-Za-z_]\w*=/.test(text) ? tokenize(text) : [];
+    if (words.length === 1) { const name = words[0].split('=')[0]; vars[name] = words[0].slice(name.length + 1); }
     else await execPipeline(text);
     state.status = state.failed ? state.code ?? 1 : 0;
   }
+}
+
+// ---- scripts: sh file, source file, ./file once it has chmod +x. Every line runs as if typed; # comments and the
+// #! line are skipped, exit stops it, and $1, $2 ... are its arguments. sh runs it in a subshell: cd and variables
+// come back as they were; source runs it in this shell ----
+let scriptDepth = 0;
+export function scriptText(path) {
+  const r = resolve(path);
+  if (r.error) return { error: r.error === 'denied' ? 'Permission denied' : 'No such file or directory' };
+  if (r.node.type === 'dir') return { error: 'Is a directory' };
+  state.silent = true;
+  try { return { text: r.node.mine ? r.node.text : htmlToText(r.node.read()).join('\n'), node: r.node }; } finally { state.silent = false; }
+}
+export async function runScript(path, args = [], { subshell = true, text = null } = {}) {
+  if (text === null) {
+    const s = scriptText(path);
+    if (s.error) { state.failed = true; state.code = 127; return print(span('e', `${subshell ? 'sh' : 'source'}: ${esc(path)}: ${s.error}`)); }
+    text = s.text;
+  }
+  if (scriptDepth >= 8) { state.failed = true; return print(span('e', `${esc(path)}: too many scripts calling scripts`)); }
+  const saved = { argv: state.argv, cwd: state.cwd, vars: { ...vars } };
+  state.argv = [path, ...args];
+  scriptDepth++;
+  let status = 0;
+  try {
+    for (const raw of text.split('\n').slice(0, 500)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const exit = line.match(/^exit(?:\s+(\d+))?$/);
+      if (exit) { status = +(exit[1] || 0); break; }
+      await execChain(line, 1);
+      status = state.status;
+      if (state.dropped || state.cancelled) break;
+    }
+  } finally {
+    scriptDepth--;
+    state.argv = saved.argv;
+    if (subshell) { state.cwd = saved.cwd; for (const k of Object.keys(vars)) delete vars[k]; Object.assign(vars, saved.vars); }
+  }
+  state.failed = status !== 0; state.code = status || null;
 }
 
 export async function runAsRoot(line) {

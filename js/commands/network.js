@@ -13,7 +13,7 @@ const GUESTS = [
   { id: 200, ip: '10.20.0.53', name: 'adguard', what: 'AdGuard Home (LXC)', ports: [[53, 'domain', 'AdGuard Home DNS'], [80, 'http', 'AdGuard Home']] },
   { id: 201, ip: '10.20.0.40', name: 'unifi', what: 'UniFi controller (LXC)', ports: [[8443, 'https', 'UniFi Network']] },
 ];
-const here = name => (state.host === 'homelab' && name === 'homelab') || (state.host === 'pve1' && name === 'pve1') ? span('w', '  ← you are here') : '';
+const here = name => state.host === name && name !== 'iantiemann' ? span('w', '  ← you are here') : '';
 
 def(['netmap', 'lsnet'], 'more', 'the whole network, as a map', () => {
   const vm = g => up.has(g.id);

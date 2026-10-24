@@ -1,4 +1,4 @@
-import { store, state, print, span } from './core.js';
+import { store, state, print, span, esc } from './core.js';
 
 // SPOILERS BELOW: every solution is in this list. Last chance to close DevTools and type `hint` instead ;)
 // Still scrolling? Fair enough, real sysadmins skip the docs and go straight to the source too.
@@ -74,11 +74,53 @@ export const ACH = {
   wol:      ['Magic packet',               'Do it again, now that Ian prepared for it.', 'poweroff on a node a second time: Ian wakes it with Wake-on-LAN.'],
   blackout: ['Lights out',                 'A cluster survives one node going down. Not three.', 'On pve1: pvesh create /nodes/pve2/status --command shutdown, then the same for pve3. If VM 102 (this site) runs on one of them, shut that one down last.'],
   snoop:    ['Shoulder surfer',            'Ian is logged in on the homelab right now. What is he working on?', 'On the homelab: tmux ls, then tmux attach -r. Watch until he notices you.'],
+  // seasonal: only on their day (SEASONS below says which, and what does it)
+  newyear:     ['New page',                 'A new year needs a new calendar.',                           'cal on 31 December or 1 January.'],
+  pi:          ['Irrational',               'Some numbers never end. Calculate the most famous one.',      'calc math.pi (or python) on Pi Day, 14 March.'],
+  backupday:   ['Copy that',                'Today of all days, make a copy of something.',                'cp a file (or vzdump on the cluster) on World Backup Day, 31 March.'],
+  aprilfools:  ['Gotcha',                   'Try the most dangerous command there is. Today it is a joke anyway.', 'rm -rf / on 1 April.'],
+  kingsday:    ['Oranje boven',             'Let an animal congratulate the king.',                        "cowsay on King's Day, 27 April."],
+  sysadminday: ['Thank your sysadmin',      'Ask how long the server has been up. Sysadmins love that question.', 'uptime on SysAdmin Day, the last Friday of July.'],
+  linuxbday:   ['Happy birthday, Tux',      'Show off your system on the birthday of its kernel.',         'neofetch or uname on 25 August.'],
+  pirate:      ['Arr',                      'List yer booty, matey.',                                      'ls on Talk Like a Pirate Day, 19 September.'],
+  coffeeday:   ['Double shot',              'Today coffee has a day of its own.',                          'coffee on International Coffee Day, 1 October.'],
+  birthday:    ['Hip hip hooray',           'Tell everyone logged in what day it is.',                     "wall with 'birthday' in it, on Ian's birthday, 23 November."],
+  christmas:   ['Decorated',                'Every house needs one this time of year.',                    'tree between 24 and 26 December.'],
   completionist: ['Completionist',         'Find everything else.',                                   'Unlock every other achievement.'],
 };
 export const ACH_IDS = Object.keys(ACH);
 // only possible on one day a year, so completionist does not wait for them
-export const SEASONAL_ACH = ['ghost'];
+// ---- the seasonal ones: on(d) says whether d is their day, label says it in words, cmd (and test) what unlocks
+// them that day. ghost is the odd one out: reading /dev/null unlocks it (fs/system.js) ----
+// what time it is, as far as the achievements know: the tests set another day here
+export const clock = { now: () => new Date() };
+const md = (m, day) => d => d.getMonth() === m && d.getDate() === day;
+const lastFriday = m => d => d.getMonth() === m && d.getDay() === 5 && d.getDate() > new Date(d.getFullYear(), m + 1, 0).getDate() - 7;
+export const SEASONS = {
+  ghost:       { on: md(9, 31), label: '31 October, Halloween' },
+  newyear:     { on: d => md(11, 31)(d) || md(0, 1)(d), label: '31 December or 1 January', cmd: ['cal'] },
+  pi:          { on: md(2, 14), label: '14 March, Pi Day', cmd: ['calc', 'python'], test: (a, raw) => /\bpi\b/i.test(raw) },
+  backupday:   { on: md(2, 31), label: '31 March, World Backup Day', cmd: ['cp', 'vzdump'] },
+  aprilfools:  { on: md(3, 1), label: '1 April, April Fools', cmd: ['rm'], test: a => a.some(x => /^-\w*r/i.test(x)) },
+  kingsday:    { on: md(3, 27), label: "27 April, King's Day", cmd: ['cowsay'] },
+  sysadminday: { on: lastFriday(6), label: 'the last Friday of July, SysAdmin Day', cmd: ['uptime'] },
+  linuxbday:   { on: md(7, 25), label: '25 August, the birthday of Linux', cmd: ['neofetch', 'uname'] },
+  pirate:      { on: md(8, 19), label: '19 September, Talk Like a Pirate Day', cmd: ['ls'] },
+  coffeeday:   { on: md(9, 1), label: '1 October, International Coffee Day', cmd: ['coffee'] },
+  birthday:    { on: md(10, 23), label: "23 November, Ian's birthday", cmd: ['wall'], test: (a, raw) => /birthday|jarig|gefeliciteerd|congrat/i.test(raw) },
+  christmas:   { on: d => d.getMonth() === 11 && d.getDate() >= 24 && d.getDate() <= 26, label: '24 to 26 December, Christmas', cmd: ['tree'] },
+};
+export const SEASONAL_ACH = Object.keys(SEASONS);
+export const seasonOn = id => SEASONS[id].on(clock.now());
+// the seasonal ones of today
+export const activeSeasonal = () => SEASONAL_ACH.filter(seasonOn);
+// every command that runs asks: is this today's seasonal one?
+export function seasonal(name, args, raw) {
+  for (const id of activeSeasonal()) {
+    const s = SEASONS[id];
+    if (s.cmd?.includes(name) && (!s.test || s.test(args, raw || ''))) unlock(id);
+  }
+}
 export const unlocked = new Set(store.get('ach', []).filter(id => ACH[id]));
 export function unlock(id) {
   if (state.silent) return;
@@ -86,9 +128,27 @@ export function unlock(id) {
   unlocked.add(id); store.set('ach', [...unlocked]);
   // always on screen, never into a pipe
   const cap = state.capture; state.capture = null;
+  const errs = state.errSink; state.errSink = null;
   print(span('ach', `★ achievement unlocked: ${ACH[id][0]} (${unlocked.size}/${ACH_IDS.length})`));
-  state.capture = cap;
+  state.capture = cap; state.errSink = errs;
+  toast(`★ ${ACH[id][0]}`, `achievement ${unlocked.size}/${ACH_IDS.length}`);
   if (id !== 'completionist' && ACH_IDS.every(a => a === 'completionist' || SEASONAL_ACH.includes(a) || unlocked.has(a))) unlock('completionist');
+}
+// a card in the corner as well, for unlocks behind something full-screen (less, nano, the pager) or far up the screen
+let toasts = null;
+export function toast(title, sub) {
+  if (!toasts) {
+    toasts = document.createElement('div');
+    toasts.id = 'toasts';
+    toasts.setAttribute('role', 'status');
+    toasts.setAttribute('aria-live', 'polite');
+    document.body.appendChild(toasts);
+  }
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.innerHTML = `<span class="ach b">${esc(title)}</span><span class="m">${esc(sub)}</span>`;
+  toasts.appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, 4500);
 }
 // puzzle steps someone has seen (the map, a fragment, a locked door), so hint can nudge the next one
 export const seen = new Set(store.get('seen', []));

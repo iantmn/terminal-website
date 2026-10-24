@@ -5,7 +5,7 @@ import { unlock } from './achievements.js';
 import { initRoot } from './filesystem.js';
 import { startFeed } from './feed.js';
 import { recordVisit } from './visits.js';
-import { startGlitch, defaultTheme } from './themes.js';
+import { startGlitch, defaultTheme, applyTheme } from './themes.js';
 import { powerScreen, boot } from './boot.js';
 import { run } from './input.js';
 import { resumeSession } from './session.js';
@@ -22,7 +22,8 @@ import './commands/lazy.js'; // python, qr and guestbook, loaded on first use
 // after every command is defined, so /usr/bin can list them
 initRoot();
 
-document.body.dataset.theme = store.get('theme', defaultTheme());
+applyTheme(store.get('theme', defaultTheme()));
+document.documentElement.style.setProperty('--fs', store.get('font', null) ? store.get('font') + 'px' : null);
 if (document.body.dataset.theme === 'corrupt') startGlitch();
 if (store.get('crt', false)) document.body.classList.add('crt');
 startFeed();

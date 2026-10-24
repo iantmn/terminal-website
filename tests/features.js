@@ -1,12 +1,14 @@
 // the interactive features, driven with real key events and clicks. node tests/run.mjs,
 // or from the browser console with import('/tests/features.js').then(m => m.runFeatures())
 import { run } from '/js/input.js';
-import { state } from '/js/core.js';
+import { state, screen } from '/js/core.js';
 
 const kb = document.getElementById('kb'), outEl = document.getElementById('out');
 const wait = ms => new Promise(r => setTimeout(r, ms));
-const n = () => outEl.querySelectorAll('.ln').length;
-const since = b => [...outEl.querySelectorAll('.ln')].slice(b).map(l => l.innerText).join('\n');
+const until = async (f, max = 10000) => { const t = Date.now(); while (!f() && Date.now() - t < max) await wait(25); return f(); };
+// lines over the whole visit: the scrollback cap takes old ones off the top (screen.trimmed counts them)
+const n = () => screen.trimmed + outEl.querySelectorAll('.ln').length;
+const since = b => [...outEl.querySelectorAll('.ln')].slice(Math.max(0, b - screen.trimmed)).map(l => l.innerText).join('\n');
 const key = (k, opts = {}, target = kb) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
 const out = async c => { const b = n(); await run(c); return since(b + 1); };
 // wait until the terminal is idle again (input row visible, nothing asking)
@@ -32,14 +34,19 @@ export async function runFeatures(onResult = () => {}) {
     return { ok: a === 'echo hist-two' && b2 === 'echo hist-one' && c === 'echo hist-two' && d === '', info: [a, b2, c, d].join(' | ') };
   });
   await check('!! repeats the last command', async () => { await run('echo bang-test'); return (await out('!!')).includes('bang-test'); });
-  await check('Ctrl+L clears the screen', async () => { await run('echo x'); key('l', { ctrlKey: true }); return n() === 0; });
+  await check('Ctrl+L clears the screen', async () => { await run('echo x'); key('l', { ctrlKey: true }); return outEl.childElementCount === 0; });
   await check('Ctrl+C on the prompt prints ^C', async () => { const b = n(); kb.value = 'half typed'; key('c', { ctrlKey: true }); return { ok: since(b).includes('half typed^C') && kb.value === '', info: since(b) }; });
-  await check('clicking a command link runs it', async () => {
-    await run('help'); const a = outEl.querySelector('a.cmd[data-cmd="about"]'); const b = n(); a.click(); await idle(); return since(b).includes('Ian Tiemann');
+  // a click types the command at the prompt; Enter runs it
+  await check('clicking a command link types it, Enter runs it', async () => {
+    await run('help'); const a = outEl.querySelector('a.cmd[data-cmd="about"]'); const b = n(); a.click();
+    const typed = kb.value === 'about' && n() === b && document.activeElement === kb;
+    key('Enter'); await idle();
+    return { ok: typed && since(b).includes('Ian Tiemann'), info: `typed=${typed}` };
   });
-  await check('clicking a directory in ls changes directory', async () => {
-    await run('ls'); const a = [...outEl.querySelectorAll('a.dir')].find(x => x.dataset.cmd === 'cd ~/projects'); a.click(); await idle();
-    const ok = (await out('pwd')).startsWith('/home/guest/projects'); await run('cd ~'); return ok;
+  await check('clicking a directory in ls types the cd, Enter changes directory', async () => {
+    await run('ls'); const a = [...outEl.querySelectorAll('a.dir')].find(x => x.dataset.cmd === 'cd ~/projects'); a.click();
+    const typed = kb.value === 'cd ~/projects'; key('Enter'); await idle();
+    const ok = typed && (await out('pwd')).startsWith('/home/guest/projects'); await run('cd ~'); return ok;
   });
   await check('Konami code', async () => { const b = n(); for (const k of ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a']) key(k, {}, window); kb.value = ''; return since(b).includes('KONAMI CODE'); });
   await check('5 banner clicks make it rainbow, 5 more undo it', async () => {
@@ -118,7 +125,7 @@ export async function runFeatures(onResult = () => {}) {
   });
   await check('everything but /tmp is read-only, and says so', async () => (await out('echo x > about.txt')).includes('except /tmp'));
   await check('find -name', async () => { const o = await out('find ~ -name "*.md" -maxdepth 2'); return { ok: o.includes('~/experience/') && !o.includes('about.txt'), info: o.split('\n')[0] }; });
-  await check('the paths find prints are links', async () => { const b = n(); await run('find ~ -name map.txt'); return !!outEl.querySelectorAll('.ln')[b + 1]?.querySelector('a[data-cmd="cat ~/.secrets/map.txt"]'); });
+  await check('the paths find prints are links', async () => { const b = n(); await run('find ~ -name map.txt'); return !!outEl.querySelectorAll('.ln')[b + 1 - screen.trimmed]?.querySelector('a[data-cmd="cat ~/.secrets/map.txt"]'); });
   await check('less: opens, searches, q closes', async () => {
     const p = run('less about.txt'); await wait(200);
     const pg = document.getElementById('pager');
@@ -280,6 +287,156 @@ export async function runFeatures(onResult = () => {}) {
     const o = since(b);
     return { ok: /root +pts\/0 +\d{4}-\d\d-\d\d \d\d:\d\d \(10\.20\.0\.20\)/.test(o) && /root +pts\/0 +10\.20\.0\.20 .* still logged in/.test(o)
       && /root +pts\/0 +10\.20\.0\.20 .* - \d\d:\d\d/.test(o) && /ian +pts\/0 .*\(172\.18\.0\.3\)/.test(o) && /# Ian, (in tmux on this machine|tmux on his laptop now)/.test(o), info: o.split('\n').filter(l => /pts\//.test(l)).join(' | ') };
+  });
+
+  // from pve1 the other nodes trust root: pve2 shows its own guests. pbs from a node, and from the homelab with the key
+  await check('pve1 to pve2 and back, then pbs from a node and from the homelab', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 5000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    for (const l of ['ssh -i ~/.ssh/ansible_pve root@pve1', 'ssh pve2', 'qm list', 'cat /etc/hostname', 'exit', 'hostname', 'ssh pbs', 'proxmox-backup-manager datastore list', 'proxmox-backup-client snapshot list vm/102', 'exit', 'exit',
+      'ssh -i ~/.ssh/ansible_pve root@pbs', 'proxmox-backup-manager sync-job list', 'exit', 'exit']) await send(l);
+    await done; await idle();
+    const o = since(b), qm = (o.split('root@pve2:~# qm list\n')[1] || '').split('root@pve2:~#')[0];
+    const pbs = (o.split('root@pbs:~# proxmox-backup-client snapshot list vm/102\n')[1] || '').split('root@pbs:~#')[0];
+    return { ok: qm.includes('101 homeassistant') && !qm.includes('102 homelab') && o.includes('root@pve2:~# cat /etc/hostname\npve2') && o.includes('root@pve1:~# hostname\npve1')
+      && /\| main +\| \/mnt\/datastore\/main/.test(o) && /\| hetzner +\|/.test(o) && /vm\/102\/\d{4}-\d\d-\d\dT01:04:01Z/.test(pbs) && !pbs.includes('vm/101/')
+      && o.includes('Connection to pve2 closed.') && o.includes('Connection to pbs closed.') && o.includes('root@pbs:~# proxmox-backup-manager sync-job list') && state.host === 'iantiemann',
+      info: o.split('\n').filter(l => /root@(pve\d|pbs)|closed|homeassistant/.test(l)).slice(-8).join(' | ') };
+  });
+  // the restore test on pve2: proxmox-backup-client to jq to qmrestore, the copy boots, answers and goes again, then mail
+  await check('the restore test on pve2 restores, boots and destroys VM 999', async () => {
+    const { labSession } = await import('/js/commands/homelab.js');
+    const send = async l => { const t = Date.now(); while (!state.asking && Date.now() - t < 20000) await wait(30); kb.value = l; key('Enter'); await wait(150); };
+    const b = n(), done = labSession();
+    for (const l of ['ssh -i ~/.ssh/ansible_pve root@pve1', 'ssh pve2', 'sh /root/scripts/restore-test.sh', 'qm list', 'qm destroy 104', 'echo \'{"a":[1,2]}\' | jq -c .a', 'exit', 'exit', 'exit']) await send(l);
+    await done; await idle();
+    const o = since(b), list = (o.split('root@pve2:~# qm list\n')[1] || '').split('root@pve2:~#')[0];
+    return { ok: /restoring vm\/102\/\d{4}-\d\d-\d\dT[\d:]+Z as VM 999/.test(o) && o.includes('restore image complete') && o.includes('VM 999 started on pve2')
+      && o.includes('purging VM 999') && o.includes('done, Ian has mail') && !/\b999\b/.test(list) && o.includes('protection mode enabled') && o.includes('[1,2]') && !o.includes('command not found'),
+      info: o.split('\n').filter(l => /restor|999|mail|protection|not found|\[1,2\]|Error/.test(l)).slice(-10).join(' | ') };
+  });
+
+  // ---- the history, the line editor, the screen ----
+  await check('arrow up with something typed only walks matching lines, down gives the draft back', async () => {
+    await run('echo pre-one'); await run('ls'); await run('echo pre-two');
+    kb.value = 'echo pre'; key('ArrowUp'); const a = kb.value; key('ArrowUp'); const b2 = kb.value; key('ArrowDown'); const c = kb.value; key('ArrowDown'); const d = kb.value;
+    kb.value = '';
+    return { ok: a === 'echo pre-two' && b2 === 'echo pre-one' && c === 'echo pre-two' && d === 'echo pre', info: [a, b2, c, d].join(' | ') };
+  });
+  await check('arrow down after up keeps a half-typed line', async () => {
+    kb.value = 'half'; key('ArrowUp'); key('ArrowUp'); key('ArrowDown'); key('ArrowDown'); key('ArrowDown');
+    const v = kb.value; kb.value = ''; return { ok: v === 'half', info: v };
+  });
+  await check('Ctrl+A, Ctrl+E, Ctrl+K, Ctrl+U, Ctrl+Y, Alt+B and Alt+F edit the line', async () => {
+    kb.focus(); kb.value = 'hello big world'; kb.setSelectionRange(15, 15);
+    key('a', { ctrlKey: true }); const start = kb.selectionStart;
+    key('e', { ctrlKey: true }); const end = kb.selectionStart;
+    key('b', { altKey: true, code: 'KeyB' }); const word = kb.selectionStart;
+    key('k', { ctrlKey: true }); const cut = kb.value;
+    key('y', { ctrlKey: true }); const back = kb.value;
+    kb.setSelectionRange(0, 0); key('f', { altKey: true, code: 'KeyF' }); const fwd = kb.selectionStart;
+    key('u', { ctrlKey: true }); const left = kb.value;
+    kb.value = '';
+    return { ok: start === 0 && end === 15 && word === 10 && cut === 'hello big ' && back === 'hello big world' && fwd === 5 && left === ' big world', info: [start, end, word, cut, back, fwd, left].join(' | ') };
+  });
+  await check('scrolled up, new output does not pull the screen down; Enter does', async () => {
+    const { print } = await import('/js/core.js');
+    await run('seq 300'); const term = document.getElementById('term');
+    // the browser says scroll after a scroll; a page that is not drawn (a hidden tab) does not, so say it here
+    term.scrollTop = 0; term.dispatchEvent(new Event('scroll')); await wait(80);
+    print('quiet line'); await wait(30); const stayed = term.scrollTop < 5;
+    await run('echo back'); const down = term.scrollTop + term.clientHeight >= term.scrollHeight - 5;
+    return { ok: stayed && down, info: `stayed=${stayed} down=${down}` };
+  });
+  await check('the screen keeps at most a few thousand lines', async () => {
+    const { print, SCROLLBACK } = await import('/js/core.js');
+    for (let i = 0; i < SCROLLBACK + 500; i++) print('line ' + i);
+    const count = outEl.childElementCount; await run('clear');
+    return { ok: count <= SCROLLBACK + 200 && count >= SCROLLBACK, info: `${count} lines` };
+  });
+  await check('an achievement shows a toast too', async () => {
+    const { toast } = await import('/js/achievements.js');
+    toast('★ Test', 'achievement 1/1');
+    const t = document.querySelector('#toasts .toast');
+    return { ok: !!t && t.textContent.includes('Test') && document.getElementById('toasts').getAttribute('aria-live') === 'polite' };
+  });
+  // ---- nano ----
+  await check('nano: write a new file in /tmp, then exit', async () => {
+    const p = run('nano /tmp/n.txt'); await until(() => document.getElementById('nano'));
+    const ed = document.getElementById('nano'), ta = ed?.querySelector('textarea');
+    if (!ta) return { ok: false, info: 'no editor' };
+    const isNew = ed.textContent.includes('New File');
+    ta.value = 'line one'; ta.dispatchEvent(new Event('input'));
+    const mod = ed.querySelector('.mod').textContent.includes('Modified');
+    key('o', { ctrlKey: true }); const wrote = ed.querySelector('.msg').textContent;
+    key('x', { ctrlKey: true }); await p; await idle();
+    const cat = await out('cat /tmp/n.txt'); await run('rm /tmp/n.txt');
+    return { ok: isNew && mod && wrote.includes('Wrote 1 line') && !document.getElementById('nano') && cat === 'line one', info: [isNew, mod, wrote, cat].join(' | ') };
+  });
+  await check('nano: a read-only file opens, will not save, and asks before leaving', async () => {
+    const p = run('nano about.txt'); await until(() => document.getElementById('nano'));
+    const ed = document.getElementById('nano'), ta = ed?.querySelector('textarea');
+    if (!ta) return { ok: false, info: 'no editor' };
+    const warned = ed.textContent.includes('No write permission'), filled = ta.value.includes('Ian Tiemann');
+    ta.value += 'x'; ta.dispatchEvent(new Event('input'));
+    key('s', { ctrlKey: true }); const err = ed.querySelector('.msg').textContent;
+    key('x', { ctrlKey: true }); const asked = ed.textContent.includes('Save modified buffer');
+    key('n'); await p; await idle();
+    return { ok: warned && filled && err.includes('Error writing') && asked && !document.getElementById('nano'), info: [warned, filled, err, asked].join(' | ') };
+  });
+  // ---- read -f and cv --print, without the network and without a real print dialog ----
+  await check('read -f turns the article of the site into lines', async () => {
+    const real = window.fetch;
+    window.fetch = async () => new Response('<html><body><main><article data-toc="true"><div class="content"><h2>Why</h2><p>Text with <code>code</code> and <a href="/x">a link</a>.</p><ul><li>one</li><li>two</li></ul><div class="highlight"><pre>x = 1</pre></div><table><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table></div></article></main></body></html>');
+    let o;
+    try { o = await out('read -f 1 | head -40'); } finally { window.fetch = real; }
+    return { ok: o.includes('## Why') && o.includes('Text with code and a link') && o.includes('• one') && o.includes('│ x = 1') && /a\s+│ b/.test(o), info: o.split('\n').slice(0, 12).join(' | ') };
+  });
+  await check('cv --print lays out a CV for paper and opens the print dialog', async () => {
+    const real = window.print; let printed = false; window.print = () => { printed = true; };
+    try { await run('cv --print'); await until(() => printed, 3000); } finally { window.print = real; }
+    const el = document.getElementById('printcv'), ok = printed && !!el && el.textContent.includes('Experience') && el.textContent.includes('Ian Tiemann');
+    window.dispatchEvent(new Event('afterprint'));
+    return { ok: ok && !document.getElementById('printcv'), info: `printed=${printed}` };
+  });
+  // ---- the passphrase once: the first login hands the key to the agent, after that ssh homelab asks nothing ----
+  await check('the first ssh with the passphrase adds the key to the agent; then ssh homelab asks nothing', async () => {
+    await run('ssh-add -D');
+    const b = n(), p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
+    await until(() => state.asking); kb.value = 'works-on-my-machine'; key('Enter');
+    await until(() => state.asking && state.host === 'homelab'); kb.value = 'exit'; key('Enter'); await p; await idle();
+    const added = since(b).includes('Identity added') && (await out('ssh-add -l')).includes('ian@laptop');
+    const b2 = n(), done = run('ssh homelab');
+    await until(() => state.asking && state.host === 'homelab'); const inLab = state.host === 'homelab';
+    kb.value = 'exit'; key('Enter'); await done; await idle();
+    await run('ssh-add -D');
+    return { ok: added && inLab && !since(b2).includes('passphrase'), info: `added=${added} inLab=${inLab}` };
+  });
+  await check('ssh-add by hand still works', async () => {
+    const b = n(), p = run('please sudo ssh-add /home/ian/.ssh/id_homelab');
+    await until(() => state.asking); kb.value = 'works-on-my-machine'; key('Enter'); await p; await idle();
+    const ok = since(b).includes('Identity added'); await run('ssh-add -D'); return ok;
+  });
+
+  // ---- seasonal achievements: the boot tells you when one can be found today ----
+  await check('the boot announces a seasonal achievement on its day', async () => {
+    const { clock } = await import('/js/achievements.js'), { seasonalNotice } = await import('/js/boot.js');
+    const real = clock.now, b = n();
+    try { clock.now = () => new Date('2027-03-14T12:00:00'); seasonalNotice(); clock.now = () => new Date('2027-03-15T12:00:00'); seasonalNotice(); } finally { clock.now = real; }
+    const o = since(b);
+    return { ok: o.includes('Only today') && o.includes('most famous one') && o.split('\n').filter(Boolean).length === 1, info: o };
+  });
+
+  // ---- ~/.bashrc runs at the start of a visit, minus what would take over the screen ----
+  await check('~/.bashrc runs its lines, and skips the ones that are not for the start', async () => {
+    const { runBashrc } = await import('/js/commands/tools.js');
+    const { store } = await import('/js/core.js');
+    const before = store.get('bashrc', null);
+    store.set('bashrc', '# a comment\necho from-the-rc\nsnake\n');
+    const b = n(); await runBashrc(); const o = since(b);
+    if (before === null) store.del('bashrc'); else store.set('bashrc', before);
+    return { ok: o.includes('from-the-rc') && o.includes("skipped 'snake'"), info: o };
   });
   return results;
 }

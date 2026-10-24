@@ -1,18 +1,22 @@
-// pve1: the first node of the Proxmox cluster under the homelab (pve2 and pve3 are the others). Reached with ssh from the
-// Docker VM, with the key Ansible uses. qm and pct see this node's guests, pvesh the whole cluster; qm stop 102 stops this site
+// the Proxmox cluster under the homelab: pve1, pve2 and pve3. pve1 is reached with ssh from the Docker VM, with the key
+// Ansible uses; from there the other two trust root. qm and pct see the guests of the node you are on, pvesh the whole
+// cluster; qm stop 102 stops this site
 import { unlock, saw } from '../achievements.js';
 import { print, printLines, span, esc, cmd, pad, state, getopt, sleep, charsPerLine, HOME } from '../core.js';
 import { resolve, addTree, writeFile } from '../filesystem.js';
 import { buildPve } from '../fs/pve.js';
 import { def, completes } from '../registry.js';
-import { remoteShell, outage, nodeDown } from './homelab.js';
-import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML, MY_BACKUPS, NODES, CLUSTER, onlineNodes, logEvent } from './labstate.js';
+import { remoteShell, outage, nodeDown, cameThrough } from './homelab.js';
+import { VMS, CTS, up, stoppedSince, HOSTS, RESTORE, PROMETHEUS_YML, MY_BACKUPS, NODES, CLUSTER, onlineNodes, logEvent, pbsUp, SESSIONS } from './labstate.js';
 
 // the node this shell is on, and what runs on it
-const LOCAL = 'pve1';
-const local = g => g.node === LOCAL;
+const isNode = h => NODES.some(([n]) => n === h);
+const here = () => isNode(state.host) ? state.host : 'pve1';
+const local = g => g.node === here();
+const ipOf = n => (NODES.find(x => x[0] === n) || [])[1];
 
-addTree('pve1', buildPve());
+// one tree per node; /etc/pve in each is the same cluster filesystem
+NODES.forEach(([n]) => addTree(n, buildPve(n)));
 
 const GUEST_IPS = { 101: '10.20.0.21', 102: '10.20.0.20', 103: '10.20.0.30', 200: '10.20.0.53', 201: '10.20.0.40' };
 
@@ -26,14 +30,14 @@ const PROCS = [
   { pid: 1160, cpu: 0.0, mem: 0.1, cmd: 'pve-ha-lrm' }, { pid: 1170, cpu: 0.0, mem: 0.1, cmd: 'pve-ha-crm' }, { pid: 940, cpu: 0.4, mem: 0.2, cmd: '/usr/sbin/corosync -f' }, { pid: 1203, cpu: 0.0, mem: 0.0, cmd: '/usr/sbin/qmeventd /var/run/qmeventd.sock' },
   { pid: 3402, cpu: 0.0, mem: 0.0, cmd: '-bash' },
 ];
-const procs = () => [
+const procsOf = n => () => [
   ...PROCS,
-  ...VMS.filter(v => local(v) && up.has(v.id)).map(v => ({ pid: v.pid || 2500 + v.id, cpu: v.id === 102 ? 18.4 : 3.1, mem: Math.round(v.mem / 65.536) / 10, cmd: `/usr/bin/kvm -id ${v.id} -name ${v.name},debug-threads=on -smp ${v.cores} -m ${v.mem}` })),
-  ...CTS.filter(c => local(c) && up.has(c.id)).map(c => ({ pid: 2600 + c.id, cpu: 0.4, mem: 0.3, cmd: `/usr/bin/lxc-start -F -n ${c.id}` })),
+  ...VMS.filter(v => v.node === n && up.has(v.id)).map(v => ({ pid: v.pid || 2500 + v.id, cpu: v.id === 102 ? 18.4 : 3.1, mem: Math.round(v.mem / 65.536) / 10, cmd: `/usr/bin/kvm -id ${v.id} -name ${v.name},debug-threads=on -smp ${v.cores} -m ${v.mem}` })),
+  ...CTS.filter(c => c.node === n && up.has(c.id)).map(c => ({ pid: 2600 + c.id, cpu: 0.4, mem: 0.3, cmd: `/usr/bin/lxc-start -F -n ${c.id}` })),
 ].map(p => ({ user: 'root', ...p })).sort((a, b) => a.pid - b.pid);
 
 export const PVE = {
-  procs,
+  procs: procsOf('pve1'),
   units: [
     ['pve-cluster.service', 'The Proxmox VE cluster filesystem', 980], ['corosync.service', 'Corosync Cluster Engine: three nodes, one quorum', 940], ['pvedaemon.service', 'PVE API Daemon', 1102],
     ['pveproxy.service', 'PVE API Proxy Server (the web interface on :8006)', 1130], ['pvestatd.service', 'PVE Status Daemon', 1144],
@@ -90,31 +94,107 @@ export const PVE = {
 
 HOSTS.pve1 = PVE;
 
-// ---- ssh from the homelab to the host ----
+// pve2 and pve3: the same hardware and the same install, their own guests, address and logs
+const primary = n => [...VMS, ...CTS].find(g => g.home === n && g.id !== 103 && (CTS.includes(g) ? !g.stopped : g.pid));
+const youFrom = () => { const s = SESSIONS.findLast(x => x.host === state.host && !x.end); return s ? s.from : '10.20.0.10'; };
+const nameOf = ip => ip === '10.20.0.20' ? 'the Docker VM' : (NODES.find(x => x[1] === ip) || ['pve1'])[0];
+function nodeHost(n, i) {
+  const ip = ipOf(n), g = primary(n), kind = VMS.includes(g) ? 'VM' : 'CT';
+  return {
+    ...PVE, procs: procsOf(n),
+    journal: [
+      ['pvescheduler', 1290, `starting task UPID:${n}:00004F2A:vzdump::root@pam: (the nightly backup)`],
+      ['vzdump', 20266, `INFO: Finished Backup of ${kind} ${g.id} (00:0${2 + i}:1${i})`],
+      ['vzdump', 20266, 'INFO: Backup job finished successfully'],
+      ['zed', 690, 'eid=42 class=scrub_finish pool=rpool, 0B repaired'],
+      ['corosync', 940, '[QUORUM] Members[3]: 1 2 3, this node is part of the quorum'],
+      ['pve-ha-crm', 1170, n === 'pve2' ? 'status change slave => master (this node runs the HA manager now)' : 'pve2 is the HA master, nothing to do here'],
+      ['sshd', 3402, 'Accepted publickey for root from 10.20.0.10 port 51744 ssh2: RSA root@pve1'],
+    ],
+    live: [['pvestatd', 1144, 'status update time (0.387 seconds)'], ['pveproxy', 1130, 'GET /api2/json/nodes/' + n + '/status 200'], ['corosync', 940, '[KNET] link: host: 1 link: 0 is up']],
+    netstat: () => [
+      ...PVE.netstat().slice(0, 3),
+      ['udp', `${ip}:5405`, '0.0.0.0:*', '', '940/corosync', '# the cluster talking to the other two'],
+      ['tcp', `${ip}:44120`, '10.20.0.30:8007', 'ESTABLISHED', '1144/pvestatd', '# Proxmox Backup Server, VM 103'],
+      ['tcp', `${ip}:22`, `${youFrom()}:51744`, 'ESTABLISHED', '3402/sshd: root', `# that is you, from ${nameOf(youFrom())}`],
+    ],
+    ifs: [PVE.ifs[0], ['vmbr0', 'UP', `${ip}/24`, 'BROADCAST,MULTICAST,UP,LOWER_UP', 1500]],
+    routes: [PVE.routes[0], `10.20.0.0/24 dev vmbr0 proto kernel scope link src ${ip}`],
+    ips: ip, ip, fqdn: `${n}.lan`,
+    uname: ['Linux', n, ...PVE.uname.slice(2)],
+    bootedDaysAgo: PVE.bootedDaysAgo - i * 9, clock: `${3 + i * 5}:0${i * 3}`, load: i === 1 ? '0.52, 0.49, 0.47' : '0.33, 0.36, 0.31',
+    dmesg: [...PVE.dmesg.slice(0, 5), ...(kind === 'VM'
+      ? [[12.4, `tap${g.id}i0: entered promiscuous mode`], [12.41, `vmbr0: port 3(tap${g.id}i0) entered forwarding state`]]
+      : [[11.9, `veth${g.id}i0: entered promiscuous mode`], [11.92, `vmbr0: port 3(veth${g.id}i0) entered forwarding state`]])],
+  };
+}
+NODES.slice(1).forEach(([n], i) => { HOSTS[n] = nodeHost(n, i + 1); });
+
+// ---- ssh from the homelab to pve1, or to the backup server ----
 const PVE_NAMES = /^(pve1?|pve1?\.lan|10\.20\.0\.10)$/i, OTHER_NODES = /^(pve[23]|pve[23]\.lan|10\.20\.0\.1[12])$/i;
+export const PBS_NAMES = /^(pbs|pbs\.lan|10\.20\.0\.30)$/i;
+// pve2.lan, root@10.20.0.12: the node it means, or null
+const nodeNamed = host => { const m = host.match(/^(?:(pve[123])(?:\.lan)?|10\.20\.0\.1([0-2]))$/i); return m && (m[1] ? m[1].toLowerCase() : `pve${+m[2] + 1}`); };
+// VM 103 answers when it runs, on a node that does
+const pbsGone = host => { state.failed = true; const v = VMS.find(x => x.id === 103); print(span('e', `ssh: connect to host ${esc(host)} port 22: No route to host`) + span('m', CLUSTER.down.has(v.node) ? `  (${v.node} is powered off, and VM 103 with it)` : `  (VM 103 is stopped: qm start 103 on ${v.node})`)); };
+const toPbs = async opts => (await import('./pbs.js')).pbsSession(opts);
 export async function labSsh(args) {
   const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
   const [user, host] = target.includes('@') ? target.split('@') : [o.l || 'ian', target];
   if (!host) return print(span('e', 'usage: ssh [-i key] [user@]host'));
   if (/^(homelab|homelab\.lan|localhost|127\.0\.0\.1|10\.20\.0\.20)$/i.test(host)) return print(span('m', 'You are already on the homelab. ') + span('a2', 'exit') + span('m', ' goes back.'));
   if (/^(iantiemann|172\.18\.0\.3)$/i.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port 22: Connection refused`) + span('m', '  (the terminal is a container, it runs no sshd. exit takes you back)'));
-  if (OTHER_NODES.test(host)) { saw('pve-denied'); state.failed = true; return print(span('e', `${esc(user)}@${esc(host.replace(/\..*/, ''))}: Permission denied (publickey).`) + span('m', '  (the way into the cluster is pve1; from there it sees all three nodes)')); }
-  if (!PVE_NAMES.test(host)) return print(span('e', `ssh: Could not resolve hostname ${esc(host)}: Name or service not known`));
-  // a node that is off does not answer at all
-  if (CLUSTER.down.has('pve1')) { state.failed = true; return print(span('e', `ssh: connect to host ${esc(host)} port 22: No route to host`) + span('m', '  (pve1 is powered off)')); }
-  const denied = () => { saw('pve-denied'); state.failed = true; print(span('e', `${esc(user)}@pve1: Permission denied (publickey).`)); };
+  if (OTHER_NODES.test(host)) { saw('pve-denied'); state.failed = true; return print(span('e', `${esc(user)}@${esc(host.replace(/\..*/, ''))}: Permission denied (publickey).`) + span('m', '  (the way into the cluster is pve1; from there the other nodes trust root)')); }
+  const pbs = PBS_NAMES.test(host), name = pbs ? 'pbs' : 'pve1';
+  if (!pbs && !PVE_NAMES.test(host)) return print(span('e', `ssh: Could not resolve hostname ${esc(host)}: Name or service not known`));
+  // a node that is off does not answer at all, and neither does a VM that is stopped
+  if (pbs && !pbsUp()) return pbsGone(host);
+  if (!pbs && CLUSTER.down.has('pve1')) { state.failed = true; return print(span('e', `ssh: connect to host ${esc(host)} port 22: No route to host`) + span('m', '  (pve1 is powered off)')); }
+  // the backup server takes the same key as the cluster: Ansible keeps it up to date as well
+  const denied = () => { if (!pbs) saw('pve-denied'); state.failed = true; print(span('e', `${esc(user)}@${name}: Permission denied (publickey).`)); };
   if (!o.i) return denied();
   const r = resolve(o.i);
   if (r.error || r.node.type !== 'file') { print(`Warning: Identity file ${esc(o.i)} not accessible: No such file or directory.`); return denied(); }
   if (!/ansible_pve$/.test(o.i)) { print(span('e', `Load key "${esc(o.i)}": invalid format`)); return denied(); }
   if (user !== 'root') return denied();
-  return pveSession();
+  return pbs ? toPbs({ from: '10.20.0.20', key: 'ED25519 ansible@homelab' }) : pveSession();
 }
 
-// cwd: after a reload, the folder you were in
-export async function pveSession(cwd = null) {
+// ---- ssh from a node: the other nodes trust its root key (that is how a cluster talks to itself), and so does pbs ----
+export async function nodeSsh(args) {
+  const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
+  const [user, host] = target.includes('@') ? target.split('@') : [o.l || 'root', target];
+  if (!host) return print(span('e', 'usage: ssh [user@]host'));
+  if (/^(homelab|homelab\.lan|10\.20\.0\.20)$/i.test(host)) return print(span('m', 'You came from the homelab: ') + span('a2', 'exit') + span('m', ' goes back up.'));
+  const n = nodeNamed(host), pbs = PBS_NAMES.test(host);
+  if (!n && !pbs) return print(span('e', `ssh: Could not resolve hostname ${esc(host)}: Name or service not known`));
+  if (n === state.host) return print(span('m', `You are already on ${n}.`));
+  if (n && cameThrough(n)) return print(span('m', `You came through ${n}: `) + span('a2', 'exit') + span('m', ' goes back there.'));
+  if (pbs && !pbsUp()) return pbsGone(host);
+  if (n && CLUSTER.down.has(n)) { state.failed = true; return print(span('e', `ssh: connect to host ${esc(host)} port 22: No route to host`) + span('m', `  (${n} is powered off)`)); }
+  if (user !== 'root') { state.failed = true; return print(span('e', `${esc(user)}@${n || 'pbs'}: Permission denied (publickey).`) + span('m', '  (only root has a key here, and root is who you are)')); }
+  return pbs ? toPbs({ from: ipOf(state.host), key: `RSA root@${state.host}` }) : nodeSession(n);
+}
+
+// pve2 or pve3, from the node you are on. cwd: after a reload, the folder you were in
+export async function nodeSession(n, cwd = null) {
+  const from = state.host;
+  await remoteShell({ host: n, user: 'root', home: ['root'], root: true, from: ipOf(from) || '10.20.0.10', key: `RSA root@${isNode(from) ? from : 'pve1'}`, start: cwd && (() => { if (!resolve('/' + cwd.join('/')).error) state.cwd = cwd; }), banner: cwd ? [span('m', 'Connection restored after the reload.')] : [
+    `Linux ${n} 6.8.12-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.8.12-1 x86_64`, '',
+    span('m', 'The programs included with the Debian GNU/Linux system are free software.'),
+    span('m', `Last login: ${new Date(Date.now() - 19 * 864e5).toString().slice(0, 24)} from 10.20.0.10`), '',
+    span('w', `You are root on ${n}. No key needed: the nodes trust each other's root, that is how the cluster talks to itself.`),
+    'Start with ' + cmd('cat notes.txt') + span('m', ', ') + cmd('qm list') + span('m', ', ') + cmd('pct list') + span('m', ' or help. ') + span('a2', 'exit') + span('m', ` goes back to ${from}.`), '',
+  ] });
+}
+
+// cwd: after a reload, the folder you were in; next: { host, cwd } when you were one node further
+export async function pveSession(cwd = null, next = null) {
   unlock('pve');
-  await remoteShell({ host: 'pve1', user: 'root', home: ['root'], root: true, from: '10.20.0.20', key: 'ED25519 ansible@homelab', start: cwd && (() => { if (!resolve('/' + cwd.join('/')).error) state.cwd = cwd; }), banner: cwd ? [span('m', 'Connection restored after the reload.')] : [
+  await remoteShell({ host: 'pve1', user: 'root', home: ['root'], root: true, from: '10.20.0.20', key: 'ED25519 ansible@homelab', start: (cwd || next) && (async () => {
+    if (next) return nodeSession(next.host, next.cwd);
+    if (!resolve('/' + cwd.join('/')).error) state.cwd = cwd;
+  }), banner: cwd || next ? [span('m', 'Connection restored after the reload.')] : [
     'Linux pve1 6.8.12-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.8.12-1 x86_64', '',
     span('m', 'The programs included with the Debian GNU/Linux system are free software.'),
     span('m', `Last login: ${new Date(Date.now() - 6 * 864e5).toString().slice(0, 24)} from 10.20.0.20`), '',
@@ -124,8 +204,8 @@ export async function pveSession(cwd = null) {
 }
 
 // ---- the Proxmox tools ----
-const ONLY_PVE = { hosts: ['pve1'] };
-const table = (cols, rows) => {
+const ONLY_PVE = { hosts: NODES.map(([n]) => n) };
+export const table = (cols, rows) => {
   // pvesh draws tables. In ASCII: box-drawing characters come from a fallback font in the browser, and do not line up
   const w = cols.map((c, i) => Math.max(c.length, ...rows.map(r => String(r[i]).length)));
   const line = (ch = '-') => span('m', '+' + w.map(n => ch.repeat(n + 2)).join('+') + '+');
@@ -136,7 +216,7 @@ const table = (cols, rows) => {
 const guest = id => VMS.find(v => String(v.id) === String(id));
 
 // a guest on another node: the error qm gives, and the way through the API that does work
-const elsewhere = (g, kind) => print(span('e', `Configuration file 'nodes/${LOCAL}/${kind === 'qemu' ? 'qemu-server' : 'lxc'}/${g.id}.conf' does not exist`)
+const elsewhere = (g, kind) => print(span('e', `Configuration file 'nodes/${here()}/${kind === 'qemu' ? 'qemu-server' : 'lxc'}/${g.id}.conf' does not exist`)
   + span('m', `  (${g.id} runs on ${g.node}: `) + cmd(`pvesh create /nodes/${g.node}/${kind}/${g.id}/status/stop`, `pvesh create /nodes/${g.node}/${kind}/${g.id}/status/...`) + span('m', ')'));
 // start, stop, shutdown, reboot: the same for qm, pct and pvesh create
 async function guestAction(g, kind, sub) {
@@ -145,18 +225,18 @@ async function guestAction(g, kind, sub) {
   if (sub === 'start') {
     if (up.has(g.id)) { state.failed = true; return print(span('e', `${what} ${g.id} already running`)); }
     up.add(g.id); delete stoppedSince[g.id];
-    logEvent('pve1', 'pvedaemon', 1110, `<root@pam> starting task UPID:${g.node}:${kind === 'qemu' ? 'qmstart' : 'vzstart'}:${g.id}:root@pam:`);
+    logEvent(here(), 'pvedaemon', 1110, `<root@pam> starting task UPID:${g.node}:${kind === 'qemu' ? 'qmstart' : 'vzstart'}:${g.id}:root@pam:`);
     return print(span('m', g.id === 104 ? `VM 104 started. ${g.note}` : g.id === 202 ? 'CT 202 started. Someone is going to ask for an invite.' : `${what} ${g.id} started on ${g.node}.`));
   }
   if (!up.has(g.id)) { state.failed = true; return print(span('e', `${what} ${g.id} not running`)); }
   // the Docker VM: this site runs on it
   if (g.id === 102) {
     print(span('m', `Requesting ${sub} of VM 102 (homelab) on ${g.node} ...`));
-    return outage(`${sub} 102`, { kind: 'guest', reboot: sub === 'reboot', where: LOCAL });
+    return outage(`${sub} 102`, { kind: 'guest', reboot: sub === 'reboot', where: here() });
   }
   if (sub === 'reboot') return print(span('m', `${what} ${g.id} rebooted.`));
   up.delete(g.id); stoppedSince[g.id] = Date.now();
-  logEvent('pve1', 'pvedaemon', 1110, `<root@pam> starting task UPID:${g.node}:${kind === 'qemu' ? 'qm' : 'vz'}${sub}:${g.id}:root@pam:`);
+  logEvent(here(), 'pvedaemon', 1110, `<root@pam> starting task UPID:${g.node}:${kind === 'qemu' ? 'qm' : 'vz'}${sub}:${g.id}:root@pam:`);
   print(span('m', g.id === 200 ? 'CT 200 stopped. The ads are back on every device in the house.' : `${what} ${g.id} (${g.name}) stopped. ${g.note || ''}`));
 }
 
@@ -167,18 +247,31 @@ def('qm', null, 'manage the virtual machines of this node', async args => {
     const mine = VMS.filter(local), others = VMS.length - mine.length;
     return printLines([
       span('w b', '      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID'),
-      ...mine.map(v => esc(`${String(v.id).padStart(10)} ${pad(v.name, 20)} ${pad(up.has(v.id) ? 'running' : 'stopped', 10)} ${String(v.mem).padEnd(10)} ${v.disk.toFixed(2).padStart(12)} ${up.has(v.id) ? v.pid : 0}`)),
-      span('m', `${others} more on pve2 and pve3: `) + cmd('pvesh get /cluster/resources'),
+      ...mine.map(v => esc(`${String(v.id).padStart(10)} ${pad(v.name, 20)} ${pad(up.has(v.id) ? 'running' : 'stopped', 10)} ${String(v.mem).padEnd(10)} ${v.disk.toFixed(2).padStart(12)} ${up.has(v.id) ? v.pid || 2500 + v.id : 0}`)),
+      span('m', `${others} more on ${NODES.map(([n]) => n).filter(n => n !== here()).join(' and ')}: `) + cmd('pvesh get /cluster/resources'),
     ]);
   }
-  if (!['status', 'config', 'start', 'stop', 'shutdown', 'reboot'].includes(sub)) return printLines([
+  if (!['status', 'config', 'start', 'stop', 'shutdown', 'reboot', 'guest', 'destroy'].includes(sub)) return printLines([
     span('m', 'USAGE: qm <COMMAND> [ARGS] [OPTIONS]'), '',
-    '       qm list', '       qm status <vmid>', '       qm config <vmid>', '       qm start|stop|shutdown|reboot <vmid>',
+    '       qm list', '       qm status <vmid>', '       qm config <vmid>', '       qm start|stop|shutdown|reboot <vmid>', '       qm guest ping <vmid>', '       qm destroy <vmid> [--purge]',
   ]);
-  if (!id) { state.failed = true; return print(span('e', '400 not enough arguments') + span('m', `\nqm ${esc(sub)} <vmid>`)); }
-  const v = VMS.find(x => String(x.id) === String(id));
-  if (!v) { state.failed = true; return print(span('e', `Configuration file 'nodes/${LOCAL}/qemu-server/${esc(id)}.conf' does not exist`)); }
+  // qm guest ping <vmid>: the vmid comes one later
+  const vid = sub === 'guest' ? args[2] : id;
+  if (sub === 'guest' && id !== 'ping') { state.failed = true; return print(span('e', `400 unknown command 'qm guest ${esc(id || '')}'`) + span('m', '  (qm guest ping <vmid>)')); }
+  if (!vid) { state.failed = true; return print(span('e', '400 not enough arguments') + span('m', `\nqm ${esc(sub)}${sub === 'guest' ? ' ping' : ''} <vmid>`)); }
+  const v = VMS.find(x => String(x.id) === String(vid));
+  if (!v) { state.failed = true; return print(span('e', `Configuration file 'nodes/${here()}/qemu-server/${esc(vid)}.conf' does not exist`)); }
   if (!local(v)) { state.failed = true; return elsewhere(v, 'qemu'); }
+  // the guest agent answers when the VM runs. Silence is a yes, like the real one
+  if (sub === 'guest') { if (!up.has(v.id)) { state.failed = true; print(span('e', `VM ${v.id} is not running`)); } return; }
+  if (sub === 'destroy') {
+    if (up.has(v.id)) { state.failed = true; return print(span('e', `VM ${v.id} is running - destroy failed`) + span('m', `  (qm stop ${v.id} first)`)); }
+    // every real guest has protection: 1. Only the copies a restore made can go
+    if (!v.restored) { state.failed = true; return print(span('e', `can't remove VM ${v.id} - protection mode enabled`) + span('m', '  (Ian set protection on every real guest, for days like this one)')); }
+    VMS.splice(VMS.indexOf(v), 1); delete stoppedSince[v.id];
+    logEvent(here(), 'pvedaemon', 1110, `<root@pam> starting task UPID:${here()}:qmdestroy:${v.id}:root@pam:`);
+    return args.includes('--purge') ? print(esc(`purging VM ${v.id} from related configurations..`)) : undefined;
+  }
   if (sub === 'status') return print(`status: ${up.has(v.id) ? 'running' : 'stopped'}`);
   if (sub === 'config') return printLines([
     'agent: 1', `boot: order=scsi0`, `cores: ${v.cores}`, 'cpu: host', `memory: ${v.mem}`, `name: ${v.name}`,
@@ -189,18 +282,18 @@ def('qm', null, 'manage the virtual machines of this node', async args => {
     'scsihw: virtio-scsi-single', ...(v.template ? ['template: 1'] : []),
   ].map(l => l.includes('<span') ? l : esc(l)));
   return guestAction(v, 'qemu', sub);
-}, { ...ONLY_PVE, usage: '<list|status|config|start|stop|shutdown|reboot> [vmid]', flags: [['list', 'the VMs of this node'], ['status vmid', 'running or stopped'], ['config vmid', 'its settings'], ['start, stop, shutdown, reboot vmid', 'what it says. 102 is the Docker VM this site runs on']] });
+}, { ...ONLY_PVE, usage: '<list|status|config|start|stop|shutdown|reboot|guest ping|destroy> [vmid]', flags: [['list', 'the VMs of this node'], ['status vmid', 'running or stopped'], ['config vmid', 'its settings'], ['start, stop, shutdown, reboot vmid', 'what it says. 102 is the Docker VM this site runs on'], ['guest ping vmid', 'does the guest agent answer? Silence means yes'], ['destroy vmid', 'remove a VM (only a restored copy: the rest is protected)'], ['--purge', 'with destroy: also out of backup jobs and HA']] });
 
 def('pct', null, 'manage the containers (LXC) of this node', async args => {
   const [sub = 'help', id] = args;
   if (sub === 'list') {
     const mine = CTS.filter(local);
     return printLines([...(mine.length ? [span('w b', 'VMID       Status     Lock         Name'), ...mine.map(c => esc(`${pad(String(c.id), 10)} ${pad(up.has(c.id) ? 'running' : 'stopped', 10)} ${pad('', 12)} ${c.name}`))] : []),
-      span('m', `pve1 runs no containers; the ${CTS.length} of the cluster live on pve2 and pve3: `) + cmd('pvesh get /cluster/resources')]);
+      span('m', mine.length ? `${CTS.length - mine.length} more on the other nodes: ` : `${here()} runs no containers; the ${CTS.length} of the cluster live on ${[...new Set(CTS.map(c => c.node))].sort().join(' and ')}: `) + cmd('pvesh get /cluster/resources')]);
   }
   if (!['start', 'stop', 'status', 'enter'].includes(sub)) return printLines([span('m', 'USAGE: pct <COMMAND> [ARGS] [OPTIONS]'), '', '       pct list', '       pct status <vmid>', '       pct start|stop <vmid>', '       pct enter <vmid>']);
   const c = CTS.find(x => String(x.id) === String(id));
-  if (!c) { state.failed = true; return print(span('e', `Configuration file 'nodes/${LOCAL}/lxc/${esc(id || '')}.conf' does not exist`)); }
+  if (!c) { state.failed = true; return print(span('e', `Configuration file 'nodes/${here()}/lxc/${esc(id || '')}.conf' does not exist`)); }
   if (!local(c)) { state.failed = true; return elsewhere(c, 'lxc'); }
   if (sub === 'status') return print(`status: ${up.has(c.id) ? 'running' : 'stopped'}`);
   if (sub === 'enter') return print(span('m', 'That would be a fourth shell deep. Three is plenty for one visit.'));
@@ -241,7 +334,7 @@ def('pvesh', null, 'the Proxmox API of the whole cluster', async args => {
       if (!args.includes('--command') || !['shutdown', 'reboot'].includes(c)) { state.failed = true; return print(span('e', "400 Parameter verification failed. command: value must be 'shutdown' or 'reboot'") + span('m', `  (pvesh create /nodes/${n}/status --command shutdown)`)); }
       if (CLUSTER.down.has(n)) { state.failed = true; return print(span('e', `595 No route to host: ${n} is offline`)); }
       print(esc(`UPID:${n}:0000${(n.charCodeAt(3) * 4111).toString(16).toUpperCase()}:srv${c}::root@pam:`));
-      return nodeDown(n, { what: `pvesh create /nodes/${n}/status --command ${c}`, reboot: c === 'reboot', self: n === LOCAL });
+      return nodeDown(n, { what: `pvesh create /nodes/${n}/status --command ${c}`, reboot: c === 'reboot', self: n === here() });
     }
     const m = p.match(/^\/nodes\/(pve[123])\/(qemu|lxc)\/(\d+)\/status\/(start|stop|shutdown|reboot)$/);
     if (!m) { state.failed = true; return print(span('e', `No 'create' handler defined for '${esc(p)}'`) + span('m', '  (try /nodes/<node>/qemu/<vmid>/status/stop)')); }
@@ -251,7 +344,7 @@ def('pvesh', null, 'the Proxmox API of the whole cluster', async args => {
     print(esc(`UPID:${node}:000${(+id * 37).toString(16).toUpperCase()}:${kind === 'qemu' ? 'qm' : 'vz'}${sub}:${id}:root@pam:`));
     return guestAction(g, kind, sub);
   }
-  if (verb !== 'get') return printLines([span('m', esc('USAGE: pvesh get|create|ls <api_path>')), span('m', 'Paths that answer here: ') + Object.keys(API).filter(k => !/\/(pve[23])\//.test(k)).map(k => cmd('pvesh get ' + k, k)).join(span('m', ', '))]);
+  if (verb !== 'get') return printLines([span('m', esc('USAGE: pvesh get|create|ls <api_path>')), span('m', 'Paths that answer here: ') + Object.keys(API).filter(k => !/\/nodes\/pve\d\//.test(k) || k.startsWith(`/nodes/${here()}/`)).map(k => cmd('pvesh get ' + k, k)).join(span('m', ', '))]);
   if (!API[p]) { state.failed = true; return print(span('e', `No 'get' handler defined for '${esc(p)}'`)); }
   printLines(API[p]());
 }, { ...ONLY_PVE, usage: '<get|create|ls> <path>', flags: [['get /cluster/resources', 'every node, VM, container and storage'], ['get /nodes', 'the three nodes'], ['create /nodes/<node>/qemu/<vmid>/status/stop', 'stop a VM on any node (start, shutdown, reboot too)'], ['create /nodes/<node>/status --command shutdown', 'shut down a whole node (or reboot it)'], ['ls /', 'what is under a path']] });
@@ -260,17 +353,17 @@ def('pvesh', null, 'the Proxmox API of the whole cluster', async args => {
 const REPLICATION = VMS.filter(v => v.pid || v.id === 104).map(v => ({ id: `${v.id}-0`, guest: v.id, source: v.node, target: NODES.map(n => n[0]).find(n => n !== v.node && n !== (v.node === 'pve1' ? 'pve3' : 'pve1')) || 'pve1' }));
 def('pvecm', null, 'the cluster: its nodes and quorum', args => {
   const sub = args[0] || 'status';
-  if (sub === 'nodes') return printLines([span('w b', 'Membership information'), span('m', '~~~~~~~~~~~~~~~~~~~~~~'), span('w b', '    Nodeid      Votes Name'), ...NODES.map(([n], i) => [n, i]).filter(([n]) => !CLUSTER.down.has(n)).map(([n, i]) => esc(`         ${i + 1}          1 ${n}${n === LOCAL ? ' (local)' : ''}`))]);
+  if (sub === 'nodes') return printLines([span('w b', 'Membership information'), span('m', '~~~~~~~~~~~~~~~~~~~~~~'), span('w b', '    Nodeid      Votes Name'), ...NODES.map(([n], i) => [n, i]).filter(([n]) => !CLUSTER.down.has(n)).map(([n, i]) => esc(`         ${i + 1}          1 ${n}${n === here() ? ' (local)' : ''}`))]);
   if (sub !== 'status') { state.failed = true; return print(span('e', `unknown command 'pvecm ${esc(sub)}'`) + span('m', '  (status or nodes)')); }
   printLines([
     span('w b', 'Cluster information'), span('m', '-------------------'),
     'Name:             homelab', 'Config Version:   3', 'Transport:        knet', '',
     span('w b', 'Quorum information'), span('m', '------------------'),
-    `Date:             ${new Date().toString().slice(0, 24)}`, `Nodes:            ${onlineNodes().length}`, 'Node ID:          0x00000001', 'Quorate:          ' + span('a', 'Yes'), '',
+    `Date:             ${new Date().toString().slice(0, 24)}`, `Nodes:            ${onlineNodes().length}`, `Node ID:          0x0000000${NODES.findIndex(x => x[0] === here()) + 1}`, 'Quorate:          ' + span('a', 'Yes'), '',
     span('w b', 'Votequorum information'), span('m', '----------------------'),
     'Expected votes:   3', `Total votes:      ${onlineNodes().length}`, 'Quorum:           2', '',
     span('w b', 'Membership information'), span('m', '----------------------'),
-    ...NODES.map(([n, ip], i) => [n, ip, i]).filter(([n]) => !CLUSTER.down.has(n)).map(([n, ip, i]) => esc(`    0x0000000${i + 1}          1 ${ip}${n === LOCAL ? ' (local)' : ''}`)),
+    ...NODES.map(([n, ip], i) => [n, ip, i]).filter(([n]) => !CLUSTER.down.has(n)).map(([n, ip, i]) => esc(`    0x0000000${i + 1}          1 ${ip}${n === here() ? ' (local)' : ''}`)),
     '', CLUSTER.down.size ? span('w', `${[...CLUSTER.down].join(', ')} is off: two of three votes, still quorate. One more and there is no quorum.`) : span('m', 'Three votes, two needed: one node can go down and the other two still decide.'),
   ]);
 }, { ...ONLY_PVE, usage: '[status|nodes]', flags: [['status', 'quorum, votes and members'], ['nodes', 'the nodes and their votes']] });
@@ -298,14 +391,8 @@ def('pveversion', null, 'which Proxmox VE this is', args => {
 
 def('pvesm', null, 'the storage: where disks and backups live', args => {
   const [sub, store] = args;
-  if (sub === 'list' && store === 'pbs') {
-    // the last three nights of backups, every guest that has onboot
-    const days = [2, 1, 0].map(d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10));
-    const guests = [...VMS.filter(v => v.pid && v.id !== 103).map(v => ['vm', v.id, v.disk + (v.data || 0)]), ...CTS.filter(c => !c.stopped).map(c => ['ct', c.id, 8])];
-    return printLines([span('w b', 'Volid                                          Format  Type             Size VMID'),
-      ...days.flatMap(d => guests.map(([t, id, gb], i) => esc(`${pad(`pbs:backup/${t}/${id}/${d}T01:${String(i * 4).padStart(2, '0')}:0${i}Z`, 46)} ${pad(t === 'vm' ? 'pbs-vm' : 'pbs-ct', 7)} backup ${String(Math.round(gb * 1.07e9 * 0.4)).padStart(14)} ${id}`))),
-      ...MY_BACKUPS.map(b => span('a', esc(`${pad(`pbs:backup/${b.kind}/${b.id}/${stamp(b.at)}`, 46)} ${pad('pbs-' + b.kind, 7)} backup ${String(Math.round(3.1 * 1.07e9)).padStart(14)} ${b.id}`)) + span('m', '  # yours'))]);
-  }
+  if (sub === 'list' && store === 'pbs') return printLines([span('w b', 'Volid                                          Format  Type             Size VMID'),
+    ...backupList().map(b => (b.mine ? s => span('a', s) + span('m', '  # yours') : s => s)(esc(`${pad(`pbs:backup/${b.snap}`, 46)} ${pad('pbs-' + b.kind, 7)} backup ${String(b.size).padStart(14)} ${b.id}`)))]);
   if (sub === 'list') { state.failed = true; return print(span('e', store ? `storage '${esc(store)}' does not exist` : '400 not enough arguments\npvesm list <storage>') + span('m', '  try pvesm list pbs')); }
   if (sub !== 'status') return printLines([span('m', 'USAGE: pvesm <COMMAND> [ARGS]'), '', '       pvesm status', '       pvesm list <storage>']);
   printLines([span('w b', 'Name             Type     Status           Total            Used       Available        %'),
@@ -395,6 +482,73 @@ completes('ansible', args => args.length ? ['-m', 'ping'] : ['all', 'proxmox', '
 // ---- one file out of a VM backup: proxmox-file-restore, and scp to put it back ----
 // the snapshots of VM 102 (the names pvesm list pbs shows); the newest one ran at 03:04, after the file was deleted
 const stamp = t => new Date(t).toISOString().slice(0, 19) + 'Z';
+// every backup on PBS: the last three nights of every guest that has onboot (not PBS itself), then the ones you made.
+// pvesm list pbs and the backup server both show these
+export function backupList() {
+  const days = [2, 1, 0].map(d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10));
+  const guests = [...VMS.filter(v => v.pid && v.id !== 103).map(v => ['vm', v.id, v.disk + (v.data || 0)]), ...CTS.filter(c => !c.stopped).map(c => ['ct', c.id, 8])];
+  return [...days.flatMap(d => guests.map(([kind, id, gb], i) => ({ kind, id, snap: `${kind}/${id}/${d}T01:${String(i * 4).padStart(2, '0')}:0${i}Z`, size: Math.round(gb * 1.07e9 * 0.4) }))),
+    ...MY_BACKUPS.map(b => ({ kind: b.kind, id: b.id, snap: `${b.kind}/${b.id}/${stamp(b.at)}`, size: Math.round(3.1 * 1.07e9), mine: true }))];
+}
+// ---- proxmox-backup-client: what is in a datastore. On pbs itself, and on the nodes, which back up with it (there the
+// datastore is the storage called pbs). --output-format json is for scripts, like the restore test on pve2 ----
+const gib = b => (b / 1073741824).toFixed(2) + ' GiB';
+const filesOf = b => b.kind === 'ct' ? ['root.pxar', 'pct.conf'] : b.id === 102 ? ['scsi0.img', 'scsi1.img', 'qemu-server.conf'] : ['scsi0.img', 'qemu-server.conf'];
+const asJson = b => ({ snapshot: b.snap, 'backup-type': b.kind, 'backup-id': String(b.id), 'backup-time': Date.parse(b.snap.split('/')[2]) / 1000, size: b.size, files: filesOf(b) });
+def('proxmox-backup-client', null, 'the backup client: what is in a datastore', args => {
+  const [o, [what, sub, group]] = getopt(args, ['repository', 'output-format']);
+  const onPbs = state.host === 'pbs', json = o['output-format'] === 'json';
+  const name = String(o.repository || (onPbs ? 'main' : 'pbs')).split(':').pop();
+  const store = name === 'pbs' && !onPbs ? 'main' : name;
+  if (!['main', 'hetzner'].includes(store)) { state.failed = true; return print(span('e', `datastore '${esc(name)}' does not exist`) + span('m', onPbs ? '  (main or hetzner)' : '  (from a node it is called pbs)')); }
+  if (!onPbs && store === 'hetzner') { state.failed = true; return print(span('e', 'Error: permission check failed') + span('m', '  (the nodes only write to pbs; the offsite copy is for pbs itself)')); }
+  if (!onPbs && !pbsUp()) { state.failed = true; return print(span('e', 'Error: error trying to connect: tcp connect error: No route to host (os error 113)') + span('m', '  (pbs, VM 103 on pve3, is down)')); }
+  const list = backupList().filter(b => !group || b.snap.startsWith(group.replace(/\/$/, '') + '/'));
+  const offsite = store === 'hetzner' ? [span('m', 'The offsite copy, the same snapshots: the sync job runs at 03:15. Encrypted on the nodes, so Hetzner only ever sees noise.')] : [];
+  if (what === 'snapshot' && sub === 'list') {
+    if (!list.length) { state.failed = true; return print(span('e', `no snapshots in group '${esc(group)}'`) + span('m', '  (try vm/102)')); }
+    if (json) return print(esc(JSON.stringify(list.map(asJson))));
+    return printLines([...table(['snapshot', 'size', 'files'], list.map(b => [b.snap, gib(b.size), filesOf(b).join(' ')])),
+      ...offsite, span('m', 'One file out of one of these: ') + span('a2', 'proxmox-file-restore') + span('m', ' on pve1. A whole VM: ') + span('a2', 'qmrestore') + span('m', ' on a node.')]);
+  }
+  if (what === 'list') {
+    const groups = [...new Set(list.map(b => `${b.kind}/${b.id}`))].map(g => { const s = list.filter(b => b.snap.startsWith(g + '/')); return { group: g, last: s.at(-1).snap.split('/')[2], count: s.length }; });
+    if (json) return print(esc(JSON.stringify(groups.map(g => ({ 'backup-group': g.group, 'last-backup': Date.parse(g.last) / 1000, 'backup-count': g.count })))));
+    return printLines([...table(['group', 'last snapshot', 'backup-count'], groups.map(g => [g.group, g.last, g.count])), ...offsite]);
+  }
+  printLines([span('m', 'USAGE: proxmox-backup-client <COMMAND> [ARGS] [--repository store] [--output-format json]'), '', '       proxmox-backup-client list', '       proxmox-backup-client snapshot list [group]', '',
+    span('m', 'Example: ') + cmd('proxmox-backup-client snapshot list vm/102') + (onPbs ? span('m', ', or offsite: ') + cmd('proxmox-backup-client snapshot list --repository hetzner') : '')]);
+}, { hosts: ['pbs', ...NODES.map(([n]) => n)], usage: 'list | snapshot list [group] [--repository store]', flags: [['list', 'the backup groups: one per guest'], ['snapshot list [group]', 'every snapshot, or those of one guest like vm/102'], ['--repository store', 'on pbs main (the default) or hetzner; on a node pbs'], ['--output-format json', 'for scripts: one line of JSON, for jq']] });
+completes('proxmox-backup-client', args => args.at(-1) === '--repository' ? (state.host === 'pbs' ? ['main', 'hetzner'] : ['pbs']) : !args.length ? ['list', 'snapshot'] : args[0] === 'snapshot' && args.length === 1 ? ['list'] : [...new Set(backupList().map(b => `${b.kind}/${b.id}`)), '--repository', '--output-format']);
+
+// ---- qmrestore: a whole VM back from a backup, as a new VM. The restore test on pve2 does this once a month: a copy
+// of the Docker VM as 999, boot it, see it answer, throw it away. Only copies like that can be destroyed again ----
+def('qmrestore', null, 'restore a VM from a backup, as a new VM', async args => {
+  const [o, [archive, vmid]] = getopt(args, ['storage']);
+  if (!archive || !vmid) { state.failed = true; return printLines([span('e', '400 not enough arguments'), span('m', 'qmrestore <archive> <vmid> [--unique]   like qmrestore pbs:backup/vm/102/<time> 999 --unique')]); }
+  const m = archive.match(/^pbs:backup\/((vm|ct)\/(\d+)\/\S+)$/);
+  if (!m) { state.failed = true; return print(span('e', `can't find archive '${esc(archive)}'`) + span('m', '  (pbs:backup/vm/102/<time>, the times are in proxmox-backup-client snapshot list vm/102)')); }
+  if (!pbsUp()) { state.failed = true; return print(span('e', 'error trying to connect: tcp connect error: No route to host (os error 113)') + span('m', '  (pbs is down)')); }
+  const b = backupList().find(x => x.snap === m[1]);
+  if (!b) { state.failed = true; return print(span('e', `backup '${esc(m[1])}' does not exist on pbs`)); }
+  if (m[2] === 'ct') { state.failed = true; return print(span('e', 'that is a container backup: pct restore is for those')); }
+  if (!/^\d+$/.test(vmid) || +vmid < 100) { state.failed = true; return print(span('e', `invalid vmid '${esc(vmid)}'`)); }
+  const taken = [...VMS, ...CTS].find(g => g.id === +vmid);
+  if (taken) { state.failed = true; return print(span('e', `unable to restore VM ${vmid} - VM ${vmid} already exists on node '${taken.node}'`)); }
+  const src = VMS.find(v => v.id === b.id) || { name: 'vm' + b.id, mem: 2048, disk: 8, cores: 2 };
+  const disks = [['scsi0', src.disk], ...(src.data ? [['scsi1', src.data]] : [])];
+  print(`restore image from ${esc(m[1])}`);
+  for (const [d, gb] of disks) {
+    print(esc(`new volume ID is '${o.storage || 'local-zfs'}:vm-${vmid}-disk-${d.slice(-1)}'`));
+    for (const pct of [25, 63, 100]) { await sleep(250); print(esc(`restore-${d}: transferred ${(gb * pct / 100).toFixed(1)} GiB of ${gb.toFixed(1)} GiB (${pct}.00%)`)); }
+  }
+  print(esc(`restore image complete (bytes=${Math.round((src.disk + (src.data || 0)) * 1.07e9)}, duration=${disks.length * 0.75}s)`) + (args.includes('--unique') ? span('m', '  new MAC addresses: it will not fight the original on the network') : ''));
+  VMS.push({ id: +vmid, node: here(), home: here(), name: src.name, mem: src.mem, disk: src.disk, data: src.data, cores: src.cores, pid: 0, restored: true,
+    note: `A restored copy of ${b.id}. Done with it? qm destroy ${vmid}` });
+  logEvent(here(), 'pvedaemon', 1110, `<root@pam> starting task UPID:${here()}:qmrestore:${vmid}:root@pam: restore of ${m[1]}`);
+}, { ...ONLY_PVE, usage: '<archive> <vmid> [--unique]', flags: [['archive', 'a backup, like pbs:backup/vm/102/<time>'], ['vmid', 'a free ID for the copy, like 999'], ['--unique', 'new MAC addresses, so the copy does not clash with the original'], ['--storage store', 'where the disks go (default local-zfs)']] });
+completes('qmrestore', args => args.length ? ['999', '--unique'] : backupList().filter(b => b.kind === 'vm').map(b => 'pbs:backup/' + b.snap));
+
 const snapshots = () => [...[2, 1, 0].map(d => `vm/102/${new Date(Date.now() - d * 864e5).toISOString().slice(0, 10)}T01:04:01Z`), ...MY_BACKUPS.filter(b => b.id === 102).map(b => `vm/102/${stamp(b.at)}`)];
 // the file went at 22:14 last night, local time
 const deletedAt = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return +d - (1 * 60 + 46) * 6e4; };
@@ -438,9 +592,9 @@ def('proxmox-file-restore', null, 'get single files out of a VM backup', args =>
   const err = writeFile(target, text);
   if (err) { state.failed = true; return print(span('e', `Error: unable to write '${esc(target)}': ${err}`) + span('m', '  (/tmp is the place for it)')); }
   if (/prometheus\.yml$/.test(path)) saw('restore-extracted');
-  logEvent('pve1', 'proxmox-file-restore', 4810, `extracted ${path} from ${snap} to ${target}`);
+  logEvent(here(), 'proxmox-file-restore', 4810, `extracted ${path} from ${snap} to ${target}`);
   print(span('a', `Extracted ${esc(path.split('/').pop())} to ${esc(target)}.`) + span('m', ' Now it only has to go back where it came from.'));
-}, { hosts: ['pve1'], usage: 'list|extract <snapshot> <path> [target]', flags: [['list snapshot path', 'what is in a folder of the backup'], ['extract snapshot path target', 'copy one file out of the backup, to target on this host']] });
+}, { ...ONLY_PVE, usage: 'list|extract <snapshot> <path> [target]', flags: [['list snapshot path', 'what is in a folder of the backup'], ['extract snapshot path target', 'copy one file out of the backup, to target on this host']] });
 
 // scp: from the host to the Docker VM, where the file belongs
 def('scp', null, 'copy a file to another machine', args => {
@@ -464,13 +618,13 @@ def('scp', null, 'copy a file to another machine', args => {
   try { err = writeFile(target, text); const w = resolve(target); if (!err && !w.error) w.node.own = 'ian'; } finally { state.host = saved.host; HOME.splice(0, HOME.length, ...saved.home); }
   if (err) { state.failed = true; return print(span('e', `scp: ${esc(target)}: ${err}`)); }
   print(`${esc(src.split('/').pop())}${' '.repeat(Math.max(1, 30 - src.split('/').pop().length))}100%  ${text.length}B   1.2MB/s   00:00`);
-  logEvent('homelab', 'sshd', 4122, `Accepted publickey for ian from 10.20.0.10 port 51022 ssh2: ED25519 root@pve1 (scp to ${target})`, true);
+  logEvent('homelab', 'sshd', 4122, `Accepted publickey for ian from ${ipOf(here())} port 51022 ssh2: ED25519 root@${here()} (scp to ${target})`, true);
   if (target === '/home/ian/stacks/monitoring/prometheus.yml') {
     RESTORE.done = true; RESTORE.at = Date.now();
     unlock('restore');
     print(span('a', 'prometheus.yml is back.') + span('m', ' A backup only counts once you restored it, and now this one does. On the homelab: ') + span('a2', 'docker restart monitoring-prometheus-1'));
   }
-}, { hosts: ['pve1'], usage: '<file> [user@]host:<path>', flags: [['file', 'the file on this machine'], ['host:path', 'where it goes, like ian@homelab:stacks/monitoring/']] });
+}, { ...ONLY_PVE, usage: '<file> [user@]host:<path>', flags: [['file', 'the file on this machine'], ['host:path', 'where it goes, like ian@homelab:stacks/monitoring/']] });
 
 completes('proxmox-file-restore', args => !args.length ? ['list', 'extract'] : args.length === 1 ? snapshots() : args.length === 2 ? [ARCHIVE + '/home/ian/'] : null);
 // ---- vzdump: run a backup yourself. snapshot mode keeps the VM running, stop mode does not (and 102 is this site) ----
@@ -479,7 +633,7 @@ def('vzdump', null, 'back up a VM or container', async args => {
   if (!id) return printLines([span('m', esc('usage: vzdump <vmid> [--mode snapshot|suspend|stop] [--storage pbs|local]')), span('m', 'The nightly job does this for every guest at 03:00: ') + cmd('pvesh get /cluster/backup')]);
   const v = VMS.find(x => String(x.id) === id), c = CTS.find(x => String(x.id) === id);
   if (!v && !c) { state.failed = true; return print(span('e', `unable to find VM ${esc(id)}`)); }
-  if (!local(v || c)) { state.failed = true; return print(span('e', `guest ${esc(id)} is not on node ${LOCAL}`) + span('m', `  (it runs on ${(v || c).node}; the nightly job backs up every node at 03:00)`)); }
+  if (!local(v || c)) { state.failed = true; return print(span('e', `guest ${esc(id)} is not on node ${here()}`) + span('m', `  (it runs on ${(v || c).node}; the nightly job backs up every node at 03:00)`)); }
   const mode = o.mode || 'snapshot', storage = o.storage || 'pbs', name = (v || c).name, kind = v ? 'vm' : 'ct';
   if (!['snapshot', 'suspend', 'stop'].includes(mode)) { state.failed = true; return print(span('e', `vzdump: invalid mode '${esc(mode)}'`)); }
   if (!['pbs', 'local'].includes(storage)) { state.failed = true; return print(span('e', `storage '${esc(storage)}' does not exist`)); }
@@ -493,7 +647,7 @@ def('vzdump', null, 'back up a VM or container', async args => {
   if (mode === 'stop' && v?.id === 102 && up.has(102)) {
     await log('stopping virtual guest');
     print(span('w', 'That is the VM this site runs on. Snapshot mode would have kept it running.'));
-    return outage(`vzdump 102 --mode stop`, { kind: 'guest', reboot: true, where: 'pve1' });
+    return outage(`vzdump 102 --mode stop`, { kind: 'guest', reboot: true, where: here() });
   }
   if (v) {
     await log(`include disk 'scsi0' 'local-zfs:vm-${id}-disk-0' ${v.disk}G`);
@@ -521,7 +675,7 @@ def('vzdump', null, 'back up a VM or container', async args => {
     return print(span('w', '3-2-1 says no:') + span('m', ' that copy is on the same host as the VM. When this machine dies, both copies die with it. Try ') + cmd(`vzdump ${id} --storage pbs`));
   }
   MY_BACKUPS.push({ kind, id: +id, at: +at });
-  logEvent('pve1', 'vzdump', 20400 + MY_BACKUPS.length, `INFO: Finished Backup of ${kind === 'vm' ? 'VM' : 'CT'} ${id}, started by root@pam`);
+  logEvent(here(), 'vzdump', 20400 + MY_BACKUPS.length, `INFO: Finished Backup of ${kind === 'vm' ? 'VM' : 'CT'} ${id}, started by root@pam`);
   // the sync job on PBS takes every new backup offsite
   await sleep(500);
   print(span('m', `pbs: sync job 'hetzner' started for ${kind}/${id}/${stamp(at)}, encrypted`));
@@ -533,9 +687,9 @@ def('vzdump', null, 'back up a VM or container', async args => {
     `  ${span('a', '✔')} 1 offsite  the sync job, encrypted before it leaves the house`,
     span('m', 'There is a guide for exactly this setup, back on the terminal: ') + span('a2', 'read backups'), '']);
   unlock('threetwoone');
-}, { hosts: ['pve1'], usage: '<vmid> [--mode snapshot|suspend|stop] [--storage pbs|local]', flags: [['vmid', 'the VM or container, from qm list or pct list'], ['--mode snapshot', 'keeps the guest running (the default)'], ['--mode stop', 'shuts the guest down for the backup'], ['--storage pbs', 'to Proxmox Backup Server (the default)'], ['--storage local', 'a file on this host']] });
+}, { ...ONLY_PVE, usage: '<vmid> [--mode snapshot|suspend|stop] [--storage pbs|local]', flags: [['vmid', 'the VM or container, from qm list or pct list'], ['--mode snapshot', 'keeps the guest running (the default)'], ['--mode stop', 'shuts the guest down for the backup'], ['--storage pbs', 'to Proxmox Backup Server (the default)'], ['--storage local', 'a file on this host']] });
 completes('vzdump', args => args.length ? ['--mode', 'snapshot', 'stop', '--storage', 'pbs', 'local'] : [...VMS, ...CTS].filter(local).map(g => String(g.id)));
-completes('qm', args => args.length ? VMS.filter(local).map(v => String(v.id)) : ['list', 'status', 'config', 'start', 'stop', 'shutdown', 'reboot']);
+completes('qm', args => args[0] === 'guest' && args.length === 1 ? ['ping'] : args.length ? VMS.filter(local).map(v => String(v.id)) : ['list', 'status', 'config', 'start', 'stop', 'shutdown', 'reboot', 'guest', 'destroy']);
 completes('pct', args => args.length ? CTS.map(c => String(c.id)) : ['list', 'status', 'start', 'stop', 'enter']);
 completes('pvesh', args => args.length ? Object.keys(API) : ['get', 'create', 'ls']);
 completes('pvecm', () => ['status', 'nodes']);

@@ -12,7 +12,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
 const CI = !!process.env.GITHUB_ACTIONS;
 const color = process.stdout.isTTY || CI;
 const paint = (code, s) => color ? `\x1b[${code}m${s}\x1b[0m` : s;
@@ -109,7 +109,7 @@ try {
     {
       const t = suite('Startup');
       const loaded = await page.evaluate(() => performance.getEntriesByType('resource').map(e => new URL(e.name).pathname));
-      for (const m of ['commands/python.js', 'commands/qr.js', 'commands/guestbook.js', 'commands/homelab.js', 'commands/pve.js', 'fs/homelab.js', 'fs/pve.js']) {
+      for (const m of ['commands/python.js', 'commands/qr.js', 'commands/guestbook.js', 'commands/homelab.js', 'commands/pve.js', 'commands/pbs.js', 'fs/homelab.js', 'fs/pve.js', 'fs/pbs.js', 'commands/nano.js', 'article.js', 'printcv.js']) {
         t.add({ name: `js/${m} waits until it is needed`, ok: !loaded.includes('/js/' + m), info: 'loaded at startup' });
       }
       // modulepreload in index.html: exactly the modules that load at the start, so none waits for the one importing it

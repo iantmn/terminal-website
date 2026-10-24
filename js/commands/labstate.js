@@ -20,7 +20,7 @@ export const HOSTS = {};
 
 // ---- what happened on each machine during this visit: journalctl, /var/log/syslog and auth.log show it after the
 // old lines. auth: a login or logout, which goes to auth.log instead of syslog ----
-export const VISIT_LOG = { homelab: [], pve1: [] };
+export const VISIT_LOG = { homelab: [], pve1: [], pve2: [], pve3: [], pbs: [] };
 export function logEvent(host, unit, pid, msg, auth = false) {
   const l = VISIT_LOG[host];
   if (!l) return;
@@ -85,6 +85,8 @@ export const CTS = [
 export const stoppedSince = {};
 export const up = new Set([...VMS.filter(v => v.pid).map(v => v.id), ...CTS.filter(c => !c.stopped).map(c => c.id)]);
 export const guestDownSince = id => up.has(id) ? null : stoppedSince[id] ?? Date.now();
+// the backup server is VM 103: it answers when it runs, on a node that does
+export const pbsUp = () => up.has(103) && !CLUSTER.down.has(VMS.find(v => v.id === 103).node);
 
 // every guest prefers the node it started on: once that node is up again, HA moves it back there (failback)
 [...VMS, ...CTS].forEach(g => { g.home = g.node; });

@@ -5,29 +5,48 @@ import { POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, pad, sleep, ask, state, inrow, scrollDown, pathStr, uptime, BOOT_TIME, getopt, store } from '../core.js';
 import { FS, resolve, pathLink, TMP_NOTE, isMine, removeNode } from '../filesystem.js';
 import { C, def, completes } from '../registry.js';
-import { HOSTS, all, logRows, logStamp, VISIT_LOG, SESSIONS } from './labstate.js';
+import { HOSTS, all, logRows, logStamp, VISIT_LOG, SESSIONS, NODES, CLUSTER, pbsUp } from './labstate.js';
 import { routeTo } from './network.js';
 import { forgetSession } from '../session.js';
 import { runAsRoot, execLine, execChain, FILTERS, rainbow, htmlToText, commandNames, completeWrapped, vars, envVars } from '../shell.js';
 import { bootSound } from '../sound.js';
+import { installJq } from './tools.js';
 import { visits, currentLogin, streak } from '../visits.js';
 // the homelab or the main machine: commands about the system answer for the one you are on
 const onLab = () => state.host !== 'iantiemann';
-// the data of the machine you are on: the Docker VM or pve1
+// the data of the machine you are on: the Docker VM, a Proxmox node or pbs
 // the homelab and the Proxmox cluster load on the first ssh or docker: most visitors never get there.
 // Once you are on one of them it is loaded and has put its data in HOSTS, so here() can stay synchronous
 const here = () => HOSTS[state.host];
+const onNode = () => /^pve[123]$/.test(state.host);
+// what poweroff and reboot take down: the Docker VM, a whole node, or the backup server
+const downKind = () => onNode() ? 'host' : state.host === 'pbs' ? 'pbs' : 'vm';
 let lab = null;
 const machines = async () => lab ??= await Promise.all([import('./homelab.js'), import('./pve.js')]).then(([h, p]) => ({ ...h, ...p }));
 
+// guest in the sudo group: please sudo usermod -aG sudo guest once, and sudo works without the please. This browser
+// remembers it; sudo gpasswd -d guest sudo takes it away again
+export const sudoer = () => store.get('sudoer', false);
+const PERMANENT = cmd('please sudo usermod -aG sudo guest');
 def('sudo', null, 'run a command as root', (args, raw) => {
   const rest = raw.replace(/^\s*sudo\s*/, '');
   if (state.asRoot) return print(span('m', "You're already root. Don't let the power go to your head."));
-  if (args[0] === '-l') return printLines([
+  if (args[0] === '-l') return printLines(sudoer() ? [
+    'User guest may run the following commands on iantiemann:',
+    '    (ALL : ALL) NOPASSWD: ALL',
+    span('m', 'You are in the sudo group. Use it wisely.'),
+  ] : [
     'User guest may run the following commands on iantiemann:',
     '    (please) ONE_COMMAND',
-    span('m', 'In other words: say please first.'),
+    span('m', 'In other words: say please first. Or once, for good: ') + PERMANENT,
   ]);
+  // in the sudo group: as root, like please sudo, without the please
+  if (sudoer() && rest && !/^-/.test(rest)) {
+    unlock('sudo');
+    if (state.bang) unlock('sudobang');
+    if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
+    return runAsRoot(rest);
+  }
   if (args[0] === '-i' || args[0] === '-s') return print(span('e', 'sudo: a root shell? Not a chance.') + span('m', ' One command at a time, and only if you ask nicely.'));
   if (/^(hire|talk)/.test(rest)) return C.talk.run([]);
   if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
@@ -43,6 +62,7 @@ def('sudo', null, 'run a command as root', (args, raw) => {
   print(`[sudo] password for guest: `);
   print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));
   print(span('m', '(to nobody, relax. Maybe if you ask nicely and say please, I might let you run a command as root.)'));
+  print(span('m', 'Tired of saying please? Add yourself to the sudo group, once: ') + PERMANENT);
 }, { usage: '[-l] <command>', wrap: true, flags: [['-l', 'list what you are allowed to run'], ['-i', 'open a root shell']] });
 def('rm', null, 'remove files', async args => {
   // what you made in /tmp really goes
@@ -69,10 +89,9 @@ def('rm', null, 'remove files', async args => {
   const backup = POSTS.find(p => p.url === '/posts/2026/7/PBSHetzner/');
   if (backup) print(span('m', 'Speaking of which: ') + cmd('read ' + backup.n, 'read my backup guide'));
 }, { usage: '[-rf] <path>', flags: [['-r, -R, --recursive', 'remove directories and everything in them'], ['-f, --force', 'never ask'], ['-i', 'ask before every file']] });
-def(['vim', 'vi', 'nvim', 'nano', 'emacs'], null, 'edit a file (good luck leaving)', async (a, raw) => {
+def(['vim', 'vi', 'nvim', 'emacs'], null, 'edit a file (good luck leaving)', async (a, raw) => {
   const ed = raw.trim().split(/\s+/)[0];
   if (ed === 'emacs') return print(span('m', 'emacs: a great operating system, lacking only a decent text editor. Try ') + span('a2','vim') + span('m','?'));
-  if (ed === 'nano') return print(span('m', 'nano: honest choice. But this terminal is read-only.'));
   unlock('vim');
   print(span('m', '~\n~\n~\n~                VIM - Vi IMproved\n~\n~        type :q to exit  (good luck)\n~'));
   await sleep(1400);
@@ -189,6 +208,8 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install pa
     if (pkg === 'sl') { print(span('m', 'running post-install script')); return C.sl.run([]); }
     if (pkg === 'cowsay' || pkg === 'fortune') return C[pkg].run([]);
     if (/^python/.test(pkg)) return print(span('a', 'I gladly install python! It was my first real programming language and I learned it during my minor in AI.') + span('m', ' Want to know more? Try ') + cmd('education'));
+    // jq stays: this browser remembers it, and it has real JSON to chew on
+    if (pkg === 'jq') { installJq(); return print(span('a', 'jq is installed, for good this time.') + span('m', ' Some JSON to try it on: ') + cmd("cat /var/www/iantiemann.nl/api/posts.json | jq '.[0].title'")); }
     return print(span('m', "and it's gone again, everything resets on reload."));
   }
   print(span('e', `E: Invalid operation ${esc(sub)}`));
@@ -197,16 +218,18 @@ def(['apt', 'apt-get', 'brew', 'pacman', 'apk', 'npm', 'pip'], null, 'install pa
 def('ssh', 'more', 'log in to another machine', async args => {
   const [o, [target = '']] = getopt(args, ['p', 'i', 'l', 'o']);
   if (state.host === 'homelab') return (await machines()).labSsh(args);
-  // on pve1 the other nodes are one cluster away: what they run is visible from here
-  if (state.host === 'pve1') return /pve[23]|10\.20\.0\.1[12]/.test(target)
-    ? print(span('m', `${esc(target.replace(/^.*@/, ''))} is part of this cluster: everything it runs shows up here. `) + cmd('pvesh get /cluster/resources') + span('m', ', ') + cmd('pvecm status'))
-    : print(span('m', 'This is as deep as it goes. ') + span('a2', 'exit') + span('m', ' goes back up.'));
-  // with a key, the user is the one the key belongs to
-  const [user, host] = target.includes('@') ? target.split('@') : [o.l || (o.i ? 'ian' : state.user), target];
+  // a node: the other nodes and pbs trust its root
+  if (onNode()) return (await machines()).nodeSsh(args);
+  // pbs holds no keys to anything, on purpose: whoever takes the backups should not get the cluster as well
+  if (state.host === 'pbs') return print(span('m', 'pbs has no keys to the cluster, on purpose: whoever gets in here should not get the nodes too. ') + span('a2', 'exit') + span('m', ' goes back.'));
+  // with a key, the user is the one the key belongs to; the key in the agent is ian's too (~/.ssh/config says User ian)
+  const [user, host] = target.includes('@') ? target.split('@') : [o.l || (o.i || agentHas() ? 'ian' : state.user), target];
   if (!host) return print(span('e', 'usage: ssh [-i key] [user@]host'));
   if (/^(pve[123]?|pve[123]?\.lan|10\.20\.0\.1[0-2])$/i.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port 22: Connection timed out`) + span('m', '  (the Proxmox cluster only answers ssh from the homelab)'));
   if (!/^(homelab|10\.42\.0\.1|10\.20\.0\.20)$/.test(host)) return print(span('e', `ssh: connect to host ${esc(host)} port ${esc(o.p || 22)}: Connection refused`));
   const denied = () => { saw('lab-denied'); print(span('e', `${esc(user)}@homelab: Permission denied (publickey).`)); };
+  // the agent has the key, passphrase and all: no -i, no root, no questions
+  if (agentHas() && user === 'ian' && (!o.i || /id_homelab$/.test(o.i))) return (await machines()).labSession();
   if (!o.i) return denied();
   const r = resolve(o.i);
   if (r.error === 'missing' || (r.node && r.node.type !== 'file')) { print(`Warning: Identity file ${esc(o.i)} not accessible: No such file or directory.`); return denied(); }
@@ -220,10 +243,38 @@ def('ssh', 'more', 'log in to another machine', async args => {
   saw('lab-pass');
   try { pass = await ask(`Enter passphrase for key '${esc(o.i)}': `); } finally { kb.type = 'text'; }
   if (pass !== 'works-on-my-machine') { if (pass != null) print(span('e', 'Bad passphrase.')); return denied(); }
+  // ~/.ssh/config has AddKeysToAgent yes: the first time the passphrase is right, the agent keeps the key
+  if (!agentHas()) {
+    store.set('agent', ['id_homelab']);
+    printLines([`Identity added: ${esc(o.i)} (ian@laptop)`, span('m', 'AddKeysToAgent is on: the agent keeps the key from now on, so next time ') + cmd('ssh homelab') + span('m', ' is all it takes. ') + cmd('ssh-add -D') + span('m', ' forgets it.')]);
+  }
   return (await machines()).labSession();
 }, { usage: '[-p port] [-i key] <host>', flags: [['-p port', 'port to connect to'], ['-i key', 'private key to use'], ['-l user', 'user to log in as']] });
+// ssh-add: a key and its passphrase into the agent, once. After that ssh homelab just works. This browser keeps it
+const agentHas = () => store.get('agent', []).includes('id_homelab');
+const HOMELAB_KEY = '/home/ian/.ssh/id_homelab';
+def('ssh-add', 'more', 'give a key to the ssh agent: its passphrase only once', async args => {
+  if (state.host !== 'iantiemann') return print(span('m', 'The agent on this machine has nothing to add: the keys here have no passphrase.'));
+  const [o, [file]] = getopt(args);
+  if (o.l) return print(agentHas() ? esc('256 SHA256:Hq3wJ8kZ2pXr0vN6tY1mB4cL7dF9sA5eG0uI2oK ian@laptop (ED25519)') + span('m', '  ' + HOMELAB_KEY) : 'The agent has no identities.');
+  if (o.D) { store.set('agent', []); return print('All identities removed.'); }
+  if (!file) return print(span('m', 'Which key? ') + cmd(`please sudo ssh-add ${HOMELAB_KEY}`));
+  const r = resolve(file);
+  if (r.error === 'denied') { state.failed = true; return print(span('e', `${esc(file)}: Permission denied`) + span('m', "  (the key is in ian's locked folder: please sudo ssh-add ...)")); }
+  if (r.error || r.node.type !== 'file') { state.failed = true; return print(span('e', `${esc(file)}: No such file or directory`)); }
+  if (!/id_homelab$/.test(file)) { state.failed = true; return print(span('e', `Error loading key "${esc(file)}": invalid format`)); }
+  if (agentHas()) return print(span('m', `Identity already added: ${esc(file)} (ian@laptop)`));
+  const kb = document.getElementById('kb');
+  state.busy = false; inrow.style.visibility = ''; kb.type = 'password';
+  let pass;
+  try { pass = await ask(`Enter passphrase for ${esc(file)}: `); } finally { kb.type = 'text'; }
+  if (pass !== 'works-on-my-machine') { state.failed = true; return pass == null ? undefined : print(span('e', 'Bad passphrase, try again for ' + esc(file))); }
+  store.set('agent', ['id_homelab']);
+  printLines([`Identity added: ${esc(file)} (ian@laptop)`, span('m', 'From now on: ') + cmd('ssh homelab') + span('m', '. No key, no root, no passphrase. ') + cmd('ssh-add -D') + span('m', ' forgets it.')]);
+}, { usage: '[-l | -D] [key]', flags: [['key', 'the private key, like /home/ian/.ssh/id_homelab'], ['-l', 'the keys the agent has'], ['-D', 'forget every key']] });
+
 def('reboot', null, 'restart the system', async args => {
-  if (onLab()) return (await machines()).vmDown('reboot', true, state.host === 'pve1' ? 'host' : 'vm');
+  if (onLab()) return (await machines()).vmDown('reboot', true, downKind());
   unlock('reboot'); bootSound('down'); print(span('w', 'System is going down for reboot NOW!')); await sleep(1200);
   // a real reboot: /tmp is a tmpfs and the shell forgets its variables
   forgetSession();
@@ -232,7 +283,7 @@ def('reboot', null, 'restart the system', async args => {
 // a container has no system to shut down: PID 1 is nginx. The Docker VM it runs on can
 def(['shutdown', 'halt', 'poweroff'], null, 'power off the system', async (args, raw) => {
   const name = raw.trim().split(/\s+/)[0];
-  if (onLab()) return (await machines()).vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)), state.host === 'pve1' ? 'host' : 'vm');
+  if (onLab()) return (await machines()).vmDown(name, args.some(a => /^(-r|--reboot)$/.test(a)), downKind());
   state.failed = true;
   printLines([
     span('e', 'System has not been booted with systemd as init system (PID 1). Can\'t operate.'),
@@ -264,7 +315,8 @@ def('please', null, 'ask nicely (it works on sudo too)', async (args, raw) => {
   if (!args.length) return print(span('m', 'please what?'));
   unlock('manners');
   if (args[0] === 'sudo') {
-    print(span('a', '[sudo] since you asked nicely... ok.'));
+    // and the way to never have to ask again, until you took it
+    print(span('a', '[sudo] since you asked nicely... ok.') + (sudoer() || /^\s*please\s+sudo\s+(usermod|gpasswd|adduser)\b/.test(raw) ? '' : span('m', ' Tired of asking? Once, for good: ') + PERMANENT));
     const rest = raw.replace(/^\s*please\s+sudo\s*/, '');
     if (!rest) return;
     if (/^rm\b/.test(rest)) return print(span('m', 'nope, not even with manners.'));
@@ -346,7 +398,8 @@ const killed = new Set();
 const procs = () => onLab() ? here().procs() : MAIN_PROCS.filter(p => !killed.has(p.pid));
 // kill one process: what it says, and whether it is gone. kill and htop both ask this
 function killProc(p) {
-  if (state.host === 'pve1') return { msg: span('m', 'Root on the hypervisor, killing processes. Every VM is one of them. Let\'s not. ') + cmd('qm list') + span('m', ' is the polite way.') };
+  if (onNode()) return { msg: span('m', 'Root on the hypervisor, killing processes. Every VM is one of them. Let\'s not. ') + cmd('qm list') + span('m', ' is the polite way.') };
+  if (state.host === 'pbs') return { msg: span('m', 'Killing processes on the backup server at random is how you get a backup nobody can restore. ') + cmd('systemctl status proxmox-backup-proxy') + span('m', ' is gentler.') };
   if (p.user === 'root') return { msg: span('e', `kill: (${p.pid}) - Operation not permitted`) };
   if (p.cmd === 'coffee.service') { unlock('kill'); return { msg: span('w', 'Terminated: coffee.service') + span('m', ' - and it respawned (Restart=always). Some things are not negotiable.') }; }
   if (p.user === 'guest') return { msg: span('m', 'You tried to kill the terminal you are using. Bold. Try ') + cmd('exit') + span('m', ' instead.') };
@@ -473,11 +526,30 @@ def('hostname', 'more', 'the name of this machine', args => {
   print(state.host);
 }, { flags: [['-s, --short', 'the short name (default)'], ['-f, --fqdn, --long', 'the full name with domain'], ['-d, --domain', 'only the domain'], ['-i, --ip-address', 'its IP address'], ['-I, --all-ip-addresses', 'every IP address']] });
 const USERS = { guest: [1001, [[1001, 'guest'], [27, 'curious'], [42, 'coffee']]], ian: [1000, [[1000, 'ian'], [27, 'sudo'], [42, 'coffee']]], root: [0, [[0, 'root']]] };
+// guest in the sudo group once added (gid 28 here: on this box 27 went to curious first)
+const groupsOf = who => who === 'guest' && sudoer() ? [...USERS.guest[1], [28, 'sudo']] : USERS[who][1];
+// usermod -aG sudo guest, gpasswd -a|-d guest sudo, adduser|deluser guest sudo: in or out of the sudo group, as root
+def(['usermod', 'gpasswd', 'adduser', 'deluser'], null, 'add a user to a group, or take them out', (args, raw) => {
+  const tool = raw.trim().split(/\s+/)[0].toLowerCase(), words = args.filter(a => !a.startsWith('-')), opts = args.filter(a => a.startsWith('-')).join(' ');
+  if (!state.asRoot) return print(span('e', `${esc(tool)}: Permission denied.`) + span('m', `  (changing groups is for root: please sudo ${esc(tool)} ...)`));
+  // which user and group each tool wants, in its own order
+  const [user, group, add] = tool === 'usermod' ? [words.at(-1), words[0], /a/.test(opts) && /G/.test(opts) ? true : null]
+    : tool === 'gpasswd' ? [words[0], words[1], /-a/.test(opts) ? true : /-d/.test(opts) ? false : null]
+    : [words[0], words[1], tool === 'adduser'];
+  if (!user || !group || add === null) return print(span('e', `usage: ${tool === 'usermod' ? 'usermod -aG sudo guest' : tool === 'gpasswd' ? 'gpasswd -a|-d guest sudo' : tool + ' guest sudo'}`));
+  if (!USERS[user]) return print(span('e', `${esc(tool)}: user '${esc(user)}' does not exist`));
+  if (group !== 'sudo') return print(span('e', `${esc(tool)}: group '${esc(group)}' is not one you need`) + span('m', '  (sudo is)'));
+  if (user !== 'guest') return print(span('m', user === 'ian' ? 'ian is in sudo already. He gave it to himself, years ago.' : 'root does not need a group for that.'));
+  if (add === sudoer()) return print(span('m', add ? 'guest is in the sudo group already. Just sudo.' : 'guest is not in the sudo group.'));
+  store.set('sudoer', add);
+  if (add) return printLines([`Adding user 'guest' to group 'sudo' ...`, span('a', 'Done.') + span('m', ' From now on ') + span('a2', 'sudo &lt;command&gt;') + span('m', ' works without the please. This browser remembers it.'), span('m', 'Changed your mind? ') + cmd('sudo gpasswd -d guest sudo')]);
+  printLines([`Removing user 'guest' from group 'sudo'`, span('m', 'Back to asking nicely.')]);
+}, { usage: '-aG sudo guest', wrap: true });
 def('id', 'more', 'who you are, as numbers', args => {
   const [o, [who = state.asRoot ? 'root' : state.user]] = getopt(args);
   const u = USERS[who];
   if (!u) return print(span('e', `id: '${esc(who)}': no such user`));
-  const [uid, own] = u, names = o.n || o.name;
+  const [uid] = u, own = groupsOf(who), names = o.n || o.name;
   // on the homelab ian may talk to Docker without sudo
   const groups = state.host === 'homelab' && who === 'ian' ? [...own, [999, 'docker']] : own;
   if (o.u || o.user) return print(names ? who : String(uid));
@@ -554,7 +626,7 @@ def('htop', null, 'processes, interactive: pick one and kill it', args => {
   return new Promise(resolve => {
     const box = print('');
     let sel = 0, sort = 0, note = '', timer;
-    const cores = state.host === 'pve1' ? 12 : state.host === 'homelab' ? 4 : Math.min(navigator.hardwareConcurrency || 4, 8);
+    const cores = onNode() ? 12 : state.host === 'homelab' ? 4 : state.host === 'pbs' ? 2 : Math.min(navigator.hardwareConcurrency || 4, 8);
     const bar = (pct, w) => span('a', '|'.repeat(Math.round(Math.min(pct, 100) / 100 * w))) + ' '.repeat(w - Math.round(Math.min(pct, 100) / 100 * w));
     const rows = () => procs().map(p => ({ ...p, cpu: jitter(p.cpu) })).sort(SORTS[sort][1]);
     let shown = rows();
@@ -1013,9 +1085,20 @@ const FILTER_INFO = {
   sort: ['sort the input', '[-rnuf]', [['-r, --reverse', 'reverse the order'], ['-n, --numeric-sort', 'compare as numbers'], ['-u, --unique', 'drop duplicate lines'], ['-f, --ignore-case', 'ignore case']]],
   uniq: ['drop repeated lines', '[-cdui]', [['-c, --count', 'prefix lines with how often they occur'], ['-d, --repeated', 'only lines that repeat'], ['-u, --unique', 'only lines that do not repeat'], ['-i, --ignore-case', 'ignore case']]],
   lolcat: ['rainbows', '[text]', []],
+  cut: ['pick fields or characters from every line', '-d delim -f list | -c list', [['-d delim, --delimiter=delim', 'what separates the fields (default: a tab)'], ['-f list, --fields=list', 'which fields, like 1,3 or 2-4 or 3-'], ['-c list, --characters=list', 'which characters instead'], ['-s, --only-delimited', 'skip lines without the delimiter']]],
+  tr: ['swap or delete characters', '[-ds] <set1> [set2]', [['-d', 'delete the characters of set1'], ['-s', 'squeeze repeats into one'], ['set', 'characters, ranges like a-z, or classes like [:upper:]']]],
+  rev: ['every line backwards', '', []],
+  nl: ['number the lines', '[-b a] [-w width]', [['-b a', 'number every line, empty ones too'], ['-w width', 'how wide the numbers are (default 6)']]],
+  tee: ['write the pipe into files and pass it on', '[-a] <file>...', [['-a, --append', 'add to the files instead of overwriting them']]],
+  base64: ['encode or decode base64', '[-d] [-w cols]', [['-d, --decode', 'decode instead'], ['-w cols, --wrap=cols', 'wrap encoded lines after cols characters (0: never)']]],
+  sha256sum: ['the SHA-256 checksum', '', []],
+  md5sum: ['the MD5 checksum (old, but still everywhere)', '', []],
 };
 // head, tail, wc, sort and uniq read a pipe or files: head -n 3 about.txt, wc -l experience/*
-const TAKES = { head: ['n', 'c', 'lines', 'bytes'], tail: ['n', 'c', 'lines', 'bytes'] };
+const TAKES = { head: ['n', 'c', 'lines', 'bytes'], tail: ['n', 'c', 'lines', 'bytes'], cut: ['d', 'f', 'c', 'delimiter', 'fields', 'characters'], nl: ['b', 'w'], base64: ['w', 'wrap'] };
+// these only read a pipe: tr and tee take sets and file names, not files to read
+const PIPE_ONLY = { tr: "echo hello | tr a-z A-Z", tee: 'skills | tee /tmp/skills.txt', lolcat: 'fortune | lolcat' };
+const HASHES = ['sha256sum', 'md5sum'];
 function readText(p) {
   const r = resolve(p);
   if (r.error) return { error: r.error === 'denied' ? 'Permission denied' : 'No such file or directory' };
@@ -1023,16 +1106,19 @@ function readText(p) {
   state.silent = true;
   try { return { lines: htmlToText(r.node.read()) }; } finally { state.silent = false; }
 }
-Object.keys(FILTERS).forEach(f => def(f, 'more', FILTER_INFO[f][0], args => {
+Object.keys(FILTER_INFO).forEach(f => def(f, 'more', FILTER_INFO[f][0], args => {
   const [, paths] = getopt(args, TAKES[f] || []);
-  if (!paths.length || f === 'lolcat') return print(span('m', `${f} reads from a pipe or from files. Try `) + cmd(f === 'grep' ? 'skills -a | grep linux' : f === 'lolcat' ? 'fortune | lolcat' : `${f}${f === 'head' || f === 'tail' ? ' -n 3' : ''} about.txt`));
+  if (PIPE_ONLY[f]) return print(span('m', `${f} reads from a pipe here. Try `) + cmd(PIPE_ONLY[f]));
+  if (!paths.length) return print(span('m', `${f} reads from a pipe or from files. Try `) + cmd(`${f}${f === 'head' || f === 'tail' ? ' -n 3' : f === 'cut' ? ' -d: -f1 /etc/passwd' : ''}${f === 'cut' ? '' : ' about.txt'}`));
   const opts = args.filter(a => !paths.includes(a)), read = [];
   for (const p of paths) {
     const t = readText(p);
     if (t.error) { state.failed = true; print(span('e', `${f}: ${esc(p)}: ${t.error}`)); } else read.push([p, t.lines]);
   }
   if (!read.length) return;
-  if (f === 'sort' || f === 'uniq') return printLines(FILTERS[f](opts, read.flatMap(([, l]) => l)));
+  // a checksum per file, its name behind it
+  if (HASHES.includes(f)) return printLines(read.map(([p, l]) => FILTERS[f](opts, l)[0].replace(/-$/, esc(p))));
+  if (!['head', 'tail', 'wc'].includes(f)) return printLines(FILTERS[f](opts, read.flatMap(([, l]) => l)));
   if (f === 'wc') {
     // one line per file, the name behind it, and a total when there are more
     const rows = read.map(([p, l]) => [FILTERS.wc(opts, l)[0], p]);
@@ -1041,7 +1127,7 @@ Object.keys(FILTERS).forEach(f => def(f, 'more', FILTER_INFO[f][0], args => {
   }
   // head and tail: a header per file when there is more than one
   read.forEach(([p, l], i) => printLines([...(read.length > 1 ? [(i ? '\n' : '') + span('w', `==> ${esc(p)} <==`)] : []), ...FILTERS[f](opts, l)]));
-}, { usage: FILTER_INFO[f][1] + (f === 'lolcat' ? '' : ' [file...]'), flags: FILTER_INFO[f][2] }));
+}, { usage: (FILTER_INFO[f][1] + (PIPE_ONLY[f] ? '' : ' [file...]')).trim(), flags: FILTER_INFO[f][2] }));
 // grep with files, or -r for folders: grep -rn proxmox ~. Without either it reads from a pipe (shell.js)
 def('grep', 'more', FILTER_INFO.grep[0], args => {
   const [o, rest] = getopt(args, ['e']);
@@ -1097,7 +1183,13 @@ completes('docker', args => {
   if (args[0] === 'compose') return args.length === 1 ? ['up', 'down', 'ps', 'logs', 'restart', 'start', 'stop'] : ['-d', '-p', '-f'];
   return all().map(c => c.name);
 });
-completes('ssh', args => args.at(-1) === '-i' ? null : { iantiemann: ['homelab', '-i'], homelab: ['pve1', 'root@pve1', '-i'] }[state.host] || []);
+// ssh offers what answers from here: the homelab, then pve1 and pbs, then from a node the other nodes and pbs
+completes('ssh', args => {
+  if (args.at(-1) === '-i') return null;
+  const pbs = pbsUp() ? ['pbs'] : [];
+  if (onNode()) return [...NODES.map(([n]) => n).filter(n => n !== state.host && !CLUSTER.down.has(n) && !lab?.cameThrough(n)), ...pbs];
+  return { iantiemann: ['homelab', '-i'], homelab: ['pve1', 'root@pve1', ...pbs.map(h => 'root@' + h), '-i'] }[state.host] || [];
+});
 completes('ip', args => args.length ? null : ['a', 'addr', 'route', 'link']);
 completes('dig', () => ['+short', 'iantiemann.nl']);
 completes('crontab', args => args.at(-1) === '-u' ? Object.keys(CRONTABS) : null);

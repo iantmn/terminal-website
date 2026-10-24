@@ -1,5 +1,5 @@
 // help, settings and the shell built-ins
-import { unlock, unlocked, ACH_IDS, ACH, noSolution, SECRET_ACH, SEASONAL_ACH, seen } from '../achievements.js';
+import { unlock, unlocked, ACH_IDS, ACH, noSolution, SECRET_ACH, SEASONAL_ACH, SEASONS, seasonOn, seen } from '../achievements.js';
 import { SITE, PROFILE } from '../content.js';
 import { print, printLines, span, esc, cmd, link, pad, rot13, sleep, ask, store, state, out, inrow, getopt, toHash, charsPerLine } from '../core.js';
 import { resetDiary } from '../filesystem.js';
@@ -7,17 +7,20 @@ import { hist, activeHist, histKey } from '../input.js';
 import { C, def, completes } from '../registry.js';
 import { aliases, found, commandNames, helpLines, vars } from '../shell.js';
 import { MANUALS } from '../manuals.js';
-import { ALERT, CLUSTER, DEPLOYED, MY_BACKUPS } from './labstate.js';
+import { ALERT, CLUSTER, DEPLOYED, MY_BACKUPS, logEvent } from './labstate.js';
 import { pager } from '../pager.js';
+import { sha256, utf8 } from '../hash.js';
 import { setSound, soundOn, chime, tone } from '../sound.js';
-import { startGlitch, THEMES, defaultTheme } from '../themes.js';
+import { startGlitch, THEMES, defaultTheme, applyTheme, customTheme, CUSTOM_KEYS, toHex } from '../themes.js';
 import { banner, neofetch } from '../visuals.js';
 
 // about
 const MORE_TOPICS = [
-  ['Files and text', ['cp', 'diff', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'ln', 'mkdir', 'rmdir', 'touch', 'less']],
+  ['Files and text', ['cp', 'diff', 'grep', 'head', 'tail', 'wc', 'sort', 'uniq', 'cut', 'tr', 'rev', 'nl', 'tee', 'ln', 'mkdir', 'rmdir', 'touch', 'less', 'nano', 'jq']],
+  ['Shell and scripts', ['sh', 'source', 'true', 'false', 'sleep', 'seq', 'xargs']],
+  ['Checksums and codes', ['base64', 'sha256sum', 'md5sum', 'uuidgen']],
   ['System', ['ps', 'systemctl', 'journalctl', 'dmesg', 'crontab', 'df', 'free', 'fsck', 'uptime', 'uname', 'hostname', 'id', 'env', 'which', 'watch', 'unalias', 'yes']],
-  ['Network', ['ip', 'netstat', 'dig', 'traceroute', 'ssh', 'netmap']],
+  ['Network', ['ip', 'netstat', 'dig', 'traceroute', 'ssh', 'ssh-add', 'netmap']],
   ['The homelab', ['grafana', 'kubectl', 'deploy']],
   ['People', ['who', 'last', 'finger', 'wall', 'mail', 'hello', 'github', 'linkedin']],
   ['Odds and ends', ['cal', 'calc', 'beep', 'lolcat']],
@@ -52,8 +55,8 @@ def(['help', 'h', '?'], 'system', 'show this help', args => {
   // hidden ones (an achievement or a puzzle) join the list once you used them
   const hidden = Object.values(C).filter(c => !c.group && !c.alias), mine = hidden.filter(c => found.has(c.name)).sort((a, b) => a.name.localeCompare(b.name));
   if (mine.length) { print(span('w b', `Found by you (${mine.length}/${hidden.length})`)); print('  ' + names(mine)); print(''); }
-  print(span('m', 'Tips: ') + 'Tab autocompletes · ↑/↓ history · Ctrl+L clears · Ctrl+C cancels · links are clickable');
-  print(span('m', 'Shell: ') + 'pipes (' + cmd('skills -a | grep linux') + ') · ' + span('a2', '&amp;&amp;') + ' and ' + span('a2', ';') + ' chain commands · ' + cmd('alias') + ' makes shortcuts · ' + span('a2', '&lt;command&gt; --help'));
+  print(span('m', 'Tips: ') + 'Tab autocompletes · ↑/↓ history (type first to search) · Ctrl+R searches · Ctrl+A/E/U/K edit · Ctrl+L clears · Ctrl+C cancels · links are clickable');
+  print(span('m', 'Shell: ') + 'pipes (' + cmd('skills -a | grep linux') + ') · ' + span('a2', '&amp;&amp;') + ' and ' + span('a2', ';') + ' chain commands · ' + span('a2', '&gt; file') + ', ' + span('a2', '2&gt;/dev/null') + ' and ' + span('a2', '$(…)') + ' · ' + cmd('alias') + ' makes shortcuts · ' + cmd('nano ~/.bashrc') + ' runs at every start · ' + span('a2', '&lt;command&gt; --help'));
   print(span('m', mine.length === hidden.length ? 'You found every hidden command. Nothing left to hide.' : 'Not every command is listed here. Try ls -a ;)'));
 });
 
@@ -67,11 +70,12 @@ def('history', 'system', 'command history', args => {
   const from = n ? Math.max(0, hist.length - parseInt(n, 10)) : 0;
   hist.slice(from).forEach((h, i) => print(`${span('m', String(from + i + 1).padStart(4, ' '))}  ${esc(h)}`));
 }, { usage: '[n] [-c]', flags: [['n', 'only the last n commands'], ['-c', 'clear the history']] });
-// like bash: options only count at the start, -e turns \n and \t into a new line and a tab
-def('echo', 'system', 'print text', (args, raw) => {
-  let text = raw.replace(/^\s*echo\s?/, ''), escapes = false;
-  for (let m; (m = text.match(/^-([neE]+)(\s+|$)/));) { if (m[1].includes('e')) escapes = true; if (m[1].includes('E')) escapes = false; text = text.slice(m[0].length); }
-  text = text.replace(/^(["'])(.*)\1$/, '$2');
+// like bash: options only count at the start, -e turns \n and \t into a new line and a tab. The words come as the
+// shell split them, so "a  b" keeps its spaces, a\ b is one word and quotes are gone
+def('echo', 'system', 'print text', args => {
+  let i = 0, escapes = false;
+  for (; i < args.length && /^-[neE]+$/.test(args[i]); i++) { if (args[i].includes('e')) escapes = true; if (args[i].includes('E')) escapes = false; }
+  let text = args.slice(i).join(' ');
   if (escapes) text = text.replace(/\\([ntb\\])/g, (_, c) => ({ n: '\n', t: '\t', b: '', '\\': '\\' }[c]));
   print(esc(text));
 }, { usage: '[-e] <text>', flags: [['-n', 'no trailing newline'], ['-e', 'interpret \\n, \\t and \\\\'], ['-E', 'do not interpret them (default)']], anyFlags: true });
@@ -107,6 +111,7 @@ def(['neofetch', 'fastfetch', 'screenfetch'], 'system', 'system information', ()
 // a theme's colours, read from css/style.css, so the list can show each theme without switching to it
 const colorCache = {};
 function themeColors(t) {
+  if (t === 'custom') return customTheme() || {};
   if (colorCache[t]) return colorCache[t];
   const out = {};
   for (const sheet of document.styleSheets) {
@@ -118,8 +123,49 @@ function themeColors(t) {
   }
   return colorCache[t] = out;
 }
+// the colours of the theme you are on right now, as #rrggbb: the start of a custom theme
+const currentColors = () => Object.fromEntries(CUSTOM_KEYS.map(k => [k, toHex(getComputedStyle(document.body).getPropertyValue('--' + k).trim()) || '#808080']));
+const useTheme = t => { applyTheme(t); store.set('theme', t); };
+// theme export gives a code like 1b1b1e.d4d4d8. ...: the nine colours in the order of CUSTOM_KEYS
+const themeCode = c => CUSTOM_KEYS.map(k => (toHex(c[k]) || '#808080').slice(1)).join('.');
+function customCommand(args) {
+  const [sub, key, ...rest] = args;
+  if (sub === 'set') {
+    const value = rest.join(' ');
+    if (!CUSTOM_KEYS.includes(key) || !value) return print(span('e', 'usage: theme set &lt;key&gt; &lt;colour&gt;') + span('m', `   keys: ${CUSTOM_KEYS.join(', ')}. Like `) + cmd('theme set accent #ff79c6'));
+    if (!toHex(value) || !CSS.supports('color', value)) { state.failed = true; return print(span('e', `theme: '${esc(value)}' is not a colour I know`) + span('m', ' (try #ff79c6, hotpink or rgb(255 121 198))')); }
+    const c = { ...(customTheme() || currentColors()), [key]: toHex(value) };
+    store.set('customTheme', c); useTheme('custom'); unlock('theme');
+    return print(span('a', `custom theme: ${key} is now ${toHex(value)}`) + span('m', ' · share it: ') + cmd('theme export'));
+  }
+  if (sub === 'export') {
+    const c = customTheme();
+    if (!c) return print(span('m', 'No custom theme yet. Start one with ') + cmd('theme set accent #ff79c6'));
+    const line = 'theme import ' + themeCode(c);
+    return printLines([span('m', 'Whoever runs this gets your theme:'), '  ' + cmd(line), span('m', 'Or as a link: ') + cmd(`share '${line}'`)]);
+  }
+  if (sub === 'import') {
+    const parts = (key || '').split('.');
+    if (parts.length !== CUSTOM_KEYS.length || !parts.every(p => /^[0-9a-f]{6}$/i.test(p))) { state.failed = true; return print(span('e', 'theme: that code is not a theme') + span('m', ` (nine colours like 1b1b1e, joined by dots)`)); }
+    store.set('customTheme', Object.fromEntries(CUSTOM_KEYS.map((k, i) => [k, '#' + parts[i].toLowerCase()])));
+    useTheme('custom'); unlock('theme');
+    return print(span('a', 'theme set to custom') + span('m', ' (imported). Change a colour with ') + span('a2', 'theme set &lt;key&gt; &lt;colour&gt;'));
+  }
+  // theme custom: switch to it, or start one; --reset forgets it
+  if (key === '--reset') {
+    store.del('customTheme');
+    if (document.body.dataset.theme === 'custom') useTheme(defaultTheme());
+    return print(span('a', 'custom theme removed'));
+  }
+  if (!customTheme()) store.set('customTheme', currentColors());
+  useTheme('custom'); unlock('theme');
+  printLines([span('a', 'theme set to custom') + span('m', ', your own. Every colour can change:'),
+    ...CUSTOM_KEYS.map(k => `  <span style="color:${customTheme()[k]}">██</span> ${span('a2', pad(k, 8))} ${esc(customTheme()[k])}`),
+    span('m', 'Like ') + cmd('theme set accent #ff79c6') + span('m', ', then ') + cmd('theme export') + span('m', ' to share it.')]);
+}
 def('theme', 'system', 'change colour theme', args => {
-  const themes = [...THEMES, ...(unlocked.has('treasure') ? ['gold'] : []), ...(unlocked.has('corrupt') ? ['corrupt'] : [])];
+  if (['set', 'export', 'import', 'custom'].includes(args[0])) return customCommand(args);
+  const themes = [...THEMES, ...(unlocked.has('treasure') ? ['gold'] : []), ...(unlocked.has('corrupt') ? ['corrupt'] : []), ...(customTheme() ? ['custom'] : [])];
   if (args[0] === 'random') {
     // random never lands on the glitchy one by accident
     const others = themes.filter(t => t !== document.body.dataset.theme && t !== 'corrupt');
@@ -133,16 +179,16 @@ def('theme', 'system', 'change colour theme', args => {
       const swatch = `<span style="background:${c.bg};color:${c.fg};padding:0 .6ch;border-radius:2px">Aa</span> ` + ['accent', 'accent2', 'link', 'warn', 'err'].map(k => `<span style="color:${c[k]}">██</span>`).join('');
       return mark + cmd('theme ' + t, t) + ' '.repeat(w - t.length) + swatch;
     }));
-    return print(span('m', 'Click one, or ') + cmd('theme random'));
+    return print(span('m', 'Click one, or ') + cmd('theme random') + span('m', '. Or make your own: ') + cmd('theme custom'));
   }
-  document.body.dataset.theme = args[0]; store.set('theme', args[0]);
+  useTheme(args[0]);
   if (args[0] === 'corrupt') {
     print(span('e', 'theme set to c0rr░pt') + span('m', ' ...wait, that does not look right.'));
     unlock('theme'); unlock('corrupt'); startGlitch();
     return print(span('m', 'Want your sanity back? ') + cmd('theme default'));
   }
   print(span('a', `theme set to ${args[0]}`)); unlock('theme');
-}, { usage: '<name|random>', flags: [['random', 'surprise me']] });
+}, { usage: '<name|random|custom>', flags: [['random', 'surprise me'], ['custom', 'your own theme, starting from the one you are on'], ['custom --reset', 'forget your own theme'], ['set key colour', 'change one colour of your theme, like set accent #ff79c6'], ['export', 'a command that gives someone else your theme'], ['import code', 'use a theme someone exported']] });
 
 def('sound', 'system', 'turn sound on or off', args => {
   if (args[0] === 'on' || args[0] === 'off') setSound(args[0] === 'on');
@@ -150,6 +196,25 @@ def('sound', 'system', 'turn sound on or off', args => {
   print(`sound is ${span(soundOn ? 'a' : 'w', soundOn ? 'on' : 'off')}` + span('m', ' · ') + cmd(soundOn ? 'sound off' : 'sound on') + (soundOn ? span('m', ' · try ') + cmd('beep tune') : ''));
   if (soundOn && args[0] === 'on') try { chime(0); } catch {}
 }, { usage: '[on|off]' });
+
+// font: bigger or smaller text, for this browser. 15px is the default (13px on a phone)
+const FONT = { min: 10, max: 28 };
+const fontNow = () => parseFloat(getComputedStyle(document.body).fontSize) || 15;
+function setFont(px) {
+  if (px === null) { store.del('font'); document.documentElement.style.removeProperty('--fs'); return; }
+  store.set('font', px); document.documentElement.style.setProperty('--fs', px + 'px');
+}
+def(['font', 'zoom'], 'system', 'make the text bigger or smaller', args => {
+  const a = args[0];
+  if (a === 'reset') setFont(null);
+  else if (a === '+' || a === '-') setFont(Math.min(FONT.max, Math.max(FONT.min, Math.round(fontNow()) + (a === '+' ? 1 : -1))));
+  else if (/^\d+(px)?$/.test(a || '')) {
+    const px = parseInt(a, 10);
+    if (px < FONT.min || px > FONT.max) { state.failed = true; return print(span('e', `font: pick a size from ${FONT.min} to ${FONT.max}`)); }
+    setFont(px);
+  } else if (a) { state.failed = true; return print(span('e', 'usage: font [+|-|size|reset]')); }
+  print(`font size ${span('a', Math.round(fontNow()) + 'px')}` + span('m', ' · ') + cmd('font +') + ' ' + cmd('font -') + ' ' + cmd('font reset'));
+}, { usage: '[+|-|size|reset]', flags: [['+', 'one step bigger'], ['-', 'one step smaller'], ['size', `a size in pixels, ${FONT.min} to ${FONT.max}`], ['reset', 'back to the default']] });
 
 def('beep', 'more', 'make a sound', args => {
   if (!soundOn) return print(span('m', 'Sound is off. ') + cmd('sound on'));
@@ -201,28 +266,66 @@ async function shareCard() {
     try { if (navigator.canShare(data)) await navigator.share(data); else await navigator.share({ title: data.title, text: data.text, url: 'https://terminal.iantiemann.nl/' }); } catch {}
   });
 }
+// progress as a code, to take it to another browser: one bit per achievement, in the order of the list, as base36.
+// Short enough for a QR code. The length of the list goes in front (a code from before a new achievement was added
+// would read wrong), a checksum behind it (a typo is caught instead of half imported)
+const sum4 = s => sha256(utf8(s)).slice(0, 4);
+function progressCode() {
+  const bits = ACH_IDS.reduce((n, id, i) => unlocked.has(id) ? n | (1n << BigInt(i)) : n, 0n);
+  const body = `${ACH_IDS.length}-${bits.toString(36)}`;
+  return `${body}-${sum4(body)}`;
+}
+function exportProgress() {
+  if (!unlocked.size) return print(span('m', 'Nothing to take along yet. Go find something first: ') + cmd('hint -r'));
+  const code = progressCode(), line = 'achievements --import ' + code;
+  printLines([
+    span('m', `Your progress (${unlocked.size}/${ACH_IDS.length}) as a code. On the other device, run:`),
+    '  ' + cmd(line),
+    span('m', 'On a phone: ') + cmd(`qr ${location.origin}${location.pathname}${toHash(line)}`, 'scan it') + span('m', ', or ') + cmd(`share '${line}'`, 'copy a link'),
+  ]);
+}
+async function importProgress(code) {
+  const [len, bits, sum] = String(code || '').split('-');
+  if (!bits || sum !== sum4(`${len}-${bits}`) || !/^[0-9a-z]+$/.test(bits)) { state.failed = true; return print(span('e', 'achievements: that code does not check out.') + span('m', ' Copy it again, all of it.')); }
+  if (+len !== ACH_IDS.length) { state.failed = true; return print(span('e', 'achievements: that code is from an older version of this site.') + span('m', ' Make a new one with ') + cmd('achievements --export')); }
+  const n = [...bits].reduce((v, c) => v * 36n + BigInt(parseInt(c, 36)), 0n);
+  const fresh = ACH_IDS.filter((id, i) => (n >> BigInt(i)) & 1n).filter(id => !unlocked.has(id));
+  if (!fresh.length) return print(span('m', 'Nothing new in that code: you have all of it already.'));
+  state.busy = false; inrow.style.visibility = '';
+  const answer = await ask(span('w', `Add ${fresh.length} achievement${fresh.length === 1 ? '' : 's'} to this browser? Nothing you have gets lost. [y/N] `));
+  if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Not imported.'));
+  // straight into the sets, without a line for each one; completionist the normal way, if that is what it adds up to
+  fresh.filter(id => id !== 'completionist').forEach(id => unlocked.add(id));
+  store.set('ach', [...unlocked]);
+  print(span('a', `Imported ${fresh.length}. You are at ${unlocked.size}/${ACH_IDS.length}.`));
+  if (fresh.includes('completionist') || ACH_IDS.every(a => a === 'completionist' || SEASONAL_ACH.includes(a) || unlocked.has(a))) unlock('completionist');
+}
 def('achievements', 'system', 'easter eggs you found', async args => {
   if (args.includes('--share') || args.includes('-s')) return shareCard();
+  if (args.includes('--export')) return exportProgress();
+  if (args.includes('--import')) return importProgress(args[args.indexOf('--import') + 1]);
   const total = ACH_IDS.length;
   print(`${span('w b', 'Achievements')}  ${bar(unlocked.size, total)}  ${unlocked.size}/${total} ${span('m', `(${Math.round(unlocked.size / total * 100)}%)`)}`);
   // the numbers stay the order of the list, so hint <n> keeps meaning the same one
   const kind = id => SEASONAL_ACH.includes(id) ? 'seasonal' : SECRET_ACH.includes(id) ? 'secret' : !ACH[id][1] ? 'classic' : 'normal';
-  const GROUPS = [['normal', 'Achievements', 'each one has a hint'], ['classic', 'Classics', 'what everyone tries in a terminal, no hints'], ['secret', 'Secrets', 'a hint, never a solution'], ['seasonal', 'Seasonal', 'only on one day of the year']];
+  const GROUPS = [['normal', 'Achievements', 'each one has a hint'], ['classic', 'Classics', 'what everyone tries in a terminal, no hints'], ['secret', 'Secrets', 'a hint, never a solution'], ['seasonal', 'Seasonal', 'only on their day of the year']];
   for (const [k, title, about] of GROUPS) {
     const ids = ACH_IDS.filter(id => kind(id) === k), got = ids.filter(id => unlocked.has(id)).length;
     print('');
     print(`${span('w b', title)} ${span('m', `${got}/${ids.length} · ${about}`)}`);
     ids.forEach(id => {
       const i = ACH_IDS.indexOf(id), [name, hint] = ACH[id], n = String(i + 1).padStart(2, ' ');
+      // a seasonal one says when: its day, and today! on the day itself
+      const when = SEASONS[id] ? span('m', ' · ') + span(seasonOn(id) ? 'w b' : 'a2', esc(SEASONS[id].label) + (seasonOn(id) ? ', today!' : '')) : '';
       if (unlocked.has(id)) print(`  ${span('w', '★')} ${span('m', n)} ${esc(name)}  ${span('m', '(' + esc(ACH[id][2]) + ')')}`);
-      else print(`  ${span('m', '☆ ' + n + ' ???')}  ${hint ? span('m', '- ' + esc(hint)) : ''}`);
+      else print(`  ${span('m', '☆ ' + n + ' ???')}  ${hint ? span('m', '- ' + esc(hint)) : ''}${when}`);
     });
   }
   print('');
   if (unlocked.size) print(span('m', 'Want to start over? ') + cmd('reset-achievements'));
   if (unlocked.size === total) print(span('a b', 'You found everything. Respect.'));
   else print(span('m', 'Stuck? ') + cmd('hint -r') + span('m', ' gives a random tip, ') + span('a2', 'hint &lt;n&gt;') + span('m', ' a tip for a specific one.'));
-}, { flags: [['-s, --share', 'a picture of your progress, to download or share']] });
+}, { flags: [['-s, --share', 'a picture of your progress, to download or share'], ['--export', 'your progress as a code, to take it to another device'], ['--import code', 'add the progress from such a code']] });
 def('reset-achievements', 'system', 'forget all achievements', async () => {
   if (!unlocked.size) return print(span('m', 'Nothing to reset, you have no achievements yet.'));
   state.busy = false; inrow.style.visibility = '';
@@ -238,14 +341,16 @@ def('reset-achievements', 'system', 'forget all achievements', async () => {
   print(span('a', `All achievements reset. 0/${ACH_IDS.length}, happy hunting.`));
 });
 // settings only: achievements, read posts, the diary and the snake high score stay
-def('reset-settings', 'system', 'theme, sound, CRT and aliases back to default', async () => {
+def('reset-settings', 'system', 'theme, sound, CRT, font, aliases and ~/.bashrc back to default', async () => {
   state.busy = false; inrow.style.visibility = '';
-  const answer = await ask(span('w', 'Reset theme, sound, CRT mode and aliases to their defaults? Your achievements stay. [y/N] '));
+  const answer = await ask(span('w', 'Reset theme, sound, CRT mode, font size, aliases and ~/.bashrc to their defaults? Your achievements stay. [y/N] '));
   if (!/^y(es)?$/i.test(answer)) return print(span('m', 'Aborted. Nothing changed.'));
-  document.body.dataset.theme = defaultTheme(); store.del('theme');
+  applyTheme(defaultTheme()); store.del('theme'); store.del('customTheme');
   document.body.classList.remove('crt'); store.set('crt', false);
+  setFont(null);
   setSound(true);
   Object.keys(aliases).forEach(k => delete aliases[k]); store.set('aliases', aliases);
+  store.del('bashrc'); store.del('bashrcTime');
   print(span('a', 'Settings reset to the defaults.') + span('m', ` Your progress is untouched (${unlocked.size}/${ACH_IDS.length} achievements).`));
 });
 // the next step of each puzzle someone started, as a nudge and never the answer
@@ -277,6 +382,8 @@ function nudges() {
   if (!has('corrupt') && s('corrupt-clue')) out.push('A theme is hiding, and it is broken. Its name shows up where the logs and fsck complain.');
   return out;
 }
+// a seasonal hint says its day too: no point trying it on any other
+const whenLabel = id => SEASONS[id] ? span('m', ` (only on ${esc(SEASONS[id].label)}${seasonOn(id) ? ', which is today' : ''})`) : '';
 def('hint', 'system', 'a nudge towards an achievement', async args => {
   const n = parseInt(args[0], 10);
   if (args[0] === '-r' || args[0] === '--random') {
@@ -286,7 +393,7 @@ def('hint', 'system', 'a nudge towards an achievement', async args => {
       return print(span('m', classics ? `No hints left. The last ${classics} are classics, you either know them or you don't.` : 'Nothing left, you found everything.'));
     }
     const id = locked[Math.floor(Math.random() * locked.length)];
-    return print(`${span('w', 'hint #' + (ACH_IDS.indexOf(id) + 1))} ${esc(ACH[id][1])}`);
+    return print(`${span('w', 'hint #' + (ACH_IDS.indexOf(id) + 1))} ${esc(ACH[id][1])}${whenLabel(id)}`);
   }
   if (!n) {
     // first a nudge for a puzzle you are in the middle of, then how hint works
@@ -304,7 +411,7 @@ def('hint', 'system', 'a nudge towards an achievement', async args => {
   if (unlocked.has(id)) return print(span('m', `You already have #${n} (${esc(ACH[id][0])}): ${esc(ACH[id][2])}`));
   if (!ACH[id][1]) return print(span('m', `#${n} is a classic, no hints or solutions for that one. Think of what everyone tries in a terminal.`));
   if (!args.includes('--solution') && !args.includes('-s')) {
-    print(`${span('w', 'hint #' + n)} ${esc(ACH[id][1])}`);
+    print(`${span('w', 'hint #' + n)} ${esc(ACH[id][1])}${whenLabel(id)}`);
     return print(noSolution(id) ? span('m', 'This one is a secret: no solution, only this hint.') : span('m', 'Still stuck? ') + cmd(`hint ${n} --solution`));
   }
   if (noSolution(id)) return print(span('e', `#${n} is a secret.`) + span('m', ' No solution for this one, you will have to find it yourself. The hint is all you get: ') + esc(ACH[id][1]));
@@ -338,7 +445,7 @@ def('share', 'system', 'copy a link that runs a command', async (args, raw) => {
   print(span('m', 'Whoever opens it sees ') + span('a2', esc(line)) + span('m', ' run. On a phone? ') + cmd('qr ' + url, 'scan it'));
 }, { usage: '[command]', flags: [['command', 'the command to share (default: the last one you ran)'], ["'a | b'", 'quote a pipeline to share all of it']] });
 
-def(['repo', 'source', 'src'], 'system', 'source code of this site', () => {
+def(['repo', 'src'], 'system', 'source code of this site', () => {
   print(span('m', 'This terminal is open source: ') + link(PROFILE.repo));
   print(span('m', 'Stars, issues and pull requests are welcome.'));
 });
@@ -392,7 +499,17 @@ def('install', 'system', 'install this terminal as an app', async () => {
   if (/iPhone|iPad|iPod/.test(navigator.userAgent)) return print(span('m', 'On an iPhone or iPad: tap Share, then Add to Home Screen.'));
   print(span('m', 'Your browser does not offer it right now. In Chrome or Edge it is the install icon in the address bar; in Firefox, pin the tab. After one visit it works offline either way.'));
 });
-def('mail', 'more', 'send me an email', () => PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin')));
+// mail: here it opens your mail program to write me. On the homelab and the cluster it is the real thing for scripts:
+// echo "text" | mail -s subject ian sends quietly, and the mail log shows it went
+def('mail', 'more', 'send me an email', args => {
+  if (state.host !== 'iantiemann') {
+    const [o, to] = getopt(args, ['s']);
+    if (!to.length) { state.failed = true; return print(span('e', 'mail: no recipients specified')); }
+    logEvent(state.host, 'postfix', 1450, `to=<${to[0].includes('@') ? to[0] : to[0] + '@iantiemann.nl'}>, relay=smtp.iantiemann.nl[10.20.0.1]:587, status=sent${o.s ? ` (subject: ${o.s})` : ''}`);
+    return;
+  }
+  return PROFILE.email ? (location.href = 'mailto:' + PROFILE.email) : print(span('m', 'No email listed - use ') + cmd('linkedin'));
+}, { usage: '[-s subject] [to]', flags: [['-s subject', 'on the homelab and the cluster: the subject of a mail a script sends'], ['to', 'who gets it, like ian']] });
 // man pages: section names in bold, text wrapped and indented seven spaces, like groff does it
 const sect = t => span('w b', t);
 const wrap = (text, w) => text.split(' ').reduce((lines, word) => { const l = lines.at(-1); if (l && (l + ' ' + word).length <= w) lines[lines.length - 1] = l + ' ' + word; else lines.push(word); return lines; }, []);
@@ -431,7 +548,7 @@ def(['man', 'apropos'], 'system', 'manual for a command', async (args, raw) => {
     ], 'ian(1)', o);
   }
   const c = C[t];
-  if (!c || !c.desc) { state.failed = true; return print(`No manual entry for ${esc(t)}`); }
+  if (!c || !c.desc || c.available?.() === false) { state.failed = true; return print(`No manual entry for ${esc(t)}`); }
   const m = MANUALS[c.name] || {}, sec = m.section || 1, title = `${c.name.toUpperCase()}(${sec})`;
   // the classic layout: a header and footer with the page name, sections in bold, text indented seven spaces
   const w = Math.min(78, Math.max(48, charsPerLine() - 2));
@@ -479,7 +596,9 @@ def('unalias', 'more', 'remove a shortcut', args => {
 }, { usage: '<name> | -a', flags: [['-a', 'remove every alias']] });
 
 // Tab completion for the arguments
-completes('theme', () => [...THEMES, 'random', ...(unlocked.has('treasure') ? ['gold'] : []), ...(unlocked.has('corrupt') ? ['corrupt'] : [])]);
+completes('theme', args => args[0] === 'set' ? (args.length === 1 ? CUSTOM_KEYS : null) : args.length ? null : [...THEMES, 'random', 'custom', 'set', 'export', 'import', ...(unlocked.has('treasure') ? ['gold'] : []), ...(unlocked.has('corrupt') ? ['corrupt'] : [])]);
+completes('font', () => ['+', '-', 'reset', '12', '15', '18', '20']);
+completes('achievements', () => ['--share', '--export', '--import']);
 completes('sound', () => ['on', 'off']);
 completes('hint', args => args.length ? ['--solution'] : ['-r', ...ACH_IDS.map((_, i) => i + 1)]);
 completes('man', () => [...commandNames(), 'ian']);

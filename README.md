@@ -20,12 +20,15 @@ That serves it on http://localhost:8080. Without Docker, `python3 -m http.server
 - `css/style.css`: the themes and the terminal look
 - `js/main.js`: the entry point, it loads the commands and boots
 - `js/content.js`: everything the terminal tells about me
-- `js/commands/`: the commands, by topic (`me`, `nav`, `system`, `fun`, `linux`), plus `homelab.js` (the Docker VM behind ssh), `pve.js` (pve1, the first node of the Proxmox cluster under it), and `python.js` (a tiny Python), `qr.js` (a QR encoder) and `guestbook.js`, which `lazy.js` loads the first time they run
+- `js/commands/`: the commands, by topic (`me`, `nav`, `system`, `fun`, `linux`, and `tools`: true, sleep, seq, xargs, sh and source, uuidgen, jq and ~/.bashrc), plus `nano.js` (the editor), `homelab.js` (the Docker VM behind ssh), `pve.js` (the three nodes of the Proxmox cluster under it), `pbs.js` (the Proxmox Backup Server, one ssh further), and `python.js` (a tiny Python), `qr.js` (a QR encoder) and `guestbook.js`, which `lazy.js` loads the first time they run
 - `js/core.js`, `shell.js`, `input.js`: printing, parsing and running command lines, the keyboard
 - `js/days.js`: the message of the day, for special days and every day of the week
 - `js/visits.js`: your visits, for `last` and `finger`
-- `js/filesystem.js`: paths, `ls` and the writable `/tmp`; the trees themselves are in `js/fs/` (`home.js` is ~, `system.js` the rest of /, `homelab.js` and `pve.js` the machines behind ssh)
+- `js/filesystem.js`: paths, `ls` and the writable `/tmp`; the trees themselves are in `js/fs/` (`home.js` is ~, `system.js` the rest of /, `homelab.js`, `pve.js` and `pbs.js` the machines behind ssh)
 - `js/achievements.js`, `themes.js`, `sound.js`, `visuals.js`, `boot.js`, `pager.js` (less): the rest
+- `js/hash.js` (sha256sum, md5sum, base64), `js/jq.js` (a small jq), `js/article.js` (`read -f`: a whole post from the main site) and `js/printcv.js` (`cv --print`)
+- `fonts/`: JetBrains Mono, served from here instead of Google Fonts (OFL, see `fonts/OFL.txt`)
+- `design/`: the source of `icons/og-image.png`, the picture a shared link shows; `node design/render.mjs` renders it again
 - `sw.js`, `manifest.webmanifest`, `icons/`: offline and installable. A new module in `js/` goes in the list in `sw.js` too, and when it loads at startup also in the `modulepreload` links of `index.html` (the tests say so when you forget)
 
 A new command is a `def(names, group, description, run, { usage, flags })` call in one of the command files. Every command gets `-h`/`--help` and `--version` from that, and `completes(name, fn)` adds Tab completion for its arguments.
@@ -44,13 +47,13 @@ With Chrome or Edge installed, `CHANNEL=chrome node tests/run.mjs` (or `msedge`)
 
 ## Guestbook
 
-The page is static, so the guestbook needs a small backend. Set `PROFILE.guestbook` in `js/content.js` to a JSON endpoint (an n8n webhook works) that:
+Switched off for now: `GUESTBOOK` in `js/commands/lazy.js` is `false`, so there is no `guestbook` command, no help line and no Tab completion. The code stays in `js/commands/guestbook.js`.
+
+The page is static, so the guestbook needs a small backend. To turn it on, set `PROFILE.guestbook` in `js/content.js` to a JSON endpoint (an n8n webhook works) and `GUESTBOOK` to `true`. The endpoint:
 
 - `GET` returns `[{ "name": "...", "message": "...", "date": "ISO date" }]`, newest first, 20 at most
 - `POST` takes `{ "name": "...", "message": "..." }` and answers `200 { "ok": true }`, or `4xx`/`429 { "error": "..." }`
 - allows `https://terminal.iantiemann.nl` in CORS, checks the lengths again (30 and 200), rate-limits, and only returns messages you approved
-
-Until it is set, `guestbook` says it is not open yet.
 
 ## Updating content
 

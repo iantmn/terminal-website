@@ -39,6 +39,10 @@ export const state = {
   user: 'guest',
   // root for one command (please sudo ...)
   asRoot: false,
+  // where error lines go during a 2> redirect: null (as usual), 'drop', 'screen', or an array that collects them
+  errSink: null,
+  // $0, $1 ... while a script runs (sh script.sh a b)
+  argv: null,
 };
 
 export const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -88,20 +92,50 @@ export function getopt(args, takes = []) {
   return [o, rest];
 }
 
+// the screen keeps this many lines; older ones go, so a long visit with yes, watch or the homelab logs stays fast
+export const SCROLLBACK = 3000;
+// how many lines the cap took off the top so far: line n of the visit is out.children[n - screen.trimmed]
+export const screen = { trimmed: 0 };
 export function print(html = '', cls = '') {
-  if (/^<span class="e">/.test(html)) state.failed = true;
+  if (/^<span class="e">/.test(html)) {
+    state.failed = true;
+    // 2> sends errors elsewhere: away (2>/dev/null), into a file, or to the screen while stdout goes into a file
+    const sink = state.errSink;
+    if (sink === 'drop') return document.createElement('div');
+    if (Array.isArray(sink)) { sink.push(html); return document.createElement('div'); }
+    if (sink === 'screen') return show(html, cls);
+  }
   if (state.capture) { state.capture.push(html); return document.createElement('div'); }
+  return show(html, cls);
+}
+function show(html, cls) {
   const d = document.createElement('div');
   d.className = 'ln' + (cls ? ' ' + cls : '');
   d.innerHTML = html;
   // links built by hand (ls entries, post lists) get their href here
   d.querySelectorAll('a[data-cmd]:not([href])').forEach(a => { a.href = toHash(a.dataset.cmd); });
   out.appendChild(d);
+  trimScrollback();
   scrollDown();
   return d;
 }
+function trimScrollback() {
+  const extra = out.childElementCount - SCROLLBACK;
+  // in batches, so it does not happen on every line
+  if (extra < 200) return;
+  const first = out.children[extra], before = first.offsetTop;
+  for (let i = 0; i < extra; i++) out.firstElementChild.remove();
+  screen.trimmed += extra;
+  // someone reading further up keeps their place
+  if (!follow) term.scrollTop -= before - first.offsetTop;
+}
 export const printLines = (arr, cls) => arr.forEach(l => print(l, cls));
-export const scrollDown = () => { term.scrollTop = term.scrollHeight; };
+// the screen follows new output while you are at the bottom. Scroll up to read, and it stays put until you scroll
+// back down (or press Enter, which scrolls down with force)
+let follow = true;
+term.addEventListener('scroll', () => { follow = term.scrollHeight - term.scrollTop - term.clientHeight < 48; }, { passive: true });
+addEventListener('resize', () => { if (follow) term.scrollTop = term.scrollHeight; });
+export const scrollDown = (force = false) => { if (force) follow = true; if (follow) term.scrollTop = term.scrollHeight; };
 
 export const sleep = ms => new Promise((res, rej) => setTimeout(() => state.cancelled ? rej(new Error('SIGINT')) : res(), ms));
 

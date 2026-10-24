@@ -1,11 +1,12 @@
-import { unlocked, unlock, ACH } from './achievements.js';
+import { unlocked, unlock, ACH, activeSeasonal } from './achievements.js';
 import { PROFILE } from './content.js';
-import { out, inrow, state, store, print, span, cmd, link, sleep, renderPrompt, focusInput, HOME } from './core.js';
+import { out, inrow, state, store, print, span, esc, cmd, link, sleep, renderPrompt, focusInput, HOME } from './core.js';
 import { visits } from './visits.js';
 import { dayMessage } from './days.js';
 import { bootSound, soundOn, setSound, resumeAudio } from './sound.js';
 import { banner } from './visuals.js';
-import { defaultTheme } from './themes.js';
+import { defaultTheme, applyTheme } from './themes.js';
+import { runBashrc } from './commands/tools.js';
 
 // ---- boot ----
 export async function boot() {
@@ -19,12 +20,22 @@ export async function boot() {
     '[  OK  ] Reached target curiosity.target',
     '[  OK  ] Started terminal.iantiemann.nl',
   ];
+  // the whole show the first time; a returning visitor, or a link that runs a command, gets it quicker. A key or a
+  // tap skips the rest
+  const quick = visits.count > 1 || !!location.hash, pace = quick ? 0.35 : 1;
+  let skip = null;
+  const skipped = new Promise(r => { skip = r; });
+  const onSkip = e => { if (!e.key || !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) skip(); };
+  addEventListener('keydown', onSkip); addEventListener('pointerdown', onSkip);
+  // a skipped wait still finishes in the background: Ctrl+C there should not become an error nobody catches
+  const wait = ms => Promise.race([sleep(ms * pace).catch(() => {}), skipped]);
   try {
     // give the power-on, fan and POST beep a moment before the boot lines start
-    print(span('m', 'IanOS is starting...')); await sleep(900);
-    for (const l of lines) { bootSound('tick'); print(l.replace('OK', span('a', 'OK')).replace(/^\[/, span('m','[')).replace(/^(<span class="m">\[<\/span>.*?)\]/, '$1' + span('m',']'))); await sleep(380); }
-    await sleep(250);
+    print(span('m', 'IanOS is starting...')); await wait(900);
+    for (const l of lines) { bootSound('tick'); print(l.replace('OK', span('a', 'OK')).replace(/^\[/, span('m','[')).replace(/^(<span class="m">\[<\/span>.*?)\]/, '$1' + span('m',']'))); await wait(380); }
+    await wait(250);
   } catch {}
+  removeEventListener('keydown', onSkip); removeEventListener('pointerdown', onSkip);
   const nightOwl = new Date().getHours() < 6;
   if (nightOwl) print(span('m', '[') + span('w', ' WARN ') + span('m', ']') + ' Night owl detected, brewing extra coffee');
   print('');
@@ -34,18 +45,29 @@ export async function boot() {
   print(`Welcome! Type ${cmd('help')} or click one of the commands to get started.`);
   print(`Try: ${cmd('about')}  ${cmd('experience')}  ${cmd('projects')}  ${cmd('articles')}  ${cmd('skills')}  ${cmd('contact')}  ${cmd('ls')}`);
   print(span('m', 'Source code: ') + link(PROFILE.repo) + span('m', ' (') + cmd('repo') + span('m', ')'));
-  if (!navigator.onLine) print(span('w', 'You are offline.') + span('m', ' The terminal runs from its cache; the feed, the guestbook and changelog need the internet.'));
+  if (!navigator.onLine) print(span('w', 'You are offline.') + span('m', ' The terminal runs from its cache; the feed, read -f and changelog need the internet.'));
   // the first visit: a hand for people who never used a terminal
   if (visits.count <= 1 && !store.get('learn', {}).done) print(span('w', 'New to terminals? ') + cmd('learn') + span('w', ' gives you a two-minute tour.'));
   const sn = dayMessage();
   // today's message and the achievement count get their own block
-  if (sn || unlocked.size) print('');
+  if (sn || unlocked.size || activeSeasonal().length) print('');
   if (sn) print(span('w', sn.msg));
-  if (sn && sn.theme && document.body.dataset.theme === defaultTheme()) document.body.dataset.theme = sn.theme;
+  if (sn && sn.theme && document.body.dataset.theme === defaultTheme()) applyTheme(sn.theme);
   if (unlocked.size) print(span('m', `Welcome back - you've found ${unlocked.size}/${Object.keys(ACH).length} `) + cmd('achievements') + span('m', '.'));
+  seasonalNotice();
   print('');
   if (nightOwl) unlock('nightowl');
   state.busy = false; inrow.style.visibility = ''; renderPrompt(); focusInput();
+  // and then whatever you put in ~/.bashrc
+  await runBashrc();
+}
+
+// a seasonal achievement that can only be found today: the boot says so, with its hint (never the answer)
+export function seasonalNotice() {
+  for (const id of activeSeasonal()) {
+    if (unlocked.has(id)) print(span('m', `🎁 Today's seasonal achievement, ${ACH[id][0]}: you already have it.`));
+    else print(span('w', `🎁 Only today: a seasonal achievement. `) + span('m', esc(ACH[id][1]) + ' ') + cmd('achievements'));
+  }
 }
 
 // browsers only allow sound after a click or key press, so ask for one before the first boot

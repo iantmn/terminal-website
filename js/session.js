@@ -31,11 +31,11 @@ export async function resumeSession() {
   importTmp(s.tmp);
   if (s.vars && typeof s.vars === 'object') for (const [k, v] of Object.entries(s.vars)) if (/^[A-Za-z_]\w*$/.test(k) && typeof v === 'string') vars[k] = v;
   const cwd = Array.isArray(s.cwd) && s.cwd.every(x => typeof x === 'string') ? s.cwd : null;
-  if (s.host !== 'homelab' && s.host !== 'pve1') {
+  if (!['homelab', 'pve1', 'pve2', 'pve3', 'pbs'].includes(s.host)) {
     if (cwd && !resolve('/' + cwd.join('/')).error) { state.cwd = cwd; renderPrompt(); }
     return;
   }
-  // you were on the homelab, or one further on pve: log back in, and stand where you stood
+  // you were on the homelab, or further on the cluster or pbs: log back in, and stand where you stood
   print(span('m', `Reloaded. Reconnecting to ${s.host} ...`));
   const { labSession } = await import('./commands/homelab.js');
   await labSession({ host: s.host, cwd });

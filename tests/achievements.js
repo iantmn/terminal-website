@@ -3,7 +3,7 @@
 // and fast-forwards the clock for patience. SPOILERS, obviously
 import { run } from '/js/input.js';
 import { state } from '/js/core.js';
-import { unlocked, ACH_IDS } from '/js/achievements.js';
+import { unlocked, ACH_IDS, clock } from '/js/achievements.js';
 
 const kb = document.getElementById('kb'), outEl = document.getElementById('out');
 const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -12,9 +12,13 @@ const idle = () => until(() => !state.busy && !state.asking);
 const key = (k, opts = {}, target = kb) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
 // type a line at a prompt that asks (a passphrase, a game, a remote shell) and press Enter
 const answer = async line => { await until(() => state.asking, 8000); kb.value = line; key('Enter'); await wait(120); };
+// the homelab key's passphrase, when ssh asks for it: after the first login the agent has the key and it does not
+const passphrase = async () => { await until(() => state.asking, 8000); if (/passphrase/i.test(document.getElementById('ps').textContent)) await answer('works-on-my-machine'); };
 const cmd = async line => { await run(line); await idle(); };
 const lines = c => c.split(';').map(s => s.trim());
 const all = async (...cs) => { for (const c of cs.flatMap(lines)) await cmd(c); };
+// play a solution as if it is that day, at noon
+const onDay = (day, f) => async () => { const real = clock.now; clock.now = () => new Date(day + 'T12:00:00'); try { await f(); } finally { clock.now = real; } };
 
 // snake: read the board from the screen, walk to the food along the shortest free path, stop at 10
 async function snakeBot() {
@@ -112,10 +116,10 @@ export const SOLUTIONS = {
   deeplink: async () => { location.hash = 'fortune'; await wait(300); await idle(); history.replaceState(null, '', location.pathname); },
   chmod: () => cmd('please sudo chmod +r ~/diary.txt'),
   corrupt: () => all('theme corrupt; theme default'),
-  homelab: async () => { const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab'); await answer('works-on-my-machine'); await answer('exit'); await p; await idle(); },
+  homelab: async () => { const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab'); await passphrase(); await answer('exit'); await p; await idle(); },
   outage: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('cd ~/stacks/terminal'); await answer('docker compose down');
+    await passphrase(); await answer('cd ~/stacks/terminal'); await answer('docker compose down');
     await p; await until(() => !state.busy && !state.asking && state.host === 'iantiemann', 30000);
   },
   typist: async () => {
@@ -131,20 +135,20 @@ export const SOLUTIONS = {
   ghost: () => cmd('cat /dev/null'),
   pve: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('exit'); await answer('exit');
+    await passphrase(); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('exit'); await answer('exit');
     await p; await idle();
   },
   restore: async () => {
     const yesterday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
+    await passphrase(); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
     await answer(`proxmox-file-restore extract vm/102/${yesterday}T01:04:01Z /drive-scsi0.img.fidx/part/1/home/ian/stacks/monitoring/prometheus.yml /tmp/prometheus.yml`);
     await answer('scp /tmp/prometheus.yml homelab:stacks/monitoring/');
     await answer('exit'); await answer('exit'); await p; await idle();
   },
   firefighter: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine');
+    await passphrase();
     // the alert fires half a minute after logging in; here it fires right away
     await until(() => state.asking); (await import('/js/commands/homelab.js')).fireAlert();
     await answer('docker image prune -af'); await answer('docker start monitoring-grafana-1');
@@ -152,18 +156,18 @@ export const SOLUTIONS = {
   },
   threetwoone: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
+    await passphrase(); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
     await answer('vzdump 102'); await answer('exit'); await answer('exit'); await p; await idle();
   },
   shipit: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('cd ~/stacks/whoami'); await answer('docker compose up -d');
+    await passphrase(); await answer('cd ~/stacks/whoami'); await answer('docker compose up -d');
     await answer('exit'); await p; await idle();
   },
   // poweroff on pve1, with the site on it: the outage, and after the boot Ian's walk to the closet (and Wake-on-LAN)
   closet: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('poweroff');
+    await passphrase(); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('poweroff');
     await p; await idle();
     await until(() => unlocked.has('closet'), 30000);
   },
@@ -172,7 +176,7 @@ export const SOLUTIONS = {
     const { VMS } = await import('/js/commands/labstate.js');
     if (VMS.find(v => v.id === 102).node !== 'pve1') throw new Error('no failback: VM 102 is not back on pve1');
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('poweroff');
+    await passphrase(); await answer('ssh -i ~/.ssh/ansible_pve root@pve1'); await answer('poweroff');
     await p; await idle();
     await until(() => unlocked.has('wol'), 30000);
   },
@@ -181,18 +185,30 @@ export const SOLUTIONS = {
     const { VMS } = await import('/js/commands/labstate.js');
     const site = VMS.find(v => v.id === 102).node, order = ['pve2', 'pve3'].sort((a, b) => (a === site) - (b === site));
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
+    await passphrase(); await answer('ssh -i ~/.ssh/ansible_pve root@pve1');
     for (const n of order) await answer(`pvesh create /nodes/${n}/status --command shutdown`);
     await p; await idle();
   },
   // Ian's tmux on the homelab: watch until he kicks you out
   snoop: async () => {
     const p = run('please sudo ssh -i /home/ian/.ssh/id_homelab homelab');
-    await answer('works-on-my-machine'); await answer('tmux ls'); await answer('tmux attach -r');
+    await passphrase(); await answer('tmux ls'); await answer('tmux attach -r');
     await until(() => unlocked.has('snoop'), 45000);
     await answer('exit'); await p; await idle();
   },
   student: () => all('learn restart; pwd; ls; cd experience; cat netw-it-specialist.md; cd ..; skills -a | grep linux; ls; help ls'),
+  // the seasonal ones, each on its own day: the achievements read the time from clock.now, so that one moves
+  newyear: onDay('2027-01-01', () => cmd('cal')),
+  pi: onDay('2027-03-14', () => cmd('calc math.pi')),
+  backupday: onDay('2027-03-31', () => all('cp about.txt /tmp/copy.txt; rm /tmp/copy.txt')),
+  aprilfools: onDay('2027-04-01', () => cmd('rm -rf /')),
+  kingsday: onDay('2027-04-27', () => cmd('cowsay oranje boven')),
+  sysadminday: onDay('2027-07-30', () => cmd('uptime')),
+  linuxbday: onDay('2027-08-25', () => cmd('uname -a')),
+  pirate: onDay('2027-09-19', () => cmd('ls')),
+  coffeeday: onDay('2027-10-01', () => cmd('coffee')),
+  birthday: onDay('2027-11-23', () => cmd('wall happy birthday Ian')),
+  christmas: onDay('2027-12-25', () => cmd('tree -L 1')),
   completionist: async () => {},
 };
 

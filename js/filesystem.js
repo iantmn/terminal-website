@@ -4,7 +4,7 @@ import { esc, span, cmd, pad, state, displayPath, HOME, lev } from './core.js';
 import { POSTS } from './content.js';
 import { FS } from './fs/home.js';
 import { buildRoot } from './fs/system.js';
-export { FS, DIARY, diary, resetDiary, diaryReadable } from './fs/home.js';
+export { FS, DIARY, diary, resetDiary, diaryReadable, BASHRC, BASHRC_DEFAULT } from './fs/home.js';
 
 // / of every machine: the container's own (ROOT), and the ones behind ssh by host name, added when they load
 export let ROOT;
@@ -109,16 +109,40 @@ function place(p) {
   if (r.error || r.node.type !== 'dir') return { error: 'No such file or directory' };
   if (!name || name === '.' || name === '..') return { error: 'Is a directory' };
   const existing = r.node.children[name];
-  if (!r.node.writable) return { error: existing?.type === 'dir' ? 'Is a directory' : 'Read-only file system' };
+  // a read-only folder can still hold a file of yours (~/.bashrc): that one you may change, not replace
+  if (!r.node.writable && !(existing?.mine && existing.type === 'file')) return { error: existing?.type === 'dir' ? 'Is a directory' : 'Read-only file system' };
   return { dir: r.node, name, existing };
 }
-// a file or folder someone made: owned by guest, with a real size and date
+// a file or folder someone made: owned by guest, with a real size and date. perm is what chmod changes; an x in it
+// makes a file a program you can run (./hello.sh)
 function tmpFile(text) {
-  const f = { type: 'file', mine: true, own: 'guest', text, mtime: new Date() };
+  const f = { type: 'file', mine: true, own: 'guest', text, mtime: new Date(), perm: '-rw-r--r--' };
   f.read = () => f.text ? f.text.replace(/\n$/, '').split('\n').map(esc) : [];
+  f.mode = () => f.perm;
   return f;
 }
 const tmpDir = () => ({ type: 'dir', mine: true, writable: true, own: 'guest', children: {}, mtime: new Date() });
+// chmod on your own files: 755, +x, u-w, a=r and the like. null when it worked, else what is wrong with the mode
+export function chmodNode(node, m) {
+  const bits = (node.perm || (node.type === 'dir' ? 'drwxr-xr-x' : '-rw-r--r--')).split('');
+  if (/^[0-7]{3,4}$/.test(m)) m.slice(-3).split('').forEach((d, i) => ['r', 'w', 'x'].forEach((b, j) => { bits[1 + i * 3 + j] = (d & (4 >> j)) ? b : '-'; }));
+  else if (/^([ugoa]*[+=-][rwx]*)(,[ugoa]*[+=-][rwx]*)*$/.test(m)) {
+    for (const part of m.split(',')) {
+      const [, who, op, perms] = part.match(/^([ugoa]*)([+=-])([rwx]*)$/);
+      (who || 'a').replace('a', 'ugo').split('').map(c => 'ugo'.indexOf(c)).forEach(g => ['r', 'w', 'x'].forEach((b, j) => {
+        const i = 1 + g * 3 + j;
+        if (op === '=') bits[i] = perms.includes(b) ? b : '-';
+        else if (perms.includes(b)) bits[i] = op === '+' ? b : '-';
+      }));
+    }
+  } else return 'invalid mode';
+  node.perm = bits.join('');
+  if (!node.mode) node.mode = () => node.perm;
+  return null;
+}
+export const isExecutable = node => node.type === 'file' && (node.perm || '')[3] === 'x';
+// /dev/null takes everything and keeps nothing, on every machine
+export const isDevNull = p => (resolve(p).segs || []).join('/') === 'dev/null';
 // null when it can be written, else the reason, like 'Read-only file system'
 export function cannotWrite(p) {
   const w = place(p);
@@ -164,7 +188,7 @@ export function removeNode(p, { recursive = false, onlyEmpty = false } = {}) {
   const w = place(p);
   if (w.error) return w.error;
   if (!w.existing) return 'No such file or directory';
-  if (!w.existing.mine) return 'Operation not permitted';
+  if (!w.existing.mine || w.existing.keep) return 'Operation not permitted';
   if (w.existing.type === 'dir') {
     if (onlyEmpty && Object.keys(w.existing.children).length) return 'Directory not empty';
     if (!recursive && !onlyEmpty) return 'Is a directory';
@@ -204,14 +228,14 @@ export function glob(pattern) {
 }
 // /tmp as plain data, for the session after a reload, and empty again after a reboot
 const tmpRoot = () => ROOT.children.tmp;
-const dump = node => node.type === 'dir' ? { d: Object.fromEntries(Object.entries(node.children).filter(([, c]) => c.mine).map(([n, c]) => [n, dump(c)])), m: +node.mtime } : { t: node.text, m: +node.mtime };
+const dump = node => node.type === 'dir' ? { d: Object.fromEntries(Object.entries(node.children).filter(([, c]) => c.mine).map(([n, c]) => [n, dump(c)])), m: +node.mtime } : { t: node.text, m: +node.mtime, p: node.perm };
 export const exportTmp = () => dump(tmpRoot()).d;
 export function importTmp(data) {
   const load = (into, items) => {
     for (const [n, x] of Object.entries(items || {})) {
       if (typeof n !== 'string' || !n || n.includes('/') || into.children[n]) continue;
       if (x && typeof x.d === 'object') { const d = tmpDir(); d.mtime = new Date(x.m || Date.now()); into.children[n] = d; load(d, x.d); }
-      else if (x && typeof x.t === 'string') { const f = tmpFile(x.t); f.mtime = new Date(x.m || Date.now()); into.children[n] = f; }
+      else if (x && typeof x.t === 'string') { const f = tmpFile(x.t); f.mtime = new Date(x.m || Date.now()); if (/^-[rwx-]{9}$/.test(x.p || '')) f.perm = x.p; into.children[n] = f; }
     }
   };
   load(tmpRoot(), data);

@@ -2,7 +2,7 @@
 import { unlock, track } from '../achievements.js';
 import { PROFILE, SITE, POSTS } from '../content.js';
 import { print, printLines, span, esc, cmd, link, absUrl, store, state, renderPrompt, underHome, displayPath, getopt } from '../core.js';
-import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode, writeFile, isMine, didYouMean, colourConfig } from '../filesystem.js';
+import { resolve, lsLong, lsEntry, pathLink, fileMeta, DIARY, diary, diaryReadable, TMP_NOTE, touchFile, makeDir, removeNode, writeFile, isMine, didYouMean, colourConfig, chmodNode } from '../filesystem.js';
 import { htmlToText } from '../shell.js';
 import { def, completes } from '../registry.js';
 import { findPost, postChoices } from '../render.js';
@@ -156,6 +156,16 @@ def(['chmod', 'chown'], null, 'change who may read a file (chmod) or who owns it
   const tool = raw.trim().split(/\s+/)[0].toLowerCase();
   const target = args.filter(a => !a.startsWith('-')).pop();
   const r = target ? resolve(target) : { error: true };
+  // your own files (in /tmp, and ~/.bashrc): chmod does what it says, chmod +x makes a script a program
+  if (!r.error && r.node.mine && tool === 'chmod') {
+    if (args.length < 2) return print(span('e', 'chmod: missing operand'));
+    for (const p of args.slice(1)) {
+      const node = resolve(p).node;
+      if (!node?.mine) { state.failed = true; print(span('e', `chmod: cannot access '${esc(p)}': ${node ? 'Operation not permitted' : 'No such file or directory'}`)); continue; }
+      if (chmodNode(node, args[0])) { state.failed = true; return print(span('e', `chmod: invalid mode: '${esc(args[0])}'`)); }
+    }
+    return;
+  }
   if (r.error || r.node !== DIARY) return print(span('e', `${esc(tool)}: cannot modify '${esc(target || '.')}': Read-only file system`) + TMP_NOTE);
   if (args.length < 2) return print(span('e', `${tool}: missing operand`));
   if (tool === 'chown') {

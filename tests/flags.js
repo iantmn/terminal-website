@@ -1,10 +1,12 @@
 // every command and its flags, each with a check on the output. Runs in the page: node tests/run.mjs,
 // or from the browser console with import('/tests/flags.js').then(m => m.runAll(m.T, 1))
 import { run } from '/js/input.js';
+import { screen } from '/js/core.js';
 
 // the output of a command, without the achievement lines a fresh browser gets on the first try
 // WebKit gives an empty line as a newline in innerText, Chromium as nothing: the same text in both
-const out = async c => { const b = document.querySelectorAll('#out .ln').length; await run(c); return [...document.querySelectorAll('#out .ln')].slice(b + 1).map(l => l.innerText.replace(/\n$/, '')).filter(l => !l.startsWith('★ achievement unlocked')).join('\n'); };
+// lines over the whole visit: the scrollback cap takes old ones off the top (screen.trimmed counts them)
+const out = async c => { const b = screen.trimmed + document.querySelectorAll('#out .ln').length; await run(c); return [...document.querySelectorAll('#out .ln')].slice(b + 1 - screen.trimmed).map(l => l.innerText.replace(/\n$/, '')).filter(l => !l.startsWith('★ achievement unlocked')).join('\n'); };
 const lines = s => s.split('\n').filter(l => l.trim());
 const count = (s, re) => (s.match(re) || []).length;
 
@@ -293,6 +295,7 @@ export const T = [
   // command not found, but helpful
   ['nmap', o => o.includes('can be installed with') && o.includes('sudo apt install nmap')],
   ['qm list', o => o.includes('Proxmox cluster')],
+  ['proxmox-backup-manager datastore list', o => o.includes('lives on the backup server (pbs)')],
   ['lss', o => o.includes('did you mean ls')],
   // cp and mv into /tmp
   ['cp about.txt /tmp/ && head -n 1 /tmp/about.txt', o => o.includes('Ian Tiemann')],
@@ -303,6 +306,110 @@ export const T = [
   ['cp about.txt notes.txt', o => o.includes('Read-only file system')],
   ['cp diary.txt /tmp/', o => o.includes('Permission denied') || o === ''],
   ['rm -r /tmp/experience /tmp/me.txt; rm -f /tmp/diary.txt; ls /tmp', o => o === 'ian-was-here.tmp'],
+  // redirections: /dev/null, 2>, &> and 2>&1
+  ['echo hidden > /dev/null', o => o === ''],
+  ['cat nope 2>/dev/null', o => o === ''],
+  ['cat nope 2>/dev/null; echo $?', o => o === '1'],
+  ['cat about.txt nope > /dev/null', o => o.includes('No such file') && !o.includes('Tiemann')],
+  ['cat about.txt nope &> /dev/null', o => o === ''],
+  ['cat nope > /tmp/r.txt 2>&1; cat /tmp/r.txt', o => o.includes('No such file')],
+  ['cat nope 2> /tmp/e.txt; cat /tmp/e.txt', o => o.includes('No such file')],
+  ['cat nope 2>/dev/null | wc -l', o => o === '0'],
+  ['echo a > /etc/x', o => o.includes('Read-only file system')],
+  ['echo >', o => o.includes('syntax error')],
+  // backslashes and quotes, like bash
+  ['echo a\\ b', o => o === 'a b'],
+  ['echo "a   b"', o => o === 'a   b'],
+  ['echo "say \\"hi\\""', o => o === 'say "hi"'],
+  ["echo 'a\\nb'", o => o === 'a\\nb'],
+  ['echo a\\;b', o => o === 'a;b'],
+  ['echo \\$HOME "$HOME"', o => o === '$HOME /home/guest'],
+  ['echo \\*', o => o === '*'],
+  ['echo "" x', o => o === ' x'],
+  // command substitution
+  ['echo $(echo hi)', o => o === 'hi'],
+  ['echo "year $(date +%Y)"', o => o === 'year ' + new Date().getFullYear()],
+  ['echo `hostname`', o => o === 'iantiemann'],
+  ['echo $(echo a; echo b)', o => o === 'a b'],
+  ['echo "$(echo a; echo b)"', o => o === 'a\nb'],
+  ['echo $(echo "a|b;c")', o => o === 'a|b;c'],
+  ['X=$(echo 42) && echo $X', o => o === '42'],
+  ['X=$(echo a b) && echo "[$X]"', o => o === '[a b]'],
+  ['Y=$(cat nope); echo "[$Y]"', o => o.includes('No such file') && o.endsWith('[]')],
+  ['head -n 1 $(echo about.txt)', o => o.includes('Ian Tiemann')],
+  // an alias works in every part of a pipe
+  ["alias up='tr a-z A-Z'", () => true], ['echo hello | up', o => o === 'HELLO'], ['unalias up', () => true],
+  // the small tools
+  ['true && echo yes', o => o === 'yes'], ['false && echo yes', o => o === ''], ['false; echo $?', o => o === '1'],
+  ['sleep 0.1 && echo slept', o => o === 'slept'], ['sleep', o => o.includes('missing operand')], ['sleep abc', o => o.includes('invalid time')],
+  ['seq 3', o => o === '1\n2\n3'], ['seq 2 4', o => o === '2\n3\n4'], ['seq 10 -5 0', o => o === '10\n5\n0'], ['seq -s , 3', o => o === '1,2,3'],
+  ['seq -w 8 10', o => o === '08\n09\n10'], ['seq 0.5 0.5 1.5', o => o === '0.5\n1.0\n1.5'], ['seq 1 0 3', o => o.includes('Zero increment')],
+  ['seq 3 | xargs', o => o === '1 2 3'], ['seq 4 | xargs -n 2 echo', o => o === '1 2\n3 4'], ['echo -e "a\\nb" | xargs -I {} echo [{}]', o => o === '[a]\n[b]'],
+  ['seq 2 | xargs -t -n 1 echo', o => o === 'echo 1\n1\necho 2\n2'], ['xargs', o => o.includes('reads from a pipe')],
+  ['cat /etc/passwd | cut -d: -f1', o => o.startsWith('root\nian\nguest')], ['echo a:b:c | cut -d: -f2-', o => o === 'b:c'], ['echo abcdef | cut -c2-4', o => o === 'bcd'],
+  ['cut -d: -f1 /etc/passwd', o => o.startsWith('root')], ['echo abc | cut', o => o.includes('specify a list')],
+  ['echo hello | tr a-z A-Z', o => o === 'HELLO'], ['echo hello | tr -d l', o => o === 'heo'], ['echo "a    b" | tr -s " "', o => o === 'a b'],
+  ['echo abc | tr "[:lower:]" "[:upper:]"', o => o === 'ABC'], ['tr a b', o => o.includes('reads from a pipe')],
+  ['echo hello | rev', o => o === 'olleh'],
+  ['echo -e "a\\n\\nb" | nl', o => /^\s+1\ta\n\n\s+2\tb$/.test(o)], ['echo -e "a\\n\\nb" | nl -b a', o => /\s+3\tb$/.test(o)],
+  ['echo hi | tee /tmp/tee.txt', o => o === 'hi'], ['cat /tmp/tee.txt', o => o === 'hi'],
+  ['echo more | tee -a /tmp/tee.txt > /dev/null', o => o === ''], ['cat /tmp/tee.txt', o => o === 'hi\nmore'], ['echo x | tee /etc/nope', o => o.includes('Read-only')],
+  ['echo hi | base64', o => o === 'aGkK'], ['echo aGkK | base64 -d', o => o === 'hi'], ['echo @@@ | base64 -d', o => o.includes('invalid input')],
+  ['echo hi | sha256sum', o => o === '98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4  -'],
+  ['echo hi | md5sum', o => o === '764efa883dda1e11db47671c4a3bbd9e  -'],
+  ['sha256sum /etc/hostname', o => /^[0-9a-f]{64}  \/etc\/hostname$/.test(o)],
+  ['uuidgen', o => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(o)],
+  // scripts: sh, source, and ./file after chmod +x
+  ["echo 'echo hello, $1' > /tmp/hi.sh", o => o === ''],
+  ['sh /tmp/hi.sh world', o => o === 'hello, world'],
+  ['/tmp/hi.sh', o => o.includes('permission denied') && o.includes('chmod +x')],
+  ['chmod +x /tmp/hi.sh', o => o === ''], ['/tmp/hi.sh you', o => o === 'hello, you'], ['ls -l /tmp | grep hi.sh', o => o.startsWith('-rwxr-xr-x')],
+  ['cd /tmp && ./hi.sh dot; cd ~', o => o === 'hello, dot'],
+  ['chmod 600 /tmp/hi.sh && ls -l /tmp | grep hi.sh', o => o.startsWith('-rw-------')],
+  ['sh -c "echo a; echo b"', o => o === 'a\nb'],
+  ['echo "cd /etc" > /tmp/go.sh && sh /tmp/go.sh && pwd', o => o === '/home/guest'],
+  ['source /tmp/go.sh && pwd; cd ~', o => o === '/etc'],
+  ['echo "exit 3" > /tmp/x.sh && sh /tmp/x.sh; echo $?', o => o === '3'],
+  ['sh /tmp/nope.sh', o => o.includes('No such file')], ['/tmp/nope', o => o.includes('no such file or directory')],
+  // ~/.bashrc: yours to change, not to remove
+  ['cat ~/.bashrc', o => o.includes('runs at the start of every visit')],
+  ["echo 'alias rcok=\"echo rc works\"' >> ~/.bashrc && source ~/.bashrc && rcok", o => o.endsWith('rc works')],
+  ['rm ~/.bashrc', o => o.includes('not permitted')], ['echo x > ~/other.txt', o => o.includes('Read-only')],
+  ['unalias rcok', () => true],
+  // jq: not there until it is installed
+  ['jq .', o => o.includes('can be installed')],
+  ['please sudo apt install jq', o => o.includes('jq is installed')],
+  ["jq '.[0].title' /var/www/iantiemann.nl/api/posts.json", o => /^".+"$/.test(o)],
+  ['cat /var/www/iantiemann.nl/api/posts.json | jq length', o => +o > 3],
+  ["echo '{\"a\":{\"b\":[1,2,3]}}' | jq -c .a.b", o => o === '[1,2,3]'],
+  ["jq -r '.skills | keys[]' /var/www/iantiemann.nl/api/profile.json", o => lines(o).length > 3 && !o.includes('"')],
+  ['echo nope | jq .', o => o.includes('cannot parse')], ["echo '[1]' | jq '.[0'", o => o.includes('compile error')],
+  // your own theme, the font size, and progress to take along
+  ['theme set accent #ff79c6', o => o.includes('#ff79c6')],
+  ['theme', o => o.includes('custom')],
+  ['theme export', o => /theme import ([0-9a-f]{6}\.){8}[0-9a-f]{6}/.test(o)],
+  ['theme import zz', o => o.includes('not a theme')],
+  ['theme import 1b1b1e.d4d4d8.8b8b94.50fa7b.8be9fd.bd93f9.f1fa8c.ff5555.3f3f46', o => o.includes('theme set to custom')],
+  ['theme set nope red', o => o.includes('usage')], ['theme set accent notacolour', o => o.includes('not a colour')],
+  ['theme custom --reset', o => o.includes('removed')],
+  ['theme dracula', () => document.querySelector('meta[name="theme-color"]').content === '#282a36'], ['theme default', () => true],
+  ['font 18', o => o.includes('18px')], ['font +', o => o.includes('19px')], ['font 99', o => o.includes('pick a size')], ['font reset', o => /1[35]px/.test(o)],
+  ['achievements --export', o => /achievements --import \d+-[0-9a-z]+-[0-9a-f]{4}/.test(o)],
+  ['achievements --import 1-2-3', o => o.includes('does not check out')],
+  // seasonal achievements say their day, in the list and in hint
+  ['achievements', o => o.includes('Seasonal') && o.includes('14 March, Pi Day') && o.includes("27 April, King's Day") && o.includes('31 October, Halloween')],
+  ['hint 72', o => /only on .+\)/.test(o) || o.includes('You already have')],
+  // the sudo group: once in it, sudo works without please; out again afterwards
+  ['sudo id -un', o => o.includes('not in the sudoers') && o.includes('usermod -aG sudo guest')],
+  ['usermod -aG sudo guest', o => o.includes('Permission denied')],
+  ['please sudo usermod -aG sudo guest', o => o.includes("Adding user 'guest' to group 'sudo'")],
+  ['sudo id -un', o => o === 'root'], ['id -Gn', o => o.includes('sudo')], ['sudo -l', o => o.includes('NOPASSWD')],
+  ['sudo gpasswd -d guest sudo', o => o.includes('Removing')], ['sudo id -un', o => o.includes('not in the sudoers')],
+  // ssh-add: the key is ian's, so reading it needs root
+  ['ssh-add -l', o => o.includes('no identities')], ['ssh-add /home/ian/.ssh/id_homelab', o => o.includes('Permission denied')],
+  // the guestbook is closed: no command, and help does not mention it
+  ['guestbook', o => o.includes('command not found')], ['help', o => !o.includes('guestbook')],
+  ['rm -f /tmp/r.txt /tmp/e.txt /tmp/tee.txt /tmp/hi.sh /tmp/go.sh /tmp/x.sh; ls /tmp', o => o === 'ian-was-here.tmp'],
 ];
 
 // the slow ones: they sleep between lines
