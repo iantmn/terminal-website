@@ -672,6 +672,9 @@ export async function runScript(path, args = [], { subshell = true, text = null 
 }
 
 export async function runAsRoot(line) {
+  // a command that does not exist: sudo says so itself, the way the real one does
+  const [name] = tokenize(line);
+  if (name && !C[name.toLowerCase()]) { state.failed = true; state.code = 1; return print(span('e', `sudo: ${esc(name)}: command not found`)); }
   state.asRoot = true;
   try { await execLine(line); } finally { state.asRoot = false; }
 }

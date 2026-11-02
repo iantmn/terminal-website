@@ -400,10 +400,11 @@ export const T = [
   ['achievements', o => o.includes('Seasonal') && o.includes('14 March, Pi Day') && o.includes("27 April, King's Day") && o.includes('31 October, Halloween')],
   ['hint 72', o => /only on .+\)/.test(o) || o.includes('You already have')],
   // the sudo group: once in it, sudo works without please; out again afterwards
-  ['sudo id -un', o => o.includes('not in the sudoers') && o.includes('usermod -aG sudo guest')],
+  ['sudo id -un', o => o.includes('not in the sudoers') && o.includes('please') && !o.includes('usermod')], ['please sudo id -un', o => o.includes('usermod -aG sudo guest')],
   ['usermod -aG sudo guest', o => o.includes('Permission denied')],
   ['please sudo usermod -aG sudo guest', o => o.includes("Adding user 'guest' to group 'sudo'")],
   ['sudo id -un', o => o === 'root'], ['id -Gn', o => o.includes('sudo')], ['sudo -l', o => o.includes('NOPASSWD')],
+  ['sudo', o => o.includes('usage: sudo') && !o.includes('not in the sudoers')], ['sudo test', o => o === 'sudo: test: command not found'],
   ['sudo gpasswd -d guest sudo', o => o.includes('Removing')], ['sudo id -un', o => o.includes('not in the sudoers')],
   // ssh-add: the key is ian's, so reading it needs root
   ['ssh-add -l', o => o.includes('no identities')], ['ssh-add /home/ian/.ssh/id_homelab', o => o.includes('Permission denied')],

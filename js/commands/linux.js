@@ -38,7 +38,7 @@ def('sudo', null, 'run a command as root', (args, raw) => {
   ] : [
     'User guest may run the following commands on iantiemann:',
     '    (please) ONE_COMMAND',
-    span('m', 'In other words: say please first. Or once, for good: ') + PERMANENT,
+    span('m', 'In other words: say please first. ') + cmd('please sudo cat /etc/sudoers'),
   ]);
   // in the sudo group: as root, like please sudo, without the please
   if (sudoer() && rest && !/^-/.test(rest)) {
@@ -47,6 +47,8 @@ def('sudo', null, 'run a command as root', (args, raw) => {
     if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
     return runAsRoot(rest);
   }
+  // in the group, but no command: what to run, like the real usage line
+  if (sudoer() && !rest) return printLines(['usage: sudo -h | -K | -k | -V', 'usage: sudo [-l] &lt;command&gt;', span('m', 'You are in the sudo group: ') + span('a2', 'sudo &lt;command&gt;') + span('m', ' runs it as root, no please needed.')]);
   if (args[0] === '-i' || args[0] === '-s') return print(span('e', 'sudo: a root shell? Not a chance.') + span('m', ' One command at a time, and only if you ask nicely.'));
   if (/^(hire|talk)/.test(rest)) return C.talk.run([]);
   if (/^rm/.test(rest)) return C.rm.run(args.slice(1));
@@ -62,7 +64,6 @@ def('sudo', null, 'run a command as root', (args, raw) => {
   print(`[sudo] password for guest: `);
   print(span('e', 'guest is not in the sudoers file. This incident will be reported.'));
   print(span('m', '(to nobody, relax. Maybe if you ask nicely and say please, I might let you run a command as root.)'));
-  print(span('m', 'Tired of saying please? Add yourself to the sudo group, once: ') + PERMANENT);
 }, { usage: '[-l] <command>', wrap: true, flags: [['-l', 'list what you are allowed to run'], ['-i', 'open a root shell']] });
 def('rm', null, 'remove files', async args => {
   // what you made in /tmp really goes
